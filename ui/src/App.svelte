@@ -2,6 +2,7 @@
   import { app, settings } from "./state/app.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
+  import InterventionsView from "./views/interventions/InterventionsView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
   import LogitLens from "./views/lens/LogitLens.svelte";
   import ResidualView from "./views/residual/ResidualView.svelte";
@@ -24,6 +25,11 @@
         {app.hello?.params.toLocaleString()} params · {app.status?.device}
       </span>
     {/if}
+    {#if app.interventions.length}
+      <button class="ivbadge" onclick={() => (settings.tab = "interventions")}>
+        {app.interventions.length} intervention{app.interventions.length > 1 ? "s" : ""} active
+      </button>
+    {/if}
     <span class="conn" class:on={app.connected}>{app.connected ? "connected" : "connecting…"}</span>
     {#if app.error}<span class="error">{app.error}</span>{/if}
   </header>
@@ -42,12 +48,14 @@
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
         <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
+        <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
         <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
       {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
       {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
       {:else if settings.tab === "atlas"}<AtlasView />
+      {:else if settings.tab === "interventions"}{#if app.trace && app.hello}<InterventionsView />{/if}
       {:else}<OneStep />{/if}
     </section>
   </main>
@@ -67,6 +75,8 @@
   }
   header { grid-area: head; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
   header strong { font-size: 15px; }
+  .ivbadge { margin-left: auto; background: #fde68a; border-color: #d97706; color: #78350f; font-size: 12px; }
+  .ivbadge + .conn { margin-left: 0; }
   .conn { margin-left: auto; font-size: 12px; color: var(--bad); }
   .conn.on { color: var(--ok); }
   .error { color: var(--bad); font-size: 12px; }

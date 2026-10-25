@@ -104,3 +104,18 @@ def test_step_explain(client):
         delta = np.frombuffer(data, "<f4", int(np.prod(ref["shape"])), ref["offset"])
         assert np.abs(delta).max() > 0
         assert set(h["grad"]) == set(h["before"])
+
+
+def test_interventions_and_baseline_tag(client):
+    with client.websocket_connect("/ws") as ws:
+        _until(ws, lambda h: h["type"] == "trace")
+        ablate = [{"kind": "block", "layer": 0, "part": "attn"}]
+        ws.send_text(json.dumps({"type": "run", "prompt": "The dog ran", "interventions": ablate}))
+        ws.send_text(json.dumps({"type": "run", "prompt": "The dog ran", "tag": "baseline"}))
+        got = {}
+        while len(got) < 2:
+            h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == "The dog ran")
+            got[h.get("tag", "main")] = (h, decode_trace(raw))
+        assert got["main"][0]["interventions"] == ablate
+        assert (got["main"][1].stage("L0.attn.out").output == 0).all()
+        assert (got["baseline"][1].stage("L0.attn.out").output != 0).any()

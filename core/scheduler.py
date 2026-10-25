@@ -84,10 +84,11 @@ class ModelWorker(threading.Thread):
                 cmds.append(self.commands.get_nowait())
         except queue.Empty:
             pass
-        # Keystrokes arrive faster than they matter: of consecutive "run"s keep only the last.
+        # Keystrokes arrive faster than they matter: of consecutive "run"s keep only the last
+        # (per tag, so a baseline run is never swallowed by the run it is compared with).
         out: list[dict] = []
         for c in cmds:
-            if out and c["type"] == "run" and out[-1]["type"] == "run":
+            if out and c["type"] == "run" and out[-1]["type"] == "run" and c.get("tag") == out[-1].get("tag"):
                 out[-1] = c
             else:
                 out.append(c)
@@ -98,7 +99,8 @@ class ModelWorker(threading.Thread):
         t = self.trainer
         if kind == "run":
             self.send_trace(cmd["prompt"], with_grad=cmd.get("withGrad", True), reason="run",
-                            target_index=cmd.get("targetIndex"))
+                            target_index=cmd.get("targetIndex"), interventions=cmd.get("interventions"),
+                            tag=cmd.get("tag"))
         elif kind == "train":
             action = cmd["action"]
             if action == "play":
@@ -223,17 +225,23 @@ class ModelWorker(threading.Thread):
         self.emit(encode_weights(w, self.trainer.step_num, {"version": self.weights_version}))
         self.sent_weights_version = self.weights_version
 
-    def trace_prompt(self, prompt: str, with_grad: bool = True, target_index: int | None = None):
+    def trace_prompt(self, prompt: str, with_grad: bool = True, target_index: int | None = None,
+                     interventions: list[dict] | None = None):
         tok = self.trainer.data.tokenizer
         ids = tok.encode(prompt) or [0]
         return trace(self.trainer.model, ids, [tok.token_text(i) for i in ids], step=self.trainer.step_num,
-                     with_grad=with_grad, target_index=target_index)
+                     with_grad=with_grad, target_index=target_index, interventions=interventions)
 
     def send_trace(self, prompt: str, with_grad: bool = True, reason: str = "run",
-                   target_index: int | None = None) -> None:
+                   target_index: int | None = None, interventions: list[dict] | None = None,
+                   tag: str | None = None) -> None:
         self.send_weights_if_changed()
-        tr = self.trace_prompt(prompt, with_grad, target_index)
-        self.emit(encode_trace(tr, {"prompt": prompt, "reason": reason, "weightsVersion": self.weights_version}))
+        tr = self.trace_prompt(prompt, with_grad, target_index, interventions)
+        extra = {"prompt": prompt, "reason": reason, "weightsVersion": self.weights_version,
+                 "interventions": interventions or []}
+        if tag:
+            extra["tag"] = tag   # lets the UI tell a baseline trace from the one it displays
+        self.emit(encode_trace(tr, extra))
 
     @torch.no_grad()
     def _sample(self, cmd: dict) -> None:

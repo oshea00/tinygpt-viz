@@ -1,0 +1,92 @@
+"""Interventions: change one thing inside the forward pass and see what follows.
+
+Each intervention targets one stage and rewrites its output on the way through the
+model's tap. They apply only to traces requested with them; training never sees them.
+Specs are the JSON dicts the UI sends:
+
+    {"kind": "head",    "layer": 1, "head": 2, "mode": "zero" | "mean"}
+    {"kind": "neuron",  "layer": 0, "index": 17, "mode": "zero" | "mean"}
+    {"kind": "block",   "layer": 2, "part": "attn" | "mlp"}
+    {"kind": "attend",  "layer": 1, "head": 0, "position": 5}
+    {"kind": "set",     "stage": "L0.q", "row": 3, "col": 7, "value": 1.5}
+    {"kind": "shuffle_pos", "seed": 0}
+
+"mean" replaces each value with its average over the prompt's positions, keeping the
+unit's typical output but removing what is specific to each position.
+"""
+
+from typing import Callable
+
+import torch
+
+Rewrite = Callable[[torch.Tensor], torch.Tensor]
+
+
+def _replace(x: torch.Tensor, mode: str, cols: slice | int = slice(None)) -> torch.Tensor:
+    out = x.clone()
+    if mode == "zero":
+        out[..., cols] = 0
+    elif mode == "mean":
+        out[..., cols] = x[..., cols].mean(dim=1, keepdim=True).expand_as(x[..., cols])
+    else:
+        raise ValueError(f"unknown mode {mode!r}")
+    return out
+
+
+def _attend(position: int) -> Rewrite:
+    def rewrite(w: torch.Tensor) -> torch.Tensor:
+        # Each query attends only to `position`, or to itself if that is in its future.
+        T = w.shape[-1]
+        rows = torch.arange(T, device=w.device)
+        target = torch.clamp(torch.full_like(rows, position), max=rows)
+        return torch.nn.functional.one_hot(target, T).to(w.dtype).expand_as(w)
+    return rewrite
+
+
+def _set(row: int, col: int, value: float) -> Rewrite:
+    def rewrite(x: torch.Tensor) -> torch.Tensor:
+        out = x.clone()
+        out[0, row, col] = value
+        return out
+    return rewrite
+
+
+def _shuffle(seed: int) -> Rewrite:
+    def rewrite(pos: torch.Tensor) -> torch.Tensor:
+        g = torch.Generator().manual_seed(seed)
+        perm = torch.randperm(pos.shape[1], generator=g).to(pos.device)
+        return pos[:, perm]
+    return rewrite
+
+
+def compile_spec(spec: dict) -> tuple[str, Rewrite]:
+    """One spec → (stage id it rewrites, the rewrite)."""
+    kind = spec["kind"]
+    if kind == "head":
+        return f"L{spec['layer']}.attn.H{spec['head']}.mix", lambda x: _replace(x, spec.get("mode", "zero"))
+    if kind == "neuron":
+        return f"L{spec['layer']}.mlp.gelu", lambda x: _replace(x, spec.get("mode", "zero"), int(spec["index"]))
+    if kind == "block":
+        stage = {"attn": "attn.out", "mlp": "mlp.down"}[spec["part"]]
+        return f"L{spec['layer']}.{stage}", torch.zeros_like
+    if kind == "attend":
+        return f"L{spec['layer']}.attn.H{spec['head']}.weights", _attend(int(spec["position"]))
+    if kind == "set":
+        return spec["stage"], _set(int(spec["row"]), int(spec["col"]), float(spec["value"]))
+    if kind == "shuffle_pos":
+        return "embed.pos", _shuffle(int(spec.get("seed", 0)))
+    raise ValueError(f"unknown intervention {kind!r}")
+
+
+def compile_all(specs: list[dict] | None) -> dict[str, list[Rewrite]]:
+    by_stage: dict[str, list[Rewrite]] = {}
+    for spec in specs or []:
+        stage, rewrite = compile_spec(spec)
+        by_stage.setdefault(stage, []).append(rewrite)
+    return by_stage
+
+
+def apply(by_stage: dict[str, list[Rewrite]], stage_id: str, x: torch.Tensor) -> torch.Tensor:
+    for rewrite in by_stage.get(stage_id, ()):
+        x = rewrite(x)
+    return x

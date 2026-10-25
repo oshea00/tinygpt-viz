@@ -34,7 +34,18 @@ export interface Trace {
   prompt?: string;
   reason?: string;
   weightsVersion?: number;
+  tag?: string;                     // "baseline": the unmodified run compared against
+  interventions?: Intervention[];   // what was changed in this trace
 }
+
+/** Changes to the forward pass (core/interventions.py). */
+export type Intervention =
+  | { kind: "head"; layer: number; head: number; mode: "zero" | "mean" }
+  | { kind: "neuron"; layer: number; index: number; mode: "zero" | "mean" }
+  | { kind: "block"; layer: number; part: "attn" | "mlp" }
+  | { kind: "attend"; layer: number; head: number; position: number }
+  | { kind: "set"; stage: string; row: number; col: number; value: number }
+  | { kind: "shuffle_pos"; seed: number };
 
 export interface Weights {
   step: number;
@@ -87,7 +98,7 @@ export interface Hello extends Status {
 }
 
 export type Command =
-  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number }
+  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number; interventions?: Intervention[]; tag?: string }
   | { type: "train"; action: "play" | "pause" | "step" | "reset" }
   | { type: "set"; lr?: number; batchSize?: number; traceEvery?: number; probe?: string }
   | { type: "sample"; prompt?: string; temperature: number; topK?: number; topP?: number; n: number }

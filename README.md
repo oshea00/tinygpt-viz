@@ -3,9 +3,10 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
-Implemented so far: milestones 1–9 (instrumented core, tracer with gradients, WebSocket
+Implemented so far: milestones 1–10 (instrumented core, tracer with gradients, WebSocket
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
-attention views, generation, residual stream and logit lens, network atlas).
+attention views, generation, residual stream and logit lens, network atlas,
+interventions).
 
 ## Setup
 
@@ -53,6 +54,11 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   one pixel per number; labels appear as you zoom and then the numbers themselves. Modes: values,
   gradients, weight × input for the selected position, diff against a pinned snapshot, and the
   most recent weight change during training. Click any pixel to open it in the inspector.
+- **Interventions**: ablate a head or MLP neuron (zero or mean), switch off a block's attention or
+  MLP, force a head to attend to one position, set any activation cell, or shuffle the position
+  embeddings. Every view then shows the changed model; the interventions tab compares it with the
+  original run (loss, next-token distribution, p(actual) per position, and where the change spreads
+  stage by stage), and the inspector can show any stage as its change. Training is never affected.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by

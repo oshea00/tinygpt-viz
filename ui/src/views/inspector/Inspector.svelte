@@ -3,6 +3,8 @@
   import { stageRange, type ScaleMode } from "../../lib/scale";
   import { dims2, fmt } from "../../lib/tensor";
   import { headColor } from "../../lib/colormap";
+  import { comparable, difference } from "../../lib/interventions";
+  import { tensorRange } from "../../lib/scale";
   import Formula from "./Formula.svelte";
   import Heatmap from "./Heatmap.svelte";
   import Provenance from "./Provenance.svelte";
@@ -10,8 +12,16 @@
   const trace = $derived(app.trace);
   const stage = $derived(selection.stage(trace));
   const backward = $derived(selection.phase === "backward" && !!stage?.grad);
-  const tensor = $derived(stage ? (backward ? stage.grad! : stage.output) : null);
-  const range = $derived(trace && stage ? stageRange(trace, stage, backward, settings.scaleMode, settings.clip, settings.symlog) : null);
+  // With interventions active, the stage can be shown as its change from the original run.
+  const base = $derived(app.interventions.length && comparable(trace, app.baseline) ? app.baseline : null);
+  const diff = $derived(base && stage && settings.compare && !backward ? difference(stage.output, base.byId.get(stage.id)?.output) : null);
+  const tensor = $derived(stage ? (diff ?? (backward ? stage.grad! : stage.output)) : null);
+  const range = $derived(
+    trace && stage && tensor
+      ? diff ? tensorRange([diff.data], "diverging", settings.clip, settings.symlog, "change vs original")
+             : stageRange(trace, stage, backward, settings.scaleMode, settings.clip, settings.symlog)
+      : null,
+  );
   const dims = $derived(tensor ? dims2(tensor) : [0, 0]);
 
   // Rows are positions labelled with their token. Columns are dimensions, except where
@@ -43,8 +53,11 @@
       <span class="muted">· {stage.kind} · [{tensor.shape.join(" × ") || "scalar"}] · step {trace.step}</span>
     </div>
     <div class="phase">
-      <button class:on={!backward} onclick={() => (selection.phase = "forward")}>value</button>
-      <button class:on={backward} disabled={!stage.grad} onclick={() => (selection.phase = "backward")}>gradient ∂L/∂x</button>
+      <button class:on={!backward && !diff} onclick={() => { selection.phase = "forward"; settings.compare = false; }}>value</button>
+      <button class:on={backward} disabled={!stage.grad} onclick={() => { selection.phase = "backward"; settings.compare = false; }}>gradient ∂L/∂x</button>
+      {#if base}
+        <button class:on={!!diff} class="change" onclick={() => { selection.phase = "forward"; settings.compare = true; }}>change from intervention</button>
+      {/if}
     </div>
   </div>
 
@@ -97,7 +110,9 @@
     {/if}
   </div>
 
-  {#if stage.kind === "loss"}
+  {#if diff}
+    <p class="muted">Showing (with interventions) − (original). Values outside the stages an intervention can reach stay at 0.</p>
+  {:else if stage.kind === "loss"}
     <Provenance {trace} weights={app.weights} {stage} r={0} c={0} {backward} />
   {:else if pickedR >= 0 && pickedC >= 0}
     <Provenance {trace} weights={app.weights} {stage} r={pickedR} c={pickedC} {backward} />
@@ -110,6 +125,7 @@
   .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .id { font-size: 15px; font-weight: 600; }
   .phase button.on { background: var(--accent-soft); border-color: var(--accent); }
+  .phase .change.on { background: #fde68a; border-color: #d97706; color: #78350f; }
   .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 8px; font-size: 12px; }
   .range { font-size: 11px; }
   .axes { font-size: 11px; margin: 4px 0 0; }

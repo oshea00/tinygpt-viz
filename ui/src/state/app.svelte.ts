@@ -2,7 +2,7 @@
 // view updates the selection and every other view follows.
 
 import { Bridge, type BinaryMsg } from "../bridge";
-import type { Command, Hello, JsonMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
+import type { Command, Hello, Intervention, JsonMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
 import { headOf } from "../lib/attention";
 import { pick, shape, type SampleSettings } from "../lib/sampling";
 import type { ScaleMode } from "../lib/scale";
@@ -48,6 +48,11 @@ class AppState {
   autoDelay = $state(120);         // ms between characters in auto mode
   stopAtEnd = $state(true);        // stop auto at the end-of-story marker
   travel = $state<number | null>(null);   // index into `generated` being revisited
+
+  // Interventions apply to every trace requested; with any active, an unmodified baseline
+  // of the same prompt is fetched too, so every effect can be shown as before / after.
+  interventions = $state.raw<Intervention[]>([]);
+  baseline = $state.raw<Trace | null>(null);
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
 
   private bridge: Bridge | null = null;
@@ -63,7 +68,21 @@ class AppState {
   }
 
   run(prompt = this.viewPrompt()): void {
-    this.send({ type: "run", prompt, withGrad: !this.auto });
+    const interventions = this.interventions;
+    this.send({ type: "run", prompt, withGrad: !this.auto, interventions });
+    if (interventions.length) this.send({ type: "run", prompt, withGrad: !this.auto, tag: "baseline" });
+    else this.baseline = null;
+  }
+
+  setInterventions(list: Intervention[]): void {
+    this.interventions = list;
+    this.run();
+  }
+
+  addIntervention(iv: Intervention): void {
+    // One intervention per target: a new one replaces any on the same head / neuron / cell.
+    const key = (x: Intervention) => JSON.stringify({ ...x, mode: undefined, value: undefined, position: undefined, seed: undefined });
+    this.setInterventions([...this.interventions.filter((x) => key(x) !== key(iv)), iv]);
   }
 
   /** The prompt whose trace is on screen: the full text, or a prefix when time travelling. */
@@ -130,8 +149,16 @@ class AppState {
         break;
       }
       case "trace": {
-        // Training re-traces the probe prompt; if the learner is looking at their own prompt,
-        // re-run it so the view stays on what they typed, now with the new weights.
+        if (m.trace.tag === "baseline") {
+          this.baseline = m.trace;
+          break;
+        }
+        // Training re-traces the probe prompt, without interventions. If the learner is looking
+        // at their own prompt or has interventions active, re-run theirs with the new weights.
+        if (m.trace.reason === "probe" && this.interventions.length) {
+          this.run();
+          break;
+        }
         this.trace = m.trace;
         if (m.trace.reason === "probe" && this.prompt && m.trace.prompt !== this.viewPrompt()) this.run();
         if (this.status) this.status.step = m.trace.step;
@@ -213,7 +240,8 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(0);   // 0: fit to width
-  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "onestep">("inspector");
+  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "onestep">("inspector");
+  compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   residualMode = $state<"snapshots" | "writes">("snapshots");
   highwayScope = $state<"position" | "all">("all");

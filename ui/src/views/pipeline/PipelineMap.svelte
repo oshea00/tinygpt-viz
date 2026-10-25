@@ -5,11 +5,18 @@
   import { app, selection } from "../../state/app.svelte";
   import { headColor } from "../../lib/colormap";
   import { drawThumb } from "../../lib/heatmap";
+  import { comparable, stageChanges } from "../../lib/interventions";
   import { pipelineRows } from "../../lib/pipeline";
   import { isSequential, tensorRange } from "../../lib/scale";
   import { fmt } from "../../lib/tensor";
 
   const rows = $derived(app.trace ? pipelineRows(app.trace) : []);
+  // With interventions active: which stages differ from the original run.
+  const changed = $derived.by(() => {
+    const t = app.trace, b = app.baseline;
+    if (!app.interventions.length || !comparable(t, b)) return new Set<string>();
+    return new Set(stageChanges(t!, b).filter((c) => c.change > 0).map((c) => c.id));
+  });
   const backward = $derived(selection.phase === "backward");
 
   function thumb(canvas: HTMLCanvasElement, p: { t: Tensor; seq: boolean; mask: boolean }) {
@@ -52,6 +59,7 @@
           <button
             class="thumb"
             class:selected
+            class:changed={changed.has(s.id)}
             style:border-color={s.head !== undefined && !selected ? headColor(s.head) : undefined}
             title={s.id}
             onclick={() => selection.select(s.id)}
@@ -84,6 +92,7 @@
   .spine .label { font-weight: 600; }
   .thumbs { display: flex; gap: 3px; flex: none; }
   .thumb { padding: 0; width: 30px; height: 22px; border: 1.5px solid var(--line); border-radius: 3px; overflow: hidden; display: grid; place-items: center; background: var(--panel); }
+  .thumb.changed { outline: 2px solid #d97706; outline-offset: 0; }   /* changed by an intervention */
   .thumb.selected { border-color: var(--select); box-shadow: 0 0 0 1.5px var(--select); }
   canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
   .val { font-size: 9px; }

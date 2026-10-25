@@ -23,6 +23,9 @@ def test_write_ui_fixtures():
     (FIXTURES / "trace.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run"}))
     w = {n: p.detach().numpy() for n, p in model.named_weights().items()}
     (FIXTURES / "weights.bin").write_bytes(encode_weights(w, 42, {"version": 1}))
+    ablate = [{"kind": "head", "layer": 1, "head": 0, "mode": "zero"}]
+    t2 = trace(model, ids, [chr(97 + i) for i in ids], step=42, next_token=9, interventions=ablate)
+    (FIXTURES / "trace_ablated.bin").write_bytes(encode_trace(t2, {"prompt": "fixture", "reason": "run", "interventions": ablate}))
     assert decode_trace((FIXTURES / "trace.bin").read_bytes()).step == 42
 
 

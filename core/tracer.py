@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from . import interventions as iv
 from .model import GPT
 from .stages import StageMeta, describe
 
@@ -50,11 +51,12 @@ def _to_numpy(tensors: list[torch.Tensor]) -> list[np.ndarray]:
 
 def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
           with_grad: bool = True, next_token: int | None = None,
-          target_index: int | None = None) -> Trace:
+          target_index: int | None = None, interventions: list[dict] | None = None) -> Trace:
     """Trace one forward (and backward) pass of `tokens` (at most block_size of them).
 
     Targets are the prompt's own next tokens; the last position has a target only if
     `next_token` is given. `target_index` restricts the loss to a single position.
+    `interventions` (see core/interventions.py) rewrite stages on the way through.
     """
     tokens = tokens[-model.cfg.block_size:]
     token_text = token_text[-model.cfg.block_size:]
@@ -69,8 +71,10 @@ def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
     with_grad = with_grad and has_target
 
     live: dict[str, torch.Tensor] = {}
+    rewrites = iv.compile_all(interventions)
 
     def record(stage_id: str, x: torch.Tensor) -> torch.Tensor:
+        x = iv.apply(rewrites, stage_id, x)
         if with_grad and x.requires_grad:
             x.retain_grad()
         live[stage_id] = x
