@@ -20,7 +20,7 @@
    "text": "One full step: forward, loss, backward, then the optimiser updates every weight. Take one step on this prompt and see the probability of the correct characters rise.",
    "tab": "onestep",
    "ask": {
-    "question": "Open the **one training step** tab and take a step.",
+    "question": "Open the **training step** tab and take a step.",
     "check": {
      "kind": "tab",
      "tab": "onestep"

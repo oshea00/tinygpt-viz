@@ -25,11 +25,18 @@
     return { update: draw };
   }
 
+  // Whatever selected a stage (the atlas, the stepper, a lesson), bring it into view here.
+  let mapEl: HTMLDivElement;
+  $effect(() => {
+    const id = selection.stageId;
+    mapEl?.querySelector(`[data-stage="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+
   const ROW_H = 26;
   const THUMB_SAMPLE = 2000;   // enough for a 30-pixel preview; these redraw on every trace
 </script>
 
-<div class="map">
+<div class="map" bind:this={mapEl}>
   {#each rows as row, i (row.key)}
     {#if i === 0 || rows[i - 1].group !== row.group}
       <div class="group">{row.group}</div>
@@ -58,6 +65,7 @@
           {@const selected = selection.stageId === s.id}
           <button
             class="thumb"
+            data-stage={s.id}
             style:width="{Math.min(30, Math.floor(150 / row.stages.length))}px"
             class:selected
             class:changed={changed.has(s.id)}

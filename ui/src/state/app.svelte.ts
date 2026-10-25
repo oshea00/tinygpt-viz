@@ -294,6 +294,7 @@ class Settings {
   tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
+  atlasView = $state.raw<{ scale: number; tx: number; ty: number } | null>(null);   // kept across tab switches
   residualMode = $state<"snapshots" | "writes">("snapshots");
   highwayScope = $state<"position" | "all">("all");
   lensMode = $state<"confidence" | "actual">("confidence");

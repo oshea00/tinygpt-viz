@@ -110,7 +110,7 @@
       <label>set to <input type="number" step="0.1" bind:value={setValue} /></label>
       <button onclick={() => add({ kind: "set", stage: selection.stageId, row: selection.position, col: selection.dim, value: setValue })}>add</button>
     {:else}
-      <span class="muted">Click a cell in the tensor inspector first.</span>
+      <span class="muted">Click a cell in the inspector first.</span>
     {/if}
   </fieldset>
 

@@ -1,13 +1,14 @@
 <script lang="ts">
   // The whole network as one zoomable bitmap. Zoomed out it shows structure; zoomed in,
-  // tile labels and then the numbers themselves appear. Click any pixel to inspect it.
+  // tile labels and then the numbers themselves appear. Click a tile to select its stage
+  // (the pipeline map follows); double-click to open it in the inspector.
   import { app, selection, settings } from "../../state/app.svelte";
-  import { buildLayout, hitTest, renderAtlas, type AtlasMode, type Layout, type Rendered, type Tile } from "../../lib/atlas";
+  import { buildLayout, hitTest, LABEL, renderAtlas, SECTION_GAP, tilesForStage, TITLE, type AtlasMode, type Layout, type Rendered, type Tile } from "../../lib/atlas";
   import { createRenderer, type AtlasRenderer, type View } from "../../lib/glAtlas";
   import { at, fmt } from "../../lib/tensor";
 
-  const LABELS_AT = 1.2;   // zoom (screen px per number) where tile labels appear
-  const NUMBERS_AT = 26;   // ... and where each cell's value is printed
+  const MIN_FONT = 6.5;    // labels smaller than this (screen px) are not drawn
+  const NUMBERS_AT = 26;   // zoom (screen px per number) where each cell's value is printed
 
   let glCanvas: HTMLCanvasElement;
   let overlay: HTMLCanvasElement;
@@ -15,10 +16,16 @@
   let h = $state(640);
   let renderer = null as AtlasRenderer | null;
   let rendererKind = $state("");
-  let view = $state<View>({ scale: 1, tx: 10, ty: 10 });
-  let fitted = false;
+  // The view is kept in shared settings, so switching tabs and back returns to the same place.
+  let view = $state<View>(settings.atlasView ?? { scale: 1, tx: 10, ty: 10 });
+  let fitted = settings.atlasView !== null;
+  $effect(() => {
+    settings.atlasView = view;
+  });
   let hover = $state.raw<{ tile: Tile; r: number; c: number; sx: number; sy: number } | null>(null);   // raw: tiles are Map keys
   let rendered = null as Rendered | null;
+  let tipW = $state(200);
+  let tipH = $state(50);
 
   const cfg = $derived(app.hello?.config);
   const trace = $derived(app.trace);
@@ -55,7 +62,7 @@
       trace, weights, mode: settings.atlasMode, position: selection.query(trace),
       pinnedTrace: app.pinned?.trace, pinnedWeights: app.pinned?.weights, prevWeights: app.prevWeights,
     });
-    renderer.setImage(rendered.rgba, layout.width, layout.height);
+    renderer.setTiles(rendered.images.map((im) => ({ x: im.tile.x, y: im.tile.y, width: im.width, height: im.height, rgba: im.rgba })));
     if (!fitted) {
       fit();
       fitted = true;
@@ -64,8 +71,23 @@
   });
 
   $effect(() => {
-    void view; void w; void h; void hover; void selection.position;
+    void view; void w; void h; void hover; void selection.position; void selection.stageId;
     redraw();
+  });
+
+  // The selected stage's tiles; when the selection changes (here, in the pipeline map or the
+  // stepper) and its tile is entirely off-screen, pan to it, keeping the zoom.
+  const selected = $derived(layout && trace ? tilesForStage(layout, trace, selection.stageId) : { main: [], weights: [] });
+  let shownFor = "";
+  $effect(() => {
+    const t = selected.main[0];
+    if (!t || !layout || selection.stageId === shownFor) return;
+    shownFor = selection.stageId;
+    const { scale, tx, ty } = view;
+    const x0 = tx + t.x * scale, y0 = ty + t.y * scale, x1 = x0 + t.cols * scale, y1 = y0 + Math.max(t.rows, 2) * scale;
+    if (x1 < 0 || x0 > w || y1 < 0 || y0 > h) {
+      view = { scale, tx: w / 2 - (t.x + t.cols / 2) * scale, ty: h / 2 - (t.y + Math.max(t.rows, 2) / 2) * scale };
+    }
   });
 
   function fit() {
@@ -95,21 +117,48 @@
     const sx = (x: number) => tx + x * scale;
     const sy = (y: number) => ty + y * scale;
 
-    ctx.fillStyle = ink;
-    ctx.font = "600 12px system-ui, sans-serif";
-    ctx.textBaseline = "top";
-    for (const c of layout.columns) ctx.fillText(c.title, sx(c.x), sy(0));
-    ctx.font = "11px system-ui, sans-serif";
-    ctx.fillStyle = css.getPropertyValue("--muted") || "#666";
-    ctx.fillText("activations for this prompt", sx(0), sy(layout.actTop - 16));
+    // Every label is sized to the space the layout reserves for it at this zoom, and trimmed
+    // to its width, so labels never cover tiles or each other.
+    const fit = (text: string, maxW: number) => {
+      if (ctx.measureText(text).width <= maxW) return text;
+      for (let n = text.length - 1; n > 0; n--) {
+        const t = text.slice(0, n) + "…";
+        if (ctx.measureText(t).width <= maxW) return t;
+      }
+      return "";
+    };
+    ctx.textBaseline = "bottom";
+    const titleFont = Math.min(13, TITLE * scale * 0.75);
+    if (titleFont >= MIN_FONT) {
+      ctx.fillStyle = ink;
+      ctx.font = `600 ${titleFont}px system-ui, sans-serif`;
+      for (const c of layout.columns) ctx.fillText(fit(c.title, c.width * scale), sx(c.x), sy(TITLE) - 1);
+    }
+    const sectionFont = Math.min(11, SECTION_GAP * scale * 0.4);
+    if (sectionFont >= MIN_FONT) {
+      ctx.fillStyle = css.getPropertyValue("--muted") || "#666";
+      ctx.font = `${sectionFont}px system-ui, sans-serif`;
+      for (const c of layout.columns) ctx.fillText(fit("activations", c.width * scale), sx(c.x), sy(c.actTop) - 1);
+    }
 
     const visible = (t: Tile) => sx(t.x + t.cols) > 0 && sx(t.x) < w && sy(t.y + Math.max(t.rows, 2)) > 0 && sy(t.y) < h;
-    if (scale >= LABELS_AT) {
+    const labelFont = Math.min(10, LABEL * scale * 0.8);
+    if (labelFont >= MIN_FONT) {
       ctx.fillStyle = ink;
-      ctx.font = "10px ui-monospace, monospace";
-      ctx.textBaseline = "bottom";
-      for (const t of layout.tiles) if (!t.sub && visible(t)) ctx.fillText(t.label, sx(t.x), sy(t.y) - 1);
+      ctx.font = `${labelFont}px ui-monospace, monospace`;
+      for (const t of layout.tiles) if (!t.sub && visible(t)) ctx.fillText(fit(t.label, t.cols * scale + 4), sx(t.x), sy(t.y) - 1);
     }
+
+    // The selected stage: a solid outline on its tile, dashed on the weights it uses.
+    const outline = (t: Tile, width: number, dash: number[]) => {
+      ctx.setLineDash(dash);
+      ctx.lineWidth = width;
+      ctx.strokeRect(sx(t.x) - 2, sy(t.y) - 2, t.cols * scale + 4, Math.max(t.rows, 2) * scale + 4);
+    };
+    ctx.strokeStyle = css.getPropertyValue("--accent") || "#4f46e5";
+    for (const t of selected.main) outline(t, 2.5, []);
+    for (const t of selected.weights) outline(t, 1.5, [4, 3]);
+    ctx.setLineDash([]);
 
     // One token, one path: the selected position's row in every activation tile.
     const p = selection.query(trace);
@@ -187,22 +236,33 @@
   function onUp(e: PointerEvent) {
     const wasClick = drag && !drag.moved;
     drag = null;
-    if (!wasClick || !layout || !trace) return;
+    if (wasClick) selectAt(e);
+  }
+
+  /** Select the stage under the pointer (the stage itself, or the one that uses this weight)
+   * without leaving the atlas; the pipeline map and other views follow the selection. */
+  function selectAt(e: MouseEvent): boolean {
+    if (!layout || !trace) return false;
     const { ax, ay } = toAtlas(e);
     const hit = hitTest(layout, ax, ay);
-    if (!hit) return;
-    // Jump to the inspector at this number: the stage itself, or the stage that uses this weight.
+    if (!hit) return false;
+    shownFor = hit.tile.kind === "act" ? hit.tile.name : shownFor;   // already on screen: no need to pan
     if (hit.tile.kind === "act") {
       selection.select(hit.tile.name, settings.atlasMode === "grads" ? "backward" : "forward");
       selection.position = hit.r;
       selection.dim = hit.c;
     } else {
       const user = trace.stages.find((s) => s.weights.includes(hit.tile.name));
-      if (!user) return;
+      if (!user) return false;
+      shownFor = user.id;
       selection.select(user.id, "forward");
       selection.dim = hit.c;
     }
-    settings.tab = "inspector";
+    return true;
+  }
+
+  function onDouble(e: MouseEvent) {
+    if (selectAt(e)) settings.tab = "inspector";
   }
 
   const hoverValue = $derived.by(() => {
@@ -233,7 +293,8 @@
 </div>
 <p class="muted note">
   {modes.find((m) => m[0] === settings.atlasMode)?.[2]} ·
-  {params.toLocaleString()} weight pixels + {acts.toLocaleString()} activation pixels · scroll to zoom, drag to pan, click to inspect
+  {params.toLocaleString()} weight pixels + {acts.toLocaleString()} activation pixels · scroll to zoom, drag to pan,
+  click to select, double-click to open in the inspector
   {#if rendererKind}· {rendererKind}{/if}
 </p>
 
@@ -241,9 +302,13 @@
   <canvas class="gl" bind:this={glCanvas} style:width="{w}px" style:height="{h}px"></canvas>
   <canvas class="ov" bind:this={overlay} style:width="{w}px" style:height="{h}px"
           onwheel={onWheel} onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp}
-          onpointerleave={() => (hover = null)} ondblclick={fit}></canvas>
+          onpointerleave={() => (hover = null)} ondblclick={onDouble}></canvas>
   {#if hover}
-    <div class="tip mono" style:left="{Math.min(hover.sx + 14, w - 220)}px" style:top="{hover.sy + 12}px">
+    <!-- The stage clips its contents, so flip the tooltip to the other side of the cursor
+         wherever it would not fit. -->
+    <div class="tip mono" bind:offsetWidth={tipW} bind:offsetHeight={tipH}
+         style:left="{hover.sx + 14 + tipW > w ? Math.max(0, hover.sx - 14 - tipW) : hover.sx + 14}px"
+         style:top="{hover.sy + 12 + tipH > h ? Math.max(0, hover.sy - 12 - tipH) : hover.sy + 12}px">
       {hover.tile.kind === "weight" ? "weight" : "activation"} <b>{hover.tile.name}</b><br />
       [{hover.r}, {hover.c}]{hover.tile.kind === "act" && hover.tile.rows === trace?.tokens.length ? ` “${trace?.text[hover.r]}”` : ""}
       = <b>{hoverValue === null ? "—" : fmt(hoverValue, 5)}</b>

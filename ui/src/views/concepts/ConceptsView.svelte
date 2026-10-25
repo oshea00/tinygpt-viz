@@ -55,8 +55,16 @@
 </nav>
 
 {#if needsCapture && !c}
-  <p class="muted">Capture the prompt set first. With the Concepts profile (BPE), most words are a single token.
-    {#if app.hello?.config.tokenizer !== "bpe"}This model reads characters, so each word spans several positions: use “mean of sub-tokens”, or run the server with <code>--config concepts</code>.{/if}</p>
+  <div class="start">
+    <p>Press <b>capture</b> (top right) to run the prompt set through the model. It records the vector of each
+      filled-in word (the animal, colour, emotion…) at every layer; this panel then shows what those vectors have in common.</p>
+    <p class="muted">Keep “also the untrained model” ticked to compare against random weights: structure that also appears
+      there was not learned. Attribution and neurons work without capturing.</p>
+    {#if app.hello?.config.tokenizer !== "bpe"}
+      <p class="muted">This model reads characters, so each word spans several tokens: choose “mean of sub-tokens”, or
+        restart the server with <code>--config concepts</code> for a model with whole-word tokens.</p>
+    {/if}
+  </div>
 {:else if concepts.panel === "similarity"}<Similarity />
 {:else if concepts.panel === "map"}<MapPanel />
 {:else if concepts.panel === "neighbours"}<Neighbours />
@@ -68,6 +76,8 @@
 
 <style>
   .setup { margin-bottom: 8px; }
+  .start { max-width: 720px; }
+  .start p { margin: 0 0 6px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-bottom: 6px; }
   .row label { display: flex; gap: 4px; align-items: center; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12px; }

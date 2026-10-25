@@ -25,8 +25,9 @@ describe("atlas layout", () => {
   it("puts weights above activations, columns left to right", () => {
     expect(layout.columns.map((c) => c.title)).toEqual(["input", "block 0", "block 1", "output"]);
     for (const t of layout.tiles) {
-      if (t.kind === "weight") expect(t.y + t.rows).toBeLessThanOrEqual(layout.actTop);
-      else expect(t.y).toBeGreaterThanOrEqual(layout.actTop);
+      const top = layout.columns[t.column].actTop;   // each column's own activation start
+      if (t.kind === "weight") expect(t.y + t.rows).toBeLessThanOrEqual(top);
+      else expect(t.y).toBeGreaterThanOrEqual(top);
     }
   });
 
@@ -69,10 +70,14 @@ describe("atlas modes", () => {
     expect(tileTensor(tile, { ...base, mode: "diff" })).toBeNull();
   });
 
-  it("renders opaque tiles over a transparent background", () => {
-    const { rgba } = renderAtlas(layout, base);
-    const t = layout.tiles[0];
-    expect(rgba[(t.y * layout.width + t.x) * 4 + 3]).toBe(255);
-    expect(rgba[3]).toBe(0);   // top-left corner is the title strip, not a tile
+  it("renders one opaque image per tile, sized to the tile", () => {
+    const { images } = renderAtlas(layout, base);
+    expect(images.length).toBe(layout.tiles.length);
+    for (const im of images) {
+      expect(im.width).toBe(im.tile.cols);
+      expect(im.height).toBe(Math.max(im.tile.rows, 2));
+      expect(im.rgba.length).toBe(im.width * im.height * 4);
+      expect(im.rgba[3]).toBe(255);
+    }
   });
 });

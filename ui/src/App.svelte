@@ -52,7 +52,7 @@
     </section>
     <section class="panel pad grow">
       <nav class="tabs">
-        <button class:on={settings.tab === "inspector"} onclick={() => (settings.tab = "inspector")}>tensor inspector</button>
+        <button class:on={settings.tab === "inspector"} onclick={() => (settings.tab = "inspector")}>inspector</button>
         <button class:on={settings.tab === "attention"} onclick={() => (settings.tab = "attention")}>attention</button>
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
@@ -60,7 +60,7 @@
         {#if !app.demo}
           <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
           <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
-          <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
+          <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
         {/if}
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
@@ -100,8 +100,24 @@
   .right { grid-area: right; display: flex; flex-direction: column; gap: 10px; overflow: auto; scrollbar-gutter: stable; }
   .pad { padding: 10px 12px; }
   .grow { flex: 1; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
-  .tabs button.on { background: var(--accent-soft); border-color: var(--accent); }
+  /* A tab strip: the rule runs the panel's full width, inactive tabs sit recessed behind it,
+     and the active tab is raised and joined to the content below by covering the rule. */
+  .tabs {
+    display: flex; gap: 2px; align-items: flex-end;
+    overflow-x: auto; scrollbar-width: thin;   /* one row; scrolls sideways on narrow windows */
+    margin: -10px -12px 12px; padding: 8px 12px 0;
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+  .tabs button {
+    border: 1px solid transparent; border-bottom: none; border-radius: 7px 7px 0 0;
+    background: var(--bg); color: var(--muted); padding: 5px 10px 6px; white-space: nowrap; flex: none;
+  }
+  .tabs button:hover { color: var(--ink); border-color: var(--line); }
+  .tabs button.on {
+    background: var(--panel); color: var(--ink); font-weight: 600;
+    border-color: var(--line); box-shadow: inset 0 2px 0 var(--accent);
+    position: relative; z-index: 1;
+  }
   @media (max-width: 1100px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "head" "main" "right" "left"; height: auto; }
   }

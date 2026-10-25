@@ -24,6 +24,7 @@ export interface Column {
   title: string;
   x: number;
   width: number;
+  actTop: number;      // y where this column's activations start, just below its own weights
 }
 
 export interface Layout {
@@ -31,14 +32,13 @@ export interface Layout {
   height: number;
   tiles: Tile[];
   columns: Column[];
-  actTop: number;      // y where the activation section starts
 }
 
-const GAP = 6;         // between tiles in a row
-const LABEL = 12;      // space above each shelf for tile labels
+const GAP = 6;                // between tiles in a row
+export const LABEL = 12;      // space above each shelf for tile labels (atlas pixels)
 const COL_GAP = 40;
-const TITLE = 18;
-const SECTION_GAP = 30;
+export const TITLE = 18;      // space for column titles
+export const SECTION_GAP = 30;
 
 interface Item { kind: Tile["kind"]; name: string; label: string; rows: number; cols: number; sub?: boolean; }
 type Group = Item[];   // stacked vertically: a matrix with its bias under it, or a norm's γ and β
@@ -127,24 +127,21 @@ export function buildLayout(trace: Trace, weights: Weights, nLayer: number, nHea
   const widths = wcols.map((w, i) => Math.max(...w.map(groupW), ...acols[i].map(groupW), i > 0 && i <= nLayer ? 4 * d + 3 * GAP : 0));
   const tiles: Tile[] = [];
   const columns: Column[] = [];
+  // Each column's activations start just below its own weights: with a large vocabulary the
+  // token table makes the input column far taller than the blocks, and a shared start line
+  // would leave a wide empty band under every other column.
   let x = 0;
-  let weightBottom = 0;
-  const packedW = wcols.map((items, i) => {
-    const p = pack(items, x, TITLE, widths[i], i);
-    columns.push({ title: titles[i], x, width: widths[i] });
+  let height = 0;
+  wcols.forEach((items, i) => {
+    const w = pack(items, x, TITLE, widths[i], i);
+    const actTop = w.bottom + SECTION_GAP;
+    const a = pack(acols[i], x, actTop, widths[i], i);
+    tiles.push(...w.tiles, ...a.tiles);
+    columns.push({ title: titles[i], x, width: widths[i], actTop });
+    height = Math.max(height, a.bottom);
     x += widths[i] + COL_GAP;
-    weightBottom = Math.max(weightBottom, p.bottom);
-    return p;
   });
-  packedW.forEach((p) => tiles.push(...p.tiles));
-  const actTop = weightBottom + SECTION_GAP;
-  let height = actTop;
-  acols.forEach((items, i) => {
-    const p = pack(items, columns[i].x, actTop, widths[i], i);
-    tiles.push(...p.tiles);
-    height = Math.max(height, p.bottom);
-  });
-  return { width: x - COL_GAP, height: height + 4, tiles, columns, actTop };
+  return { width: x - COL_GAP, height: height + 4, tiles, columns };
 }
 
 export function hitTest(layout: Layout, x: number, y: number): { tile: Tile; r: number; c: number } | null {
@@ -212,26 +209,36 @@ export function tileRange(tile: Tile, t: Tensor, mode: AtlasMode, s: AtlasSource
   return tensorRange([t.data], seq ? "sequential" : "diverging", 99, false, "this tile", 4000);
 }
 
-/** Render every tile into an RGBA bitmap (alpha 0 between tiles). */
-export interface Rendered {
+/** One tile's pixels: a separate small image per tile, so memory follows the numbers shown
+ * rather than the layout's bounding box, and no image exceeds the largest tensor (4,096 wide
+ * for a BPE vocabulary), well within every GPU's texture limit. */
+export interface TileImage {
+  tile: Tile;
+  width: number;
+  height: number;
   rgba: Uint8ClampedArray;
+}
+
+export interface Rendered {
+  images: TileImage[];
   ranges: Map<Tile, Range | null>;
   tensors: Map<Tile, Tensor | null>;   // what each tile shows, for hover read-outs
 }
 
 export function renderAtlas(layout: Layout, s: AtlasSources): Rendered {
-  const { width: W, height: H } = layout;
-  const rgba = new Uint8ClampedArray(W * H * 4);
+  const images: TileImage[] = [];
   const ranges = new Map<Tile, Range | null>();
   const tensors = new Map<Tile, Tensor | null>();
   for (const tile of layout.tiles) {
     const t = tileTensor(tile, s);
     tensors.set(tile, t);
-    const h = Math.max(tile.rows, 2);
+    const W = tile.cols, h = Math.max(tile.rows, 2);
+    const rgba = new Uint8ClampedArray(W * h * 4);
+    images.push({ tile, width: W, height: h, rgba });
     if (!t) {
-      ranges.set(tile, null);
-      for (let y = 0; y < h; y++) for (let x = 0; x < tile.cols; x++) {
-        const o = ((tile.y + y) * W + tile.x + x) * 4;
+      ranges.set(tile, null);   // nothing to show in this mode: hatched
+      for (let y = 0; y < h; y++) for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
         const stripe = (x + y) % 6 < 2 ? 0.75 : 1;
         rgba[o] = MASKED_RGB[0] * stripe; rgba[o + 1] = MASKED_RGB[1] * stripe; rgba[o + 2] = MASKED_RGB[2] * stripe; rgba[o + 3] = 255;
       }
@@ -243,9 +250,9 @@ export function renderAtlas(layout: Layout, s: AtlasSources): Rendered {
     const isMaskedAttn = tile.kind === "act" && /\.weights$/.test(tile.name);
     for (let y = 0; y < h; y++) {
       const r = tile.rows === 1 ? 0 : y;
-      for (let x = 0; x < tile.cols; x++) {
+      for (let x = 0; x < W; x++) {
         const v = at(t, r, x);
-        const o = ((tile.y + y) * W + tile.x + x) * 4;
+        const o = (y * W + x) * 4;
         if (v === -Infinity || (isMaskedAttn && x > r)) {
           rgba[o] = MASKED_RGB[0]; rgba[o + 1] = MASKED_RGB[1]; rgba[o + 2] = MASKED_RGB[2];
         } else {
@@ -256,5 +263,17 @@ export function renderAtlas(layout: Layout, s: AtlasSources): Rendered {
       }
     }
   }
-  return { rgba, ranges, tensors };
+  return { images, ranges, tensors };
+}
+
+/** Atlas tiles that show a stage: its own tile, or for stages the atlas does not draw
+ * separately (per-head splits, scores, masks, mixes) the tile that stands for them. */
+export function tilesForStage(layout: Layout, trace: Trace, stageId: string): { main: Tile[]; weights: Tile[] } {
+  const byName = new Map(layout.tiles.map((t) => [t.name, t]));
+  let id = stageId;
+  const head = /^(L\d+)\.attn\.H(\d+)\.(\w+)$/.exec(stageId);
+  if (head && !byName.has(id)) id = ["q", "k", "v"].includes(head[3]) ? `${head[1]}.${head[3]}` : `${head[1]}.attn.H${head[2]}.weights`;
+  const main = byName.has(id) ? [byName.get(id)!] : [];
+  const weights = (trace.byId.get(stageId)?.weights ?? []).flatMap((n) => (byName.has(n) ? [byName.get(n)!] : []));
+  return { main, weights };
 }
