@@ -3,6 +3,7 @@
 
 import { Bridge, type BinaryMsg } from "../bridge";
 import type { Command, Hello, JsonMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
+import { headOf } from "../lib/attention";
 import type { ScaleMode } from "../lib/scale";
 
 const MAX_POINTS = 50_000;
@@ -96,6 +97,8 @@ class Selection {
   phase = $state<"forward" | "backward">("forward");
   position = $state(-1);   // -1: none selected
   dim = $state(-1);
+  layer = $state(0);       // the head the attention views show; follows any attention stage selected
+  head = $state(0);
 
   stage(trace: Trace | null): Stage | undefined {
     return trace?.byId.get(this.stageId);
@@ -104,6 +107,20 @@ class Selection {
   select(stageId: string, phase?: "forward" | "backward"): void {
     this.stageId = stageId;
     if (phase) this.phase = phase;
+    const h = headOf(stageId);
+    if (h) {
+      this.layer = h.layer;
+      this.head = h.head;
+    }
+  }
+
+  selectHead(layer: number, head: number): void {
+    this.select(`L${layer}.attn.H${head}.weights`);
+  }
+
+  /** The selected position, or the last one if none is selected. */
+  query(trace: Trace): number {
+    return this.position >= 0 && this.position < trace.tokens.length ? this.position : trace.tokens.length - 1;
   }
 }
 
@@ -114,7 +131,10 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(0);   // 0: fit to width
-  tab = $state<"inspector" | "onestep">("inspector");
+  tab = $state<"inspector" | "attention" | "onestep">("inspector");
+  arcsAllHeads = $state(false);
+  arcsTint = $state(false);
+  qkSort = $state<"position" | "weight">("position");
 }
 
 export const settings = new Settings();

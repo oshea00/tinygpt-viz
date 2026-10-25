@@ -3,8 +3,9 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
-Implemented so far: milestones 1–5 (instrumented core, tracer with gradients, WebSocket
-bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view).
+Implemented so far: milestones 1–6 (instrumented core, tracer with gradients, WebSocket
+bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
+attention views).
 
 ## Setup
 
@@ -40,6 +41,9 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
 - **Stepper**: ← / → walk forward through every stage, past the loss, and back up through the gradients.
 - **Tensor inspector**: any stage's values or gradients as a heatmap with a visible colour scale;
   click a cell to see how it was computed (dot products, layer-norm statistics, softmax terms, gradient sums).
+- **Attention**: arcs over the text from the selected position, the masked T×T matrix per head,
+  a Q·K explorer (one query against every earlier key: products, dot, scaled score, weight), and a
+  head gallery with pattern badges and names you can give each head.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Training panel**: play, pause, single-step, reset, learning rate, batch size, checkpoints.

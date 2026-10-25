@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app, settings } from "./state/app.svelte";
+  import AttentionView from "./views/attention/AttentionView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
   import OutputPanel from "./views/output/OutputPanel.svelte";
   import PromptBox from "./views/output/PromptBox.svelte";
@@ -34,9 +35,10 @@
     <section class="panel pad grow">
       <nav class="tabs">
         <button class:on={settings.tab === "inspector"} onclick={() => (settings.tab = "inspector")}>tensor inspector</button>
+        <button class:on={settings.tab === "attention"} onclick={() => (settings.tab = "attention")}>attention</button>
         <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
       </nav>
-      {#if settings.tab === "inspector"}<Inspector />{:else}<OneStep />{/if}
+      {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />{:else}<OneStep />{/if}
     </section>
   </main>
 

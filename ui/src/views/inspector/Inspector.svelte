@@ -2,6 +2,7 @@
   import { app, selection, settings } from "../../state/app.svelte";
   import { stageRange, type ScaleMode } from "../../lib/scale";
   import { dims2, fmt } from "../../lib/tensor";
+  import { headColor } from "../../lib/colormap";
   import Formula from "./Formula.svelte";
   import Heatmap from "./Heatmap.svelte";
   import Provenance from "./Provenance.svelte";
@@ -20,6 +21,14 @@
   const rowLabels = $derived(trace && tensor && tensor.shape.length >= 2 ? trace.text : undefined);
   const colLabels = $derived(isTT ? trace?.text : isVocab ? app.hello?.vocab : undefined);
   const colWord = $derived(isTT ? "key position" : isVocab ? "token" : "dim");
+
+  // Q, K, V and the concatenated head outputs are cut into one column band per head.
+  const colBands = $derived.by(() => {
+    if (!stage || !app.hello || !/^L\d+\.([qkv]|attn\.concat)$/.test(stage.id)) return undefined;
+    const { n_head, d_model } = app.hello.config;
+    const dh = d_model / n_head;
+    return Array.from({ length: n_head }, (_, h) => ({ start: h * dh, end: (h + 1) * dh, color: headColor(h) }));
+  });
 
   const pickedR = $derived(selection.position >= 0 && selection.position < dims[0] ? selection.position : -1);
   const pickedC = $derived(selection.dim >= 0 && selection.dim < dims[1] ? selection.dim : -1);
@@ -71,6 +80,7 @@
       {tensor} {range} {rowLabels} {colLabels}
       selRow={pickedR} selCol={pickedC} zoom={settings.cell || 1}
       maskUpper={stage.kind === "mask" || stage.kind === "softmax"}
+      {colBands}
       onpick={(r, c) => { selection.position = r; selection.dim = c; }}
     />
     <p class="axes muted">rows: positions (token) · columns: {colWord}</p>

@@ -15,9 +15,10 @@
     maxHeight?: number;
     maxCell?: number;
     maskUpper?: boolean;
+    colBands?: { start: number; end: number; color: string }[];   // e.g. each head's columns
     onpick?: (r: number, c: number) => void;
   }
-  let { tensor, range, rowLabels, colLabels, selRow = -1, selCol = -1, zoom = 1, maxHeight = 620, maxCell = 28, maskUpper = false, onpick }: Props = $props();
+  let { tensor, range, rowLabels, colLabels, selRow = -1, selCol = -1, zoom = 1, maxHeight = 620, maxCell = 28, maskUpper = false, colBands, onpick }: Props = $props();
 
   let width = $state(600);
   let canvas: HTMLCanvasElement;
@@ -27,7 +28,9 @@
   const labelW = $derived(rowLabels ? 26 : 0);
   const cellW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))) * zoom);
   const cellH = $derived(Math.max(1, Math.min(cellW / zoom, Math.max(4, Math.floor(maxHeight / dims[0])))) * zoom);
-  const topH = $derived(colLabels && cellW >= 9 ? 14 : 0);
+  const bandH = $derived(colBands?.length ? 6 : 0);
+  const labelH = $derived(colLabels && cellW >= 9 ? 14 : 0);
+  const topH = $derived(bandH + labelH);
   const showRowText = $derived(cellH >= 9);
 
   $effect(() => {
@@ -53,10 +56,14 @@
       ctx.textAlign = "right";
       rowLabels.slice(0, rows).forEach((t, r) => ctx.fillText(t, labelW - 4, topH + r * cellH + cellH / 2));
     }
-    if (colLabels && topH) {
+    if (colLabels && labelH) {
       ctx.textAlign = "center";
       ctx.font = "9px ui-monospace, monospace";
-      colLabels.slice(0, cols).forEach((t, c) => ctx.fillText(t, labelW + c * cellW + cellW / 2, 7));
+      colLabels.slice(0, cols).forEach((t, c) => ctx.fillText(t, labelW + c * cellW + cellW / 2, bandH + 7));
+    }
+    for (const b of colBands ?? []) {
+      ctx.fillStyle = b.color;
+      ctx.fillRect(labelW + b.start * cellW, 0, (b.end - b.start) * cellW - 1, bandH - 2);
     }
     // Selection is an outline, never a fill, so it does not compete with the data colours.
     ctx.strokeStyle = css.getPropertyValue("--select") || "#000";
