@@ -7,6 +7,7 @@
   import { createRenderer, type AtlasRenderer, type View } from "../../lib/glAtlas";
   import { at, fmt } from "../../lib/tensor";
 
+  const SELECTED = "#fbbf24";   // light gold: the selected stage's outline
   const MIN_FONT = 6.5;    // labels smaller than this (screen px) are not drawn
   const NUMBERS_AT = 26;   // zoom (screen px per number) where each cell's value is printed
 
@@ -149,15 +150,20 @@
       for (const t of layout.tiles) if (!t.sub && visible(t)) ctx.fillText(fit(t.label, t.cols * scale + 4), sx(t.x), sy(t.y) - 1);
     }
 
-    // The selected stage: a solid outline on its tile, dashed on the weights it uses.
+    // The selected stage: a bright gold outline on its tile, dashed on the weights it uses,
+    // each over a thin dark edge so it stands out on pale tiles and the light background alike.
     const outline = (t: Tile, width: number, dash: number[]) => {
+      const rect = [sx(t.x) - 2, sy(t.y) - 2, t.cols * scale + 4, Math.max(t.rows, 2) * scale + 4] as const;
       ctx.setLineDash(dash);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.lineWidth = width + 2;
+      ctx.strokeRect(...rect);
+      ctx.strokeStyle = SELECTED;
       ctx.lineWidth = width;
-      ctx.strokeRect(sx(t.x) - 2, sy(t.y) - 2, t.cols * scale + 4, Math.max(t.rows, 2) * scale + 4);
+      ctx.strokeRect(...rect);
     };
-    ctx.strokeStyle = css.getPropertyValue("--accent") || "#4f46e5";
-    for (const t of selected.main) outline(t, 2.5, []);
-    for (const t of selected.weights) outline(t, 1.5, [4, 3]);
+    for (const t of selected.main) outline(t, 3, []);
+    for (const t of selected.weights) outline(t, 2, [5, 3]);
     ctx.setLineDash([]);
 
     // One token, one path: the selected position's row in every activation tile.
@@ -317,6 +323,40 @@
   {/if}
 </div>
 
+<!-- Legend: what each mark on the atlas means, and what is selected right now. -->
+<div class="legend">
+  <div class="item">
+    <svg width="26" height="14"><rect x="2.5" y="2.5" width="21" height="9" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="5" /><rect x="2.5" y="2.5" width="21" height="9" fill="none" stroke={SELECTED} stroke-width="3" /></svg>
+    <span><b>selected stage</b> <span class="mono">{selection.stageId}</span><br /><span class="muted">click a tile, or pick it in the pipeline</span></span>
+  </div>
+  <div class="item">
+    <svg width="26" height="14"><rect x="2.5" y="2.5" width="21" height="9" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="4" stroke-dasharray="5 3" /><rect x="2.5" y="2.5" width="21" height="9" fill="none" stroke={SELECTED} stroke-width="2" stroke-dasharray="5 3" /></svg>
+    <span><b>its weights</b>
+      {#if selected.weights.length}<span class="mono">{selected.weights.map((t) => t.name).join(", ")}</span>{:else}<span class="muted">none for this stage</span>{/if}<br />
+      <span class="muted">the matrices and vectors it multiplies by</span></span>
+  </div>
+  <div class="item">
+    <svg width="26" height="14"><rect x="1" y="1" width="24" height="12" fill="#f4a582" /><rect x="1" y="5.5" width="24" height="3" fill="none" stroke="var(--select)" stroke-width="1" /></svg>
+    <span><b>selected position</b>{#if trace}&nbsp;row {selection.query(trace)} “{trace.text[selection.query(trace)]}”{/if}<br /><span class="muted">its row in every activation tile</span></span>
+  </div>
+  <div class="item">
+    <svg width="26" height="14"><rect x="2" y="2" width="22" height="10" fill="none" stroke="var(--select)" stroke-width="1.5" /></svg>
+    <span><b>under the pointer</b><br /><span class="muted">its value is in the tooltip</span></span>
+  </div>
+  <div class="item">
+    <svg width="26" height="14"><defs><pattern id="atlas-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="rgb(200,200,200)" /><line x1="0" y1="0" x2="0" y2="5" stroke="rgba(0,0,0,0.25)" stroke-width="2" /></pattern></defs><rect x="1" y="1" width="24" height="12" fill="url(#atlas-hatch)" /></svg>
+    <span><b>masked or empty</b><br /><span class="muted">future positions in attention, or nothing to show in this mode</span></span>
+  </div>
+  <div class="item">
+    <span class="ramp div"></span>
+    <span><b>values</b> <span class="muted">negative · 0 · positive</span><br /><span class="muted">each tile on its own scale (see tooltip)</span></span>
+  </div>
+  <div class="item">
+    <span class="ramp seq"></span>
+    <span><b>probabilities</b><br /><span class="muted">attention weights and next-token probabilities</span></span>
+  </div>
+</div>
+
 <style>
   .bar { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; }
   .modes, .tools { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
@@ -325,6 +365,15 @@
   .stage { position: relative; width: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
   canvas { position: absolute; left: 0; top: 0; display: block; }
   .ov { cursor: crosshair; touch-action: none; }
+  .legend {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px;
+    margin-top: 8px; padding: 8px 10px; font-size: 11px; border: 1px solid var(--line); border-radius: 8px;
+  }
+  .item { display: grid; grid-template-columns: 28px 1fr; gap: 6px; align-items: center; line-height: 1.35; }
+  .item svg { display: block; }
+  .ramp { display: block; width: 26px; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+  .ramp.div { background: linear-gradient(90deg, #2166ac, #f7f7f7, #b2182b); }
+  .ramp.seq { background: linear-gradient(90deg, #fcfbfd, #3f007d); }
   .tip {
     position: absolute; pointer-events: none; z-index: 5; background: var(--panel); border: 1px solid var(--line);
     border-radius: 6px; padding: 3px 7px; font-size: 11px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); white-space: nowrap;
