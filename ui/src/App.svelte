@@ -2,6 +2,7 @@
   import { app, settings } from "./state/app.svelte";
   import LessonMenu from "./lessons/LessonMenu.svelte";
   import LessonPlayer from "./lessons/LessonPlayer.svelte";
+  import ConceptsView from "./views/concepts/ConceptsView.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import InterventionsView from "./views/interventions/InterventionsView.svelte";
@@ -58,6 +59,7 @@
         <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
         {#if !app.demo}
           <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
+          <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
           <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
         {/if}
       </nav>
@@ -65,6 +67,7 @@
       {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
       {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
       {:else if settings.tab === "atlas"}<AtlasView />
+      {:else if settings.tab === "concepts"}{#if app.hello}<ConceptsView />{/if}
       {:else if settings.tab === "interventions"}{#if app.trace && app.hello}<InterventionsView />{/if}
       {:else}<OneStep />{/if}
     </section>

@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import PROFILES, TrainConfig, pick_device
-from .data import CharData
+from .data import load_data
 from .scheduler import Message, ModelWorker
 from .train import Trainer
 
@@ -87,13 +87,14 @@ def main() -> None:
     import uvicorn
 
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="default", choices=[k for k, v in PROFILES.items() if v.tokenizer == "char"])
+    p.add_argument("--config", default="default", choices=list(PROFILES))
     p.add_argument("--device", default=None)
     p.add_argument("--fresh", action="store_true", help="start from random weights, not the latest checkpoint")
     p.add_argument("--port", type=int, default=8765)
     args = p.parse_args()
 
-    trainer = Trainer(PROFILES[args.config], TrainConfig(), CharData(), pick_device(args.device))
+    trainer = Trainer(PROFILES[args.config], TrainConfig(), load_data(PROFILES[args.config].tokenizer),
+                      pick_device(args.device))
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{args.config} at step {trainer.step_num} on {trainer.device}: http://localhost:{args.port}")

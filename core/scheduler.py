@@ -14,6 +14,9 @@ from typing import Callable
 
 import torch
 
+from . import concepts
+from .lens import logit_lens
+from .model import GPT
 from .manual_backward import compare as manual_compare
 from .sampling import SampleSettings, sample_next
 from .trace_io import encode_tensors, encode_trace, encode_weights
@@ -155,6 +158,34 @@ class ModelWorker(threading.Thread):
                 raise ValueError("the prompt needs at least two tokens to have a loss")
             weights = {n: p.detach().float().cpu().numpy() for n, p in t.model.named_weights().items()}
             self.emit({"type": "manualBackward", "prompt": prompt, "step": t.step_num, **manual_compare(tr, weights)})
+        elif kind == "lens":
+            prompt = cmd["prompt"]
+            ids = t.data.tokenizer.encode(prompt) or [0]
+            self.emit({"type": "lens", "prompt": prompt, "step": t.step_num, **logit_lens(t.model, ids)})
+        elif kind == "capture":
+            # Concept explorer: residual vectors of tagged words, from the current model or, as a
+            # baseline, the untrained one (structure it also shows was not learned).
+            model = self._untrained_model() if cmd.get("model") == "untrained" else t.model
+            vectors, items = concepts.capture(model, t.data.tokenizer, cmd["prompts"], cmd.get("pool", "last"))
+            self.emit(encode_tensors("capture", {"vectors": {"x": vectors}}, {
+                "items": items, "snapshots": concepts.snapshot_ids(model), "pool": cmd.get("pool", "last"),
+                "model": cmd.get("model", "current"), "step": 0 if cmd.get("model") == "untrained" else t.step_num,
+                "tag": cmd.get("tag"),
+            }))
+        elif kind == "generateWith":
+            text = concepts.generate(t.model, t.data.tokenizer, cmd["prompt"], int(cmd.get("n", 40)),
+                                     cmd.get("interventions"), float(cmd.get("temperature", 0)), int(cmd.get("seed", 0)))
+            self.emit({"type": "generated", "tag": cmd.get("tag"), "prompt": cmd["prompt"], "text": text})
+        elif kind == "occlude":
+            ids = t.data.tokenizer.encode(cmd["prompt"])[-t.model_cfg.block_size:]
+            pos = int(cmd["position"])
+            if not 0 <= pos < len(ids) - 1:
+                raise ValueError("pick a position that has a next token")
+            self.emit({"type": "occlusion", "prompt": cmd["prompt"], "position": pos, "step": t.step_num,
+                       "drops": concepts.occlusion(t.model, ids, pos)})
+        elif kind == "neuronTop":
+            self.emit({"type": "neuronTop", "layer": cmd["layer"], "neuron": cmd["neuron"], "step": t.step_num,
+                       "examples": concepts.neuron_top(t.model, t.data.tokenizer, t.data, int(cmd["layer"]), int(cmd["neuron"]))})
         elif kind == "save":
             t.save_checkpoint()
             self.emit({"type": "status", **self.status()})
@@ -178,6 +209,17 @@ class ModelWorker(threading.Thread):
             self.send_trace(self.probe, reason="probe")
         if s % self.sample_every == 0:
             self.emit({"type": "sample", "step": s, "text": t.sample(self.probe, 200), "auto": True})
+
+    def _untrained_model(self) -> GPT:
+        """The step-0 checkpoint (random initial weights), kept separately from the live model."""
+        if getattr(self, "_untrained", None) is None:
+            t = self.trainer
+            if 0 not in t.checkpoints():
+                raise ValueError("no step-0 checkpoint to compare with")
+            m = GPT(t.model_cfg).to(t.device)
+            m.load_state_dict(torch.load(t.checkpoint_path(0), map_location=t.device)["model"])
+            self._untrained = m
+        return self._untrained
 
     def _step_explain(self, prompt: str) -> None:
         """One training step on the prompt itself, with everything needed to show it:

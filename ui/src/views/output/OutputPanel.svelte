@@ -1,7 +1,7 @@
 <script lang="ts">
   // What comes next, and how sampling chooses: the full next-token distribution reshaped
   // live by temperature, top-k and top-p, then generation one token at a time.
-  import { app, selection } from "../../state/app.svelte";
+  import { app, rawText, selection } from "../../state/app.svelte";
   import { describeSettings, shape } from "../../lib/sampling";
   import { row } from "../../lib/tensor";
 
@@ -15,29 +15,36 @@
 
   const shaped = $derived(trace && pos >= 0 ? shape(row(trace.byId.get("logits")!.output, pos), settings) : null);
   let sortByP = $state(true);
+  const big = $derived(V > 256);
   const bars = $derived.by(() => {
     if (!shaped || !app.hello) return [];
     const b = shaped.probs.map((p, i) => ({ i, p, t: shaped.tempered[i], label: app.hello!.vocab[i] }));
-    return sortByP ? b.sort((x, y) => y.p - x.p || y.t - x.t) : b;
+    // A large vocabulary shows its top entries only: thousands of near-zero bars say nothing.
+    return big ? b.sort((x, y) => y.p - x.p || y.t - x.t).slice(0, 40) : sortByP ? b.sort((x, y) => y.p - x.p || y.t - x.t) : b;
   });
   const excluded = $derived(shaped ? shaped.probs.filter((p) => p === 0).length : 0);
   // Outline the token that actually came next: the chosen one when time travelling,
   // otherwise the prompt's own next character.
   const actual = $derived(travelling && pos === last ? app.generated[app.travel!].token : trace && pos >= 0 ? trace.targets[pos] : -1);
 
-  // The generated text with its context window: characters the tokenizer knows, of which
-  // only the last block_size are visible to the model.
-  const known = $derived(new Set((app.hello?.vocab ?? []).map((v) => ({ "␣": " ", "⏎": "\n", "␄": "\x04" })[v] ?? v)));
-  const genAt = $derived(new Map(app.generated.map((g, i) => [g.pos, i])));
+  // The text as segments: the prompt, then one segment per generated token (a character or,
+  // with BPE, usually a word). The model sees only the text its trace covers: the window.
   const viewEnd = $derived(travelling ? app.generated[app.travel!].pos : app.prompt.length);
-  const windowStart = $derived.by(() => {
-    let n = 0;
-    for (let i = viewEnd - 1; i >= 0; i--) {
-      if (known.has(app.prompt[i]) && ++n === block) return i;
-    }
-    return 0;
+  const windowStart = $derived(trace && trace.prompt === app.viewPrompt() ? Math.max(0, viewEnd - rawText(trace.text.join("")).length) : 0);
+  const segments = $derived.by(() => {
+    const out: { start: number; text: string; gen: number }[] = [];
+    const firstGen = app.generated[0]?.pos ?? app.prompt.length;
+    // The prompt part is split at the window start so its boxed part is exact.
+    const cut = Math.min(Math.max(windowStart, 0), firstGen);
+    if (cut > 0) out.push({ start: 0, text: app.prompt.slice(0, cut), gen: -1 });
+    if (firstGen > cut) out.push({ start: cut, text: app.prompt.slice(cut, firstGen), gen: -1 });
+    app.generated.forEach((g, i) => {
+      const end = app.generated[i + 1]?.pos ?? app.prompt.length;
+      out.push({ start: g.pos, text: app.prompt.slice(g.pos, end), gen: i });
+    });
+    return out;
   });
-  const shown = (c: string) => (c === "\x04" ? "␄\n" : c);
+  const shown = (t: string) => t.replace(/\x04/g, "␄\n");
   const meanP = $derived(app.generated.length ? app.generated.reduce((s, g) => s + g.p, 0) / app.generated.length : 0);
 </script>
 
@@ -56,7 +63,8 @@
   </div>
   <div class="dist-head muted">
     <span>{describeSettings(settings)}{travelling ? " (as sampled)" : ""} · {excluded} of {V} excluded</span>
-    <button class="link" onclick={() => (sortByP = !sortByP)}>{sortByP ? "vocab order" : "sort by p"}</button>
+    {#if big}<span>top 40 of {V}</span>
+    {:else}<button class="link" onclick={() => (sortByP = !sortByP)}>{sortByP ? "vocab order" : "sort by p"}</button>{/if}
   </div>
   <div class="bars">
     {#each bars as b (b.i)}
@@ -93,17 +101,16 @@
       {/if}
     </div>
     <p class="gen mono">
-      {#each app.prompt as c, i}
-        {@const g = genAt.get(i)}
-        {#if g !== undefined}
-          {@const tok = app.generated[g]}
-          <button class="ch gen-ch" class:inwin={i >= windowStart && i < viewEnd} class:future={i > viewEnd}
-                  class:here={app.travel === g}
+      {#each segments as seg}
+        {@const inwin = seg.start >= windowStart && seg.start < viewEnd}
+        {#if seg.gen >= 0}
+          {@const tok = app.generated[seg.gen]}
+          <button class="ch gen-ch" class:inwin class:future={seg.start > viewEnd} class:here={app.travel === seg.gen}
                   style:background-color="rgb(220 38 38 / {(1 - tok.p) * 0.6})"
                   title="p = {tok.p.toFixed(3)} · rank {tok.rank} · {describeSettings(tok.settings)}"
-                  onclick={() => app.travelTo(g)}>{shown(c)}</button>
+                  onclick={() => app.travelTo(seg.gen)}>{shown(seg.text)}</button>
         {:else}
-          <span class="ch" class:inwin={i >= windowStart && i < viewEnd} class:future={i >= viewEnd}>{shown(c)}</span>
+          <span class="ch" class:inwin class:future={seg.start >= viewEnd}>{shown(seg.text)}</span>
         {/if}
       {/each}
     </p>
@@ -117,7 +124,7 @@
   .controls label { display: grid; grid-template-columns: 80px 1fr 52px; align-items: center; gap: 6px; }
   .dist-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
   .bars { display: grid; gap: 1px; max-height: 260px; overflow-y: auto; padding: 2px; }
-  .bar { display: grid; grid-template-columns: 20px 1fr 50px; align-items: center; gap: 6px; font-size: 11.5px; border-radius: 3px; }
+  .bar { display: grid; grid-template-columns: minmax(20px, auto) 1fr 50px; align-items: center; gap: 6px; font-size: 11.5px; border-radius: 3px; }
   .bar.actual { outline: 1.5px solid var(--select); }
   .t { text-align: center; }
   .track { height: 9px; background: var(--line); border-radius: 2px; overflow: hidden; }

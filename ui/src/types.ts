@@ -46,7 +46,8 @@ export type Intervention =
   | { kind: "block"; layer: number; part: "attn" | "mlp" }
   | { kind: "attend"; layer: number; head: number; position: number }
   | { kind: "set"; stage: string; row: number; col: number; value: number }
-  | { kind: "shuffle_pos"; seed: number };
+  | { kind: "shuffle_pos"; seed: number }
+  | { kind: "steer"; stage: string; vector: number[]; scale: number; label?: string };
 
 export interface Weights {
   step: number;
@@ -77,6 +78,7 @@ export interface ModelConfig {
   block_size: number;
   vocab_size: number;
   tied: boolean;
+  tokenizer: "char" | "bpe";
 }
 
 export interface Status {
@@ -106,6 +108,12 @@ export type Command =
   | { type: "loadCheckpoint"; step: number }
   | { type: "save" }
   | { type: "manualBackward"; prompt: string }
+  | { type: "lens"; prompt: string }
+  | { type: "capture"; prompts: { text: string; targets: { start: number; end: number; word: string; category: string }[] }[];
+      pool: "last" | "mean"; model: "current" | "untrained"; tag?: string }
+  | { type: "generateWith"; prompt: string; n: number; interventions?: Intervention[]; temperature?: number; seed?: number; tag?: string }
+  | { type: "occlude"; prompt: string; position: number }
+  | { type: "neuronTop"; layer: number; neuron: number }
   | { type: "stepExplain"; prompt?: string };
 
 export interface MetricsMsg {
@@ -142,8 +150,28 @@ export interface ManualBackwardMsg {
   worstRelative: number;
 }
 
+/** Server-side logit lens summary (core/lens.py), used for large vocabularies. */
+export interface LensMsg {
+  type: "lens";
+  prompt: string;
+  step: number;
+  snapshots: string[];
+  topIds: number[][][];    // [snapshot][position][k]
+  topP: number[][][];
+  pActual: number[][];     // [snapshot][position], −1 where there is no next token
+}
+
+export interface NeuronExample { value: number; before: string; token: string; after: string; }
+
+export type ConceptMsg =
+  | { type: "generated"; tag?: string; prompt: string; text: string }
+  | { type: "occlusion"; prompt: string; position: number; step: number; drops: number[] }
+  | { type: "neuronTop"; layer: number; neuron: number; step: number; examples: NeuronExample[] };
+
 export type JsonMsg =
+  | ConceptMsg
   | ManualBackwardMsg
+  | LensMsg
   | Hello
   | MetricsMsg
   | SampleMsg

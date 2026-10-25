@@ -10,6 +10,7 @@ Specs are the JSON dicts the UI sends:
     {"kind": "attend",  "layer": 1, "head": 0, "position": 5}
     {"kind": "set",     "stage": "L0.q", "row": 3, "col": 7, "value": 1.5}
     {"kind": "shuffle_pos", "seed": 0}
+    {"kind": "steer",   "stage": "L2.resid_mlp", "vector": [...], "scale": 4.0}
 
 "mean" replaces each value with its average over the prompt's positions, keeping the
 unit's typical output but removing what is specific to each position.
@@ -73,6 +74,11 @@ def compile_spec(spec: dict) -> tuple[str, Rewrite]:
         return f"L{spec['layer']}.attn.H{spec['head']}.weights", _attend(int(spec["position"]))
     if kind == "set":
         return spec["stage"], _set(int(spec["row"]), int(spec["col"]), float(spec["value"]))
+    if kind == "steer":
+        # Add a direction (e.g. a concept's mean difference) to the residual stream at every position.
+        vec = torch.tensor(spec["vector"], dtype=torch.float32)
+        scale = float(spec.get("scale", 1.0))
+        return spec["stage"], lambda x: x + scale * vec.to(x.device)
     if kind == "shuffle_pos":
         return "embed.pos", _shuffle(int(spec.get("seed", 0)))
     raise ValueError(f"unknown intervention {kind!r}")

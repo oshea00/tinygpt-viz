@@ -139,3 +139,25 @@ def test_manual_backward_command(client):
         ws.send_text(json.dumps({"type": "manualBackward", "prompt": "Once upon a time"}))
         m, _ = _until(ws, lambda h: h["type"] == "manualBackward")
         assert m["worstRelative"] < 1e-4 and "L0.attn.H0.weights" in m["stages"]
+
+
+def test_concept_commands(client):
+    from core.trace_io import decode_frame
+    with client.websocket_connect("/ws") as ws:
+        prompts = [{"text": "The cat sat.", "targets": [{"start": 4, "end": 7, "word": "cat", "category": "animal"}]}]
+        ws.send_text(json.dumps({"type": "capture", "prompts": prompts, "pool": "mean", "model": "current"}))
+        h, raw = _until(ws, lambda h: h["type"] == "capture")
+        assert h["items"][0]["word"] == "cat" and len(h["snapshots"]) == 5   # tiny: x0 + 2 layers × 2
+        assert h["vectors"]["x"]["shape"] == [1, 5, 32]
+        ws.send_text(json.dumps({"type": "capture", "prompts": prompts, "model": "untrained"}))
+        e, _ = _until(ws, lambda h: h["type"] in ("capture", "error"))
+        assert e["type"] == "error" and "step-0" in e["message"]     # this test run saved no checkpoint 0
+        ws.send_text(json.dumps({"type": "generateWith", "prompt": "Once", "n": 5, "tag": "plain"}))
+        g, _ = _until(ws, lambda h: h["type"] == "generated")
+        assert g["tag"] == "plain" and len(g["text"]) == 5
+        ws.send_text(json.dumps({"type": "occlude", "prompt": "The cat sat.", "position": 6}))
+        o, _ = _until(ws, lambda h: h["type"] == "occlusion")
+        assert len(o["drops"]) == 7
+        ws.send_text(json.dumps({"type": "lens", "prompt": "The cat"}))
+        l, _ = _until(ws, lambda h: h["type"] == "lens")
+        assert len(l["topIds"]) == 5 and len(l["topIds"][0]) == 7

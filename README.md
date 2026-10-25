@@ -3,10 +3,11 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
-Implemented so far: milestones 1–11 (instrumented core, tracer with gradients, WebSocket
+Implemented: milestones 1–12 (instrumented core, tracer with gradients, WebSocket
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
 attention views, generation, residual stream and logit lens, network atlas,
-interventions, lessons, checkpoint replay, manual backward mode, static demo).
+interventions, lessons, checkpoint replay, manual backward mode, static demo, and the
+Concepts profile with its concept explorer).
 
 ## Setup
 
@@ -24,9 +25,16 @@ cd ui && npm install && npm run build && cd ..
 uv run python -m core.train --config default --steps 20000
 ```
 
-Profiles: `tiny` (32k params), `default` (215k), `larger` (1.2M). Default reaches
-validation loss ≈ 0.95 in about 7 minutes on a GPU (about 30 on CPU). Checkpoints land in
-`runs/<config>/` on a log-spaced schedule for later replay.
+Profiles: `tiny` (32k params), `default` (215k), `larger` (1.2M) read characters; `concepts`
+(5.8M, tied embeddings) reads a 4,096-token BPE trained on TinyStories, so most words are one
+token. Default reaches validation loss ≈ 0.95 in about 7 minutes on a GPU (about 30 on CPU).
+Checkpoints land in `runs/<config>/` on a log-spaced schedule for later replay.
+
+```sh
+uv run python -m core.data --bpe     # Concepts corpus: 250 MB slice, BPE tokenizer, ~62M tokens
+uv run python -m core.train --config concepts --steps 20000 --lr 6e-4 --batch-size 128   # ~22 min on a 4090
+uv run python -m core.server --config concepts
+```
 
 ## Run the app
 
@@ -59,6 +67,13 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   embeddings. Every view then shows the changed model; the interventions tab compares it with the
   original run (loss, next-token distribution, p(actual) per position, and where the change spreads
   stage by stage), and the inspector can show any stage as its change. Training is never affected.
+- **Concept explorer** (best with `--config concepts`): capture each tagged word of a prompt set
+  (editable templates such as "Lily saw a {animal} in the garden.") at every residual snapshot, from
+  the trained model and the untrained step-0 model as a baseline. Then: similarity matrices,
+  PCA maps (click a point to open its trace), nearest neighbours in the embedding table and in
+  context, context drift, linear probes tested on held-out words (with shuffled-label and untrained
+  baselines), concept directions with steering during generation, attribution (attention
+  rollout, gradient × input, occlusion), and the top-activating contexts of any MLP neuron.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by
@@ -82,7 +97,8 @@ uv run python -m core.export --config default   # latest checkpoint → ui/demo-
 cd ui && npm run build:demo                      # → ui/dist-demo/, a static site (about 4.5 MB)
 ```
 
-Serve `ui/dist-demo/` from any static host. Training, interventions and gradients need the server.
+Serve `ui/dist-demo/` from any static host. Training, interventions and gradients need the server;
+the demo supports the character profiles only.
 
 ## Tests
 

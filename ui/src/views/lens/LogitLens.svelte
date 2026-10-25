@@ -3,24 +3,57 @@
   // layer norm and unembedding early. Reading down a column shows the guess forming.
   import { app, selection, settings } from "../../state/app.svelte";
   import { cssColor } from "../../lib/colormap";
-  import { argmax, lensRow, logitLens } from "../../lib/residual";
+  import { lensRow, logitLens, snapshots } from "../../lib/residual";
 
   const trace = $derived(app.trace!);
   const weights = $derived(app.weights);
-  const lens = $derived(weights ? logitLens(trace, weights) : null);
   const stale = $derived(!!weights && trace.weightsVersion !== undefined && weights.version !== trace.weightsVersion);
   const vocab = $derived(app.hello?.vocab ?? []);
   const pos = $derived(selection.query(trace));
+
+  // Small vocabularies: decode every snapshot here. Large ones (BPE): ask the server for a
+  // compact summary, since decoding 13 × 100 rows against 4,096 tokens is GPU work.
+  const big = $derived((app.hello?.config.vocab_size ?? 0) > 256 && !app.demo);
+  $effect(() => {
+    if (big) app.requestLens();
+  });
+  const topk = (p: ArrayLike<number>, k: number) =>
+    Array.from(p, (v, i) => ({ i, v })).sort((a, b) => b.v - a.v).slice(0, k);
+
+  interface LensView {
+    snaps: { label: string }[];
+    T: number;
+    top(s: number, t: number, k: number): { i: number; v: number }[];
+    actual(s: number, t: number): number | null;   // p(actual next token), null where there is none
+  }
+  const lens = $derived.by((): LensView | null => {
+    if (!big && weights) {
+      const l = logitLens(trace, weights);
+      return {
+        snaps: l.snaps, T: l.T,
+        top: (s, t, k) => topk(lensRow(l, s, t), k),
+        actual: (s, t) => (trace.targets[t] >= 0 ? lensRow(l, s, t)[trace.targets[t]] : null),
+      };
+    }
+    const r = app.serverLens;
+    if (big && r && r.prompt === trace.prompt && r.step === trace.step) {
+      return {
+        snaps: snapshots(trace), T: trace.tokens.length,
+        top: (s, t, k) => r.topIds[s][t].slice(0, k).map((i, j) => ({ i, v: r.topP[s][t][j] })),
+        actual: (s, t) => (r.pActual[s][t] >= 0 ? r.pActual[s][t] : null),
+      };
+    }
+    return null;
+  });
   const snapSel = $derived(lens ? (settings.lensSnap >= 0 && settings.lensSnap < lens.snaps.length ? settings.lensSnap : lens.snaps.length - 1) : 0);
 
   const cells = $derived.by(() => {
     if (!lens) return [];
     return lens.snaps.map((_, s) =>
       Array.from({ length: lens.T }, (_, t) => {
-        const p = lensRow(lens, s, t);
-        const top = argmax(p);
+        const best = lens.top(s, t, 1)[0];
         const target = trace.targets[t];
-        return { top, pTop: p[top], pActual: target >= 0 ? p[target] : null, correct: target >= 0 && top === target };
+        return { top: best.i, pTop: best.v, pActual: lens.actual(s, t), correct: target >= 0 && best.i === target };
       }),
     );
   });
@@ -30,11 +63,9 @@
   // Detail for the selected cell: its top predictions, and p(actual next) down the column.
   const detail = $derived.by(() => {
     if (!lens) return null;
-    const p = Array.from(lensRow(lens, snapSel, pos));
-    const top = p.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v).slice(0, 8);
     const target = trace.targets[pos];
-    const column = target >= 0 ? lens.snaps.map((_, s) => lensRow(lens, s, pos)[target]) : null;
-    return { top, target, column };
+    const column = target >= 0 ? lens.snaps.map((_, s) => lens.actual(s, pos) ?? 0) : null;
+    return { top: lens.top(snapSel, pos, 8), target, column };
   });
   const accuracy = $derived(
     cells.map((r) => {
@@ -45,7 +76,7 @@
 </script>
 
 {#if !lens}
-  <p class="muted">Waiting for the weights…</p>
+  <p class="muted">{big ? "Decoding every snapshot on the server…" : "Waiting for the weights…"}</p>
 {:else}
   <div class="bar">
     <span class="opts">
@@ -57,7 +88,7 @@
   </div>
 
   <div class="grid-wrap">
-    <table class="grid mono">
+    <table class="grid mono" class:words={big}>
       <thead>
         <tr><th class="rl">input</th>{#each trace.text as t, i}<th class:sel={i === pos}>{t}</th>{/each}<th class="acc">top-1</th></tr>
       </thead>
@@ -123,13 +154,14 @@
   .grid th, .grid td { width: 15px; min-width: 15px; height: 19px; padding: 0; text-align: center; cursor: pointer; }
   .grid th { font-weight: 400; color: var(--muted); }
   .grid th.rl { position: sticky; left: 0; background: var(--panel); text-align: right; padding-right: 6px; white-space: nowrap; width: auto; z-index: 1; }
+  .grid.words th, .grid.words td { width: auto; padding: 0 3px; white-space: nowrap; }
   .grid td.correct { text-decoration: underline; text-decoration-thickness: 2px; font-weight: 700; }
   .grid .sel { outline: 1.5px solid var(--select); outline-offset: -1.5px; }
   .grid tr.selrow th.rl { color: var(--ink); font-weight: 600; }
   .grid .acc { width: 40px; color: var(--muted); padding-left: 6px; }
   .grid tr.actual td { color: var(--ink); font-weight: 600; border-top: 1px solid var(--line); }
   .detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 14px; }
-  .row { display: grid; grid-template-columns: 20px 1fr 50px; gap: 6px; align-items: center; font-size: 12px; border-radius: 3px; }
+  .row { display: grid; grid-template-columns: minmax(20px, max-content) 1fr 50px; gap: 6px; align-items: center; font-size: 12px; border-radius: 3px; }
   .row.actual { outline: 1.5px solid var(--select); }
   .t { text-align: center; }
   .track { height: 9px; background: var(--line); border-radius: 2px; overflow: hidden; }

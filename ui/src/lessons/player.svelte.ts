@@ -1,5 +1,6 @@
 // Plays a lesson: applies each step to the shared state, and checks answers live.
 
+import { concepts } from "../concepts/store.svelte";
 import { app, selection, settings } from "../state/app.svelte";
 import { isCorrect, loadLessons, type Lesson, type LessonStep } from "./lesson";
 
@@ -62,6 +63,7 @@ class Player {
     if (s.atlasMode) settings.atlasMode = s.atlasMode;
     if (s.lensMode) settings.lensMode = s.lensMode;
     if (s.residualMode) settings.residualMode = s.residualMode;
+    if (s.conceptPanel) concepts.panel = s.conceptPanel;
     settings.compare = false;
     if (rerun) app.run();
   }

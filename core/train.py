@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 
 from .config import PROFILES, ModelConfig, TrainConfig, pick_device
-from .data import CharData
+from .data import CharData, load_data
 from .model import GPT
 from .sampling import SampleSettings, generate
 
@@ -126,7 +126,7 @@ class Trainer:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="default", choices=[k for k, v in PROFILES.items() if v.tokenizer == "char"])
+    p.add_argument("--config", default="default", choices=list(PROFILES))
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--lr", type=float, default=TrainConfig.lr)
     p.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
@@ -137,7 +137,7 @@ def main() -> None:
 
     device = pick_device(args.device)
     trainer = Trainer(PROFILES[args.config], TrainConfig(lr=args.lr, batch_size=args.batch_size),
-                      CharData(), device)
+                      load_data(PROFILES[args.config].tokenizer), device)
     if args.resume:
         trainer.load_checkpoint()
     else:

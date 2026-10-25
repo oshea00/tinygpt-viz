@@ -11,7 +11,7 @@ function load(name: string) {
 }
 const ref = (load("trace.bin") as { trace: Trace }).trace;
 const weights = (load("weights.bin") as { weights: Weights }).weights;
-const cfg: ModelConfig = { name: "tiny", n_layer: 2, n_head: 2, d_model: 32, d_mlp: 128, block_size: 100, vocab_size: 16, tied: false };
+const cfg: ModelConfig = { name: "tiny", n_layer: 2, n_head: 2, d_model: 32, d_mlp: 128, block_size: 100, vocab_size: 16, tied: false, tokenizer: "char" };
 
 describe("TypeScript forward pass", () => {
   const ours = forward(ref.tokens, weights.tensors, cfg, infoFrom(ref), ref.text);

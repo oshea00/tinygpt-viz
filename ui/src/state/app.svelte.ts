@@ -2,7 +2,7 @@
 // view updates the selection and every other view follows.
 
 import { Bridge, type BinaryMsg } from "../bridge";
-import type { Command, Hello, Intervention, JsonMsg, ManualBackwardMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
+import type { Command, Hello, Intervention, JsonMsg, LensMsg, ManualBackwardMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
 import { headOf } from "../lib/attention";
 import { pick, shape, type SampleSettings } from "../lib/sampling";
 import type { ScaleMode } from "../lib/scale";
@@ -12,8 +12,9 @@ const MAX_POINTS = 50_000;
 const MAX_GENERATED = 600;
 
 /** Display forms of whitespace and the end-of-story marker, back to the raw character. */
-const RAW: Record<string, string> = { "␣": " ", "⏎": "\n", "␄": "\x04" };
-export const rawChar = (display: string) => RAW[display] ?? display;
+/** A token's display text back to raw text: "␣dog" → " dog". Tokens may be one character
+ * (character profiles) or a whole word (BPE). */
+export const rawText = (display: string) => display.replace(/␣/g, " ").replace(/⏎/g, "\n").replace(/␄/g, "\x04");
 
 export interface GenToken {
   pos: number;               // index in the prompt string where this character was appended
@@ -53,6 +54,18 @@ class AppState {
   // of the same prompt is fetched too, so every effect can be shown as before / after.
   interventions = $state.raw<Intervention[]>([]);
   baseline = $state.raw<Trace | null>(null);
+
+  serverLens = $state.raw<LensMsg | null>(null);   // logit lens computed on the server
+  private lensAsked = "";
+
+  requestLens(): void {
+    const t = this.trace;
+    if (!t?.prompt) return;
+    const key = `${t.prompt}@${t.step}`;
+    if (key === this.lensAsked) return;
+    this.lensAsked = key;
+    this.send({ type: "lens", prompt: t.prompt });
+  }
 
   manual = $state.raw<ManualBackwardMsg | null>(null);   // hand-written backward vs autograd
   private manualAsked = "";
@@ -134,7 +147,7 @@ class AppState {
     const { probs } = shape(logits, settings);
     const token = pick(probs);
     const rank = 1 + probs.filter((p) => p > probs[token]).length;
-    const ch = rawChar(this.hello.vocab[token]);
+    const ch = rawText(this.hello.vocab[token]);
     this.generated = [...this.generated, { pos: this.prompt.length, token, p: probs[token], rank, settings, step: t.step }];
     this.prompt += ch;
     this.run();
@@ -163,7 +176,11 @@ class AppState {
     this.run();
   }
 
+  /** Feature modules (e.g. the concept explorer) can claim messages before the core handling. */
+  readonly handlers: ((m: JsonMsg | BinaryMsg) => boolean)[] = [];
+
   private onMessage(m: JsonMsg | BinaryMsg): void {
+    if (this.handlers.some((h) => h(m))) return;
     switch (m.type) {
       case "hello": {
         this.hello = m;
@@ -222,6 +239,9 @@ class AppState {
       case "manualBackward":
         this.manual = m;
         break;
+      case "lens":
+        this.serverLens = m;
+        break;
       case "error":
         this.error = m.message;
         setTimeout(() => (this.error = ""), 6000);
@@ -271,7 +291,7 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(0);   // 0: fit to width
-  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "onestep">("inspector");
+  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   residualMode = $state<"snapshots" | "writes">("snapshots");

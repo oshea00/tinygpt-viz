@@ -11,6 +11,7 @@ export function describe(iv: Intervention): string {
     case "attend": return `L${iv.layer} head ${iv.head}: forced to attend to position ${iv.position}`;
     case "set": return `${iv.stage}[${iv.row}, ${iv.col}] set to ${iv.value}`;
     case "shuffle_pos": return `position embeddings shuffled (seed ${iv.seed})`;
+    case "steer": return `steering at ${iv.stage}${iv.label ? ` towards ${iv.label}` : ""} × ${iv.scale}`;
   }
 }
 

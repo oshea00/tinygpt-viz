@@ -58,6 +58,7 @@
           {@const selected = selection.stageId === s.id}
           <button
             class="thumb"
+            style:width="{Math.min(30, Math.floor(150 / row.stages.length))}px"
             class:selected
             class:changed={changed.has(s.id)}
             style:border-color={s.head !== undefined && !selected ? headColor(s.head) : undefined}

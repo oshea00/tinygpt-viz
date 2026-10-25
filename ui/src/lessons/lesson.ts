@@ -6,7 +6,7 @@ import { headStats } from "../lib/attention";
 import { argmax } from "../lib/residual";
 import { row } from "../lib/tensor";
 
-export type Tab = "inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "onestep";
+export type Tab = "inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
 
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
@@ -29,6 +29,7 @@ export interface LessonStep {
   atlasMode?: "values" | "grads" | "flow" | "diff" | "recent";
   lensMode?: "confidence" | "actual";
   residualMode?: "snapshots" | "writes";
+  conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons";
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   ask?: { question: string; check: Check; hint?: string; correct?: string };

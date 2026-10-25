@@ -5,7 +5,7 @@
   import { headColor } from "../../lib/colormap";
   import { at } from "../../lib/tensor";
 
-  const CW = 15;        // px per character
+  const CW = 15;        // px per token, or per character of longer (BPE) tokens
   const BASE = 96;      // y of the text baseline; arcs rise above it
   const MIN_W = 0.02;   // weights below this are not drawn
 
@@ -23,7 +23,11 @@
       return Array.from({ length: q + 1 }, (_, j) => ({ h, j, w: at(W, q, j) })).filter((a) => a.w >= MIN_W);
     }),
   );
-  const cx = (i: number) => i * CW + CW / 2;
+  // Tokens can be single characters or whole words: lay them out by length.
+  const widths = $derived(trace.text.map((t) => Math.max(CW, t.length * 8 + 4)));
+  const xs = $derived(widths.reduce<number[]>((acc, w, i) => [...acc, i ? acc[i - 1] + widths[i - 1] : 0], []));
+  const total = $derived(widths.reduce((a, b) => a + b, 0));
+  const cx = (i: number) => xs[i] + widths[i] / 2;
   function arcPath(from: number, to: number, h: number): string {
     // Self-attention is drawn as a small loop above the character.
     if (from === to) return `M${cx(from) - 4},${BASE - 14} a4,6 0 1,1 8,0`;
@@ -54,7 +58,7 @@
   </div>
 {:else}
   <div class="scroll">
-    <svg width={T * CW} height={BASE + 8}>
+    <svg width={total} height={BASE + 8}>
       {#each arcs as a (`${a.h}-${a.j}`)}
         <path d={arcPath(q, a.j, a.h)} stroke={headColor(a.h)} stroke-width={0.6 + a.w * 7}
               stroke-opacity={Math.min(1, 0.25 + a.w)} fill="none">
@@ -63,7 +67,7 @@
       {/each}
       {#each trace.text as t, i}
         <g class="ch" role="button" tabindex="-1" onclick={() => (selection.position = i)} onkeydown={() => {}}>
-          <rect x={i * CW} y={BASE - 13} width={CW} height={20} class:q={i === q} class:future={i > q} />
+          <rect x={xs[i]} y={BASE - 13} width={widths[i]} height={20} class:q={i === q} class:future={i > q} />
           <text x={cx(i)} y={BASE + 2} text-anchor="middle" class:future={i > q}>{t}</text>
         </g>
       {/each}

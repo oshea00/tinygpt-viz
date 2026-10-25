@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, rawChar, selection } from "../../state/app.svelte";
+  import { app, rawText, selection } from "../../state/app.svelte";
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   function onInput() {
@@ -8,10 +8,14 @@
     timer = setTimeout(() => app.run(), 30);
   }
 
-  const known = $derived(new Set((app.hello?.vocab ?? []).map(rawChar)));
-  const dropped = $derived(known.size ? [...new Set([...app.prompt].filter((c) => !known.has(c)))] : []);
-  const total = $derived(known.size ? [...app.viewPrompt()].filter((c) => known.has(c)).length : 0);
   const block = $derived(app.hello?.config.block_size ?? 100);
+  // Character profiles drop characters outside their vocabulary; byte-level BPE encodes anything.
+  const charVocab = $derived(app.hello?.config.tokenizer !== "bpe");
+  const known = $derived(new Set((app.hello?.vocab ?? []).map(rawText)));
+  const dropped = $derived(charVocab && known.size ? [...new Set([...app.prompt].filter((c) => !known.has(c)))] : []);
+  // How much of the text is out of the window: everything before the trace's first token.
+  const shownChars = $derived(app.trace ? rawText(app.trace.text.join("")).length : 0);
+  const outOfView = $derived(app.trace && app.trace.tokens.length >= block ? Math.max(0, app.viewPrompt().length - shownChars) : 0);
 </script>
 
 <div class="prompt">
@@ -23,7 +27,7 @@
   </div>
   <div class="meta muted">
     {app.trace?.tokens.length ?? 0} / {block} positions
-    {#if total > block}· <span class="slide">window slid: the first {total - block} characters are out of view</span>{/if}
+    {#if outOfView > 0}· <span class="slide">window slid: the first {outOfView} characters are out of view</span>{/if}
     {#if app.travel !== null}· <span class="slide">time travel: the trace that produced generated character {app.travel + 1}</span>
     {:else if app.trace && app.trace.prompt !== app.prompt}· showing “{app.trace.prompt?.slice(0, 30)}…”{/if}
     {#if dropped.length}· <span class="warn">not in vocabulary, dropped: {dropped.map((c) => JSON.stringify(c)).join(" ")}</span>{/if}

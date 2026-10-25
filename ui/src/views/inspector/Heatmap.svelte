@@ -29,7 +29,8 @@
   const cellW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))) * zoom);
   const cellH = $derived(Math.max(1, Math.min(cellW / zoom, Math.max(4, Math.floor(maxHeight / dims[0])))) * zoom);
   const bandH = $derived(colBands?.length ? 6 : 0);
-  const labelH = $derived(colLabels && cellW >= 9 ? 14 : 0);
+  // Column labels only when they fit their cells (single characters do; words usually not).
+  const labelH = $derived(colLabels && cellW >= 9 && Math.max(...colLabels.map((l) => l.length)) * 5.5 <= cellW + 2 ? 14 : 0);
   const topH = $derived(bandH + labelH);
   const showRowText = $derived(cellH >= 9);
 

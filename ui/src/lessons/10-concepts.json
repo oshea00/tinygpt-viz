@@ -1,0 +1,46 @@
+{
+ "id": "concepts",
+ "order": 10,
+ "title": "Where concepts live",
+ "summary": "Clusters, a probe and a steering test on the Concepts model (start the server with --config concepts).",
+ "steps": [
+  {
+   "text": "This lesson uses the **Concepts** model: a 4,096-token vocabulary, so most words are one token. Start the server with `--config concepts`. The explorer runs a set of prompts and records the residual vector of each tagged word at every snapshot.",
+   "tab": "concepts",
+   "conceptPanel": "similarity",
+   "ask": {
+    "question": "Press **capture** (keep “also the untrained model” ticked).",
+    "check": {
+     "kind": "tab",
+     "tab": "concepts"
+    },
+    "correct": "Each captured word is now a vector per snapshot, from the trained model and from the untrained one."
+   }
+  },
+  {
+   "text": "**Similarity**: cosine between words, grouped by category, after subtracting the average vector (otherwise everything looks alike). Move the snapshot slider from x₀ to the last layer and compare with the untrained model on the right: structure there came from the inputs, not from learning.",
+   "tab": "concepts",
+   "conceptPanel": "similarity"
+  },
+  {
+   "text": "**Projection map**: the two directions of greatest variation. Do animals, colours and emotions form clusters, and from which snapshot? Click a dot to open its prompt's trace.",
+   "tab": "concepts",
+   "conceptPanel": "map"
+  },
+  {
+   "text": "**Probes**: a simple classifier per snapshot, tested on words it never saw. Compare with shuffled labels and the untrained model. A probe shows a concept is readable, not that the model uses it.",
+   "tab": "concepts",
+   "conceptPanel": "probes"
+  },
+  {
+   "text": "**Steering** tests use. Take the direction from one category's mean to the others', add it to the stream while generating, and compare the text with and without. Try negative scales too.",
+   "tab": "concepts",
+   "conceptPanel": "steer"
+  },
+  {
+   "text": "**Attribution** asks which prompt words drove a prediction. Three methods side by side: attention rollout, gradient × input and occlusion. Where they agree, the evidence is strong.",
+   "tab": "concepts",
+   "conceptPanel": "attribution"
+  }
+ ]
+}

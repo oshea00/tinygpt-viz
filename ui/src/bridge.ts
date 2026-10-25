@@ -1,6 +1,7 @@
 // WebSocket client and binary frame decoding (see core/trace_io.py for the layout).
 
 import type { Command, JsonMsg, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
+import type { Capture } from "./lib/concepts";
 
 interface Ref {
   shape: number[];
@@ -74,7 +75,15 @@ export function decodeStepExplain(f: Frame): StepExplain {
   };
 }
 
+export function decodeCapture(f: Frame): Capture {
+  const h = f.header;
+  const t = f.tensor(h.vectors.x);
+  const [N, S, d] = t.shape.length === 3 ? t.shape : [0, h.snapshots.length, 0];
+  return { vectors: t.data, N, S, d, items: h.items, snapshots: h.snapshots, model: h.model, step: h.step };
+}
+
 export type BinaryMsg =
+  | { type: "capture"; capture: Capture; tag?: string }
   | { type: "trace"; trace: Trace }
   | { type: "weights"; weights: Weights }
   | { type: "stepExplain"; explain: StepExplain };
@@ -85,6 +94,7 @@ export function decodeBinary(buf: ArrayBuffer): BinaryMsg {
     case "trace": return { type: "trace", trace: decodeTrace(f) };
     case "weights": return { type: "weights", weights: decodeWeights(f) };
     case "stepExplain": return { type: "stepExplain", explain: decodeStepExplain(f) };
+    case "capture": return { type: "capture", capture: decodeCapture(f), tag: f.header.tag };
     default: throw new Error(`unknown frame ${f.header.type}`);
   }
 }

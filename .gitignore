@@ -11,7 +11,7 @@ wheels/
 
 # Data and runs
 data/raw/
-data/*.bin
+data/**/*.bin
 data/*.txt
 runs/
 node_modules/
