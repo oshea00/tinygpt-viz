@@ -4,7 +4,7 @@
 
   const lesson = $derived(player.lesson);
   const step = $derived(player.step);
-  const last = $derived(lesson ? player.index === lesson.steps.length - 1 : false);
+  const last = $derived(lesson ? player.index === player.steps.length - 1 : false);
   let showHint = $state(false);
   $effect(() => {
     void player.index;
@@ -16,17 +16,17 @@
   <section class="player panel">
     <div class="top">
       <span class="title">{lesson.title}</span>
-      <span class="muted">step {player.index + 1} of {lesson.steps.length}</span>
+      <span class="muted">step {player.index + 1} of {player.steps.length}</span>
       <button class="close" title="close the lesson" onclick={() => player.stop()}>×</button>
     </div>
-    <div class="progress"><span style:width="{((player.index + 1) / lesson.steps.length) * 100}%"></span></div>
-    <p class="text">{@html formatText(step.text)}</p>
+    <div class="progress"><span style:width="{((player.index + 1) / player.steps.length) * 100}%"></span></div>
+    <p class="text">{@html formatText(step.text, player.vars)}</p>
     {#if step.ask}
       <div class="ask" class:done={player.answered}>
         <b>{player.answered ? "✓" : "?"}</b>
-        <span>{@html formatText(player.answered ? (step.ask.correct ?? "That's it.") : step.ask.question)}</span>
+        <span>{@html formatText(player.answered ? (step.ask.correct ?? "That's it.") : step.ask.question, player.vars)}</span>
         {#if !player.answered && step.ask.hint}
-          {#if showHint}<span class="hint">{@html formatText(step.ask.hint)}</span>
+          {#if showHint}<span class="hint">{@html formatText(step.ask.hint, player.vars)}</span>
           {:else}<button class="link" onclick={() => (showHint = true)}>hint</button>{/if}
         {/if}
       </div>

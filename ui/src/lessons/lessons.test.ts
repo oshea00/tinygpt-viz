@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
 import type { Trace } from "../types";
-import { formatText, isCorrect, type Lesson } from "./lesson";
+import { formatText, isCorrect, lessonVars, stepFor, stepsFor, type Lesson } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
@@ -20,8 +20,13 @@ describe("starter lessons", () => {
   for (const l of lessons) {
     it(`${l.order}. ${l.title} refers only to things that exist`, () => {
       expect(l.steps.length).toBeGreaterThan(2);
-      for (const s of l.steps) {
+      // Check every step as both kinds of model see it.
+      for (const s of l.steps.flatMap((st) => [stepFor(st, "char"), stepFor(st, "bpe")])) {
         expect(s.text.length).toBeGreaterThan(20);
+        const known = Object.keys(lessonVars({ tokenizer: "bpe", d_model: 1, vocab_size: 1 }));
+        for (const t of [s.text, s.ask?.question ?? "", s.ask?.hint ?? "", s.ask?.correct ?? ""]) {
+          for (const m of t.matchAll(/\{\{(\w+)\}\}/g)) expect(known, `unknown {{${m[1]}}}`).toContain(m[1]);
+        }
         if (s.stage) expect(trace.byId.has(s.stage), s.stage).toBe(true);
         if (s.tab) expect(TABS).toContain(s.tab);
         if (s.head) expect(s.head[0] < 2 && s.head[1] < 2).toBe(true);
@@ -45,7 +50,22 @@ describe("answer checks", () => {
     expect(hits.filter(Boolean).length).toBe(1);
   });
 
-  it("escapes narration and renders bold and code", () => {
+  it("escapes narration and renders bold, code and model-specific words", () => {
     expect(formatText("**a** `b` <i>")).toBe("<b>a</b> <code>b</code> &lt;i&gt;");
+    const bpe = lessonVars({ tokenizer: "bpe", d_model: 256, vocab_size: 4096 });
+    expect(formatText("one {{unit}} of {{d}} dims, {{V}} {{units}}", bpe)).toBe("one token of 256 dims, 4,096 tokens");
+    expect(formatText("{{unit}}", lessonVars({ tokenizer: "char", d_model: 64, vocab_size: 64 }))).toBe("character");
+  });
+
+  it("shows model-specific steps only to that kind of model", () => {
+    const tokens = lessons.find((l) => l.id === "tokens")!;
+    expect(stepsFor(tokens, "bpe").length).toBe(stepsFor(tokens, "char").length + 1);
+    expect(stepsFor(tokens, "bpe").at(-1)!.tab).toBe("atlas");
+  });
+
+  it("applies BPE overrides only for BPE models", () => {
+    const st = { text: "x".repeat(30), prompt: "a", bpe: { prompt: "b" } };
+    expect(stepFor(st, "char").prompt).toBe("a");
+    expect(stepFor(st, "bpe").prompt).toBe("b");
   });
 });

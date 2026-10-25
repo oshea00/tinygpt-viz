@@ -18,7 +18,7 @@ export type Check =
   | { kind: "tab"; tab: Tab };
 
 export interface LessonStep {
-  text: string;                 // narration; **bold** and `code` are rendered
+  text: string;                 // narration; **bold**, `code` and {{placeholders}} (see lessonVars) are rendered
   prompt?: string;
   tab?: Tab;
   stage?: string;
@@ -33,6 +33,8 @@ export interface LessonStep {
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   ask?: { question: string; check: Check; hint?: string; correct?: string };
+  bpe?: Partial<Omit<LessonStep, "bpe">>;   // replaces these fields when the model reads BPE tokens
+  only?: "char" | "bpe";                    // show this step only for that kind of model
 }
 
 export interface Lesson {
@@ -77,9 +79,25 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
   }
 }
 
-/** Minimal inline formatting for narration: **bold** and `code`, everything else escaped. */
-export function formatText(text: string): string {
-  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** Words and numbers that depend on the running model, for {{name}} in narration. */
+export function lessonVars(cfg: { tokenizer: string; d_model: number; vocab_size: number }): Record<string, string> {
+  const bpe = cfg.tokenizer === "bpe";
+  return { unit: bpe ? "token" : "character", units: bpe ? "tokens" : "characters", d: String(cfg.d_model), V: cfg.vocab_size.toLocaleString() };
+}
+
+/** The lesson's steps for this model: steps for the other kind of model left out. */
+export function stepsFor(lesson: Lesson, tokenizer: string): LessonStep[] {
+  return lesson.steps.filter((st) => !st.only || st.only === (tokenizer === "bpe" ? "bpe" : "char"));
+}
+
+/** The step as it applies to this model: BPE overrides merged in. */
+export function stepFor(step: LessonStep, tokenizer: string): LessonStep {
+  return tokenizer === "bpe" && step.bpe ? { ...step, ...step.bpe } : step;
+}
+
+/** Minimal inline formatting for narration: **bold**, `code` and {{vars}}, everything else escaped. */
+export function formatText(text: string, vars: Record<string, string> = {}): string {
+  const esc = text.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] ?? m).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
 }
 

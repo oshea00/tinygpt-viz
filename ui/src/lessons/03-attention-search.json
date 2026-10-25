@@ -19,7 +19,7 @@
    "tab": "attention"
   },
   {
-   "text": "Click any character in the arcs or any cell of the matrix to move the query. Then find what this head is looking at.",
+   "text": "Click any {{unit}} in the arcs or any cell of the matrix to move the query. Then find what this head is looking at.",
    "tab": "attention",
    "ask": {
     "question": "In the Q·K explorer, click the key with the **largest weight** for the current query.",

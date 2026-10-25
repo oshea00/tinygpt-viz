@@ -5,7 +5,7 @@
  "summary": "Temperature, top-k and top-p: how one character gets chosen.",
  "steps": [
   {
-   "text": "The last row of probabilities is the model's prediction for the next character. The panel on the right shows it: one bar per character in the vocabulary.",
+   "text": "The last row of probabilities is the model's prediction for the next {{unit}}. The panel on the right shows it: one bar per {{unit}} in the vocabulary (the top 40, with {{V}}).",
    "prompt": "Once upon a time, there was a",
    "tab": "inspector",
    "stage": "probs",
@@ -21,20 +21,20 @@
    }
   },
   {
-   "text": "Above 1 it flattens, giving unlikely characters a chance. Generate some text with **auto** and watch it get stranger.",
+   "text": "Above 1 it flattens, giving unlikely {{units}} a chance. Generate some text with **auto** and watch it get stranger.",
    "sampling": {
     "temperature": 1.6
    }
   },
   {
-   "text": "**Top-k** and **top-p** cut the tail instead: only the k most likely characters, or the smallest set covering probability p, can be sampled. The greyed bars are excluded.",
+   "text": "**Top-k** and **top-p** cut the tail instead: only the k most likely {{units}}, or the smallest set covering probability p, can be sampled. The greyed bars are excluded.",
    "sampling": {
     "temperature": 1,
     "topK": 5
    }
   },
   {
-   "text": "Generated characters are coloured by how likely the choice was. Click one to load the trace that produced it.",
+   "text": "Generated {{units}} are coloured by how likely the choice was. Click one to load the trace that produced it.",
    "sampling": {
     "temperature": 0.8
    }

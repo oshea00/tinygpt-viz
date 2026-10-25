@@ -2,7 +2,7 @@
 
 import { concepts } from "../concepts/store.svelte";
 import { app, selection, settings } from "../state/app.svelte";
-import { isCorrect, loadLessons, type Lesson, type LessonStep } from "./lesson";
+import { isCorrect, lessonVars, loadLessons, stepFor, stepsFor, type Lesson, type LessonStep } from "./lesson";
 
 class Player {
   readonly lessons = loadLessons();
@@ -10,8 +10,18 @@ class Player {
   index = $state(0);
   menuOpen = $state(false);
 
+  /** The current lesson's steps for the running model. */
+  get steps(): LessonStep[] {
+    return this.lesson ? stepsFor(this.lesson, app.hello?.config.tokenizer ?? "char") : [];
+  }
+
   get step(): LessonStep | null {
-    return this.lesson?.steps[this.index] ?? null;
+    const s = this.steps[this.index];
+    return s ? stepFor(s, app.hello?.config.tokenizer ?? "char") : null;
+  }
+
+  get vars(): Record<string, string> {
+    return app.hello ? lessonVars(app.hello.config) : {};
   }
 
   /** Whether the current step's question is answered by the current selection. */
@@ -38,8 +48,8 @@ class Player {
 
   go(i: number): void {
     if (!this.lesson) return;
-    this.index = Math.max(0, Math.min(this.lesson.steps.length - 1, i));
-    this.apply(this.lesson.steps[this.index]);
+    this.index = Math.max(0, Math.min(this.steps.length - 1, i));
+    this.apply(this.step!);
   }
 
   private apply(s: LessonStep): void {
