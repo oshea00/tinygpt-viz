@@ -1,0 +1,36 @@
+{
+ "id": "residual-lens",
+ "order": 6,
+ "title": "The residual stream and the logit lens",
+ "summary": "A shared workspace every layer adds to, and when the prediction forms.",
+ "steps": [
+  {
+   "text": "Every sublayer **reads** the residual stream and **adds** to it; nothing overwrites it. This view follows one position's vector through every snapshot.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "residual",
+   "residualMode": "snapshots",
+   "position": "last"
+  },
+  {
+   "text": "Switch to what each sublayer writes: the rows sum to the final vector. The write-size bars show which sublayers made big changes at this position.",
+   "tab": "residual",
+   "residualMode": "writes"
+  },
+  {
+   "text": "The **logit lens** decodes every snapshot as if it were the last, using the final layer norm and unembedding. Each row is what the stream “would say” so far.",
+   "tab": "lens",
+   "lensMode": "actual"
+  },
+  {
+   "text": "Reading down a column shows the guess forming: often wrong early, right late. The right-hand column gives each row's accuracy.",
+   "ask": {
+    "question": "Click a cell in a column where an **early** row is already correct (underlined).",
+    "check": {
+     "kind": "tab",
+     "tab": "lens"
+    },
+    "correct": "Some predictions are easy enough to be readable from the embeddings; others only form in the last layers."
+   }
+  }
+ ]
+}

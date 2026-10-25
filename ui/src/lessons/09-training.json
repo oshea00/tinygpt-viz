@@ -1,0 +1,36 @@
+{
+ "id": "training",
+ "order": 9,
+ "title": "How it learns",
+ "summary": "One training step by hand, then the replay of a whole training run.",
+ "steps": [
+  {
+   "text": "Training starts at the loss: how surprised the model was by each actual next character. Its gradient with respect to the logits is just **p − y**: the predicted probabilities, minus 1 at the correct character.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "inspector",
+   "stage": "logits",
+   "phase": "backward"
+  },
+  {
+   "text": "Step backwards through the network with ← in the stepper. Each stage shows its gradient and its backward rule, and a hand-written backward pass confirms autograd's numbers.",
+   "stage": "L1.resid_mlp",
+   "phase": "backward"
+  },
+  {
+   "text": "One full step: forward, loss, backward, then the optimiser updates every weight. Take one step on this prompt and see the probability of the correct characters rise.",
+   "tab": "onestep",
+   "ask": {
+    "question": "Open the **one training step** tab and take a step.",
+    "check": {
+     "kind": "tab",
+     "tab": "onestep"
+    },
+    "correct": "Compare the gradient with the update Adam actually applied: they look different."
+   }
+  },
+  {
+   "text": "Now watch a whole run: the **replay** slider in the training panel jumps between saved checkpoints, from random weights at step 0 to the end. Press **play through** and watch the attention gallery and the samples.",
+   "tab": "attention"
+  }
+ ]
+}

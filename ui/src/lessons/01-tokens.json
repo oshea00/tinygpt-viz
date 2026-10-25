@@ -1,0 +1,49 @@
+{
+ "id": "tokens",
+ "order": 1,
+ "title": "Text to numbers",
+ "summary": "Tokens and the embedding table: how characters become vectors.",
+ "steps": [
+  {
+   "text": "A GPT never sees letters. The tokenizer turns each character into an id, one per position. The chips under the prompt are those positions: this model reads up to **100** of them.",
+   "prompt": "Once upon a time",
+   "tab": "inspector",
+   "stage": "embed.tok",
+   "position": "last"
+  },
+  {
+   "text": "Each id picks one row of the **token embedding table** `wte`: a lookup, not a calculation. The heatmap shows the rows picked for this prompt, one per position. Rows are positions, labelled with their character; columns are the 64 dimensions of the vector.",
+   "stage": "embed.tok",
+   "ask": {
+    "question": "Click any cell in the row for the first **e** (position 3).",
+    "check": {
+     "kind": "position",
+     "positions": [
+      3
+     ]
+    },
+    "hint": "Rows are positions, counting from 0: O-n-c-e.",
+    "correct": "Below the heatmap, the working shows it is simply copied from row of `wte` for 'e'."
+   }
+  },
+  {
+   "text": "The same character always gets the same row. Find the second **e** (in “time”): its row is identical to the first one's, because the lookup knows nothing about where a character sits.",
+   "stage": "embed.tok",
+   "ask": {
+    "question": "Click a cell in the row for the **e** of “time” (position 15).",
+    "check": {
+     "kind": "position",
+     "positions": [
+      15
+     ]
+    },
+    "correct": "Compare its colours with row 3: the same vector."
+   }
+  },
+  {
+   "text": "The whole table lives in the network atlas: top-left, `token table wte`, one row per character in the vocabulary. Everything the model knows about a character before reading its context is in that row.",
+   "tab": "atlas",
+   "atlasMode": "values"
+  }
+ ]
+}

@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:demo": "vite build --mode demo",
+    "dev:demo": "vite --mode demo"
   },
   "dependencies": {
     "d3-color": "^3.1.0",

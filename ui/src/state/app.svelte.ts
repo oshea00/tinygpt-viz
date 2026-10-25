@@ -2,7 +2,7 @@
 // view updates the selection and every other view follows.
 
 import { Bridge, type BinaryMsg } from "../bridge";
-import type { Command, Hello, Intervention, JsonMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
+import type { Command, Hello, Intervention, JsonMsg, ManualBackwardMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
 import { headOf } from "../lib/attention";
 import { pick, shape, type SampleSettings } from "../lib/sampling";
 import type { ScaleMode } from "../lib/scale";
@@ -53,18 +53,46 @@ class AppState {
   // of the same prompt is fetched too, so every effect can be shown as before / after.
   interventions = $state.raw<Intervention[]>([]);
   baseline = $state.raw<Trace | null>(null);
+
+  manual = $state.raw<ManualBackwardMsg | null>(null);   // hand-written backward vs autograd
+  private manualAsked = "";
+
+  /** Ask for the hand-written backward check of the current trace, once per prompt and step. */
+  requestManual(): void {
+    const t = this.trace;
+    if (!t?.prompt || this.interventions.length) return;
+    const key = `${t.prompt}@${t.step}`;
+    if (key === this.manualAsked) return;
+    this.manualAsked = key;
+    this.send({ type: "manualBackward", prompt: t.prompt });
+  }
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
 
   private bridge: Bridge | null = null;
 
+  /** Static demo build: no server; a TypeScript forward pass answers "run" in the browser. */
+  readonly demo = import.meta.env.MODE === "demo";
+  private local: ((cmd: Command) => void) | null = null;
+
   start(): void {
+    if (this.demo) {
+      import("../demo/demo").then(({ startDemo }) => startDemo((m) => this.onMessage(m)))
+        .then((send) => {
+          this.local = send;
+          this.connected = true;
+          this.run();
+        })
+        .catch((e) => (this.error = `demo: ${e.message}`));
+      return;
+    }
     const proto = location.protocol === "https:" ? "wss" : "ws";
     this.bridge = new Bridge(`${proto}://${location.host}/ws`, (m) => this.onMessage(m), (c) => (this.connected = c));
     this.bridge.connect();
   }
 
   send(cmd: Command): void {
-    this.bridge?.send(cmd);
+    if (this.local) this.local(cmd);
+    else this.bridge?.send(cmd);
   }
 
   run(prompt = this.viewPrompt()): void {
@@ -139,7 +167,7 @@ class AppState {
     switch (m.type) {
       case "hello": {
         this.hello = m;
-        this.status = { step: m.step, playing: m.playing, lr: m.lr, batchSize: m.batchSize, traceEvery: m.traceEvery, device: m.device };
+        this.status = { step: m.step, playing: m.playing, lr: m.lr, batchSize: m.batchSize, traceEvery: m.traceEvery, device: m.device, checkpoints: m.checkpoints };
         if (!this.prompt) this.prompt = m.probe;
         break;
       }
@@ -190,6 +218,9 @@ class AppState {
         this.lossPoints = [];
         this.valPoints = [];
         this.autoSample = null;
+        break;
+      case "manualBackward":
+        this.manual = m;
         break;
       case "error":
         this.error = m.message;

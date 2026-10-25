@@ -119,3 +119,23 @@ def test_interventions_and_baseline_tag(client):
         assert got["main"][0]["interventions"] == ablate
         assert (got["main"][1].stage("L0.attn.out").output == 0).all()
         assert (got["baseline"][1].stage("L0.attn.out").output != 0).any()
+
+
+def test_replay_keeps_unsaved_progress(client):
+    with client.websocket_connect("/ws") as ws:
+        _until(ws, lambda h: h["type"] == "trace")
+        for _ in range(5):   # steps 1-5; the schedule saves some of these automatically
+            ws.send_text(json.dumps({"type": "train", "action": "step"}))
+        _until(ws, lambda h: h["type"] == "status" and h["step"] == 5)
+        ws.send_text(json.dumps({"type": "loadCheckpoint", "step": 1}))
+        s, _ = _until(ws, lambda h: h["type"] == "status" and h["step"] == 1)
+        assert 5 in s["checkpoints"] and 1 in s["checkpoints"]
+        ws.send_text(json.dumps({"type": "loadCheckpoint", "step": 5}))
+        _until(ws, lambda h: h["type"] == "status" and h["step"] == 5)
+
+
+def test_manual_backward_command(client):
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({"type": "manualBackward", "prompt": "Once upon a time"}))
+        m, _ = _until(ws, lambda h: h["type"] == "manualBackward")
+        assert m["worstRelative"] < 1e-4 and "L0.attn.H0.weights" in m["stages"]

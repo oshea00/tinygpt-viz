@@ -20,6 +20,7 @@ class StageMeta:
     weights: list[str] = field(default_factory=list)
     formula: str = ""
     explain: str = ""
+    backward: str = ""     # TeX for this stage's backward rule (see core/manual_backward.py)
 
     def to_json(self) -> dict:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -29,8 +30,32 @@ def _resid_before(l: int) -> str:
     return "embed.sum" if l == 0 else f"L{l - 1}.resid_mlp"
 
 
+BACKWARD = {
+    "embed": r"\partial W[\text{row}_t] \mathrel{+}= g_t \quad\text{(only rows that were looked up)}",
+    "add": r"\partial a = \partial b = g \quad\text{(passed through unchanged to both)}",
+    "norm": r"\hat g = \gamma \odot g,\;\; \partial x = \tfrac{1}{\sigma}\big(\hat g - \overline{\hat g} - \hat x\,\overline{\hat g \odot \hat x}\big),\;\; \partial\gamma = \textstyle\sum_t g \odot \hat x,\;\; \partial\beta = \sum_t g",
+    "linear": r"\partial x = g\,W^\top,\;\; \partial W = x^\top g,\;\; \partial b = \textstyle\sum_t g_t",
+    "logits": r"\partial \hat x = g\,W_U^\top,\;\; \partial W_U = \hat x^\top g",
+    "split": r"\text{the gradient goes back into head } h\text{'s band of columns}",
+    "attn_scores": r"\partial Q = \frac{g\,K}{\sqrt{d}},\;\; \partial K = \frac{g^\top Q}{\sqrt{d}}",
+    "mask": r"\partial S_{ij} = g_{ij} \text{ for } j \le i,\; 0 \text{ for masked } j > i",
+    "softmax": r"\partial S = A \odot \big(g - \textstyle\sum_j g_j A_j\big)",
+    "attn_mix": r"\partial A = g\,V^\top,\;\; \partial V = A^\top g",
+    "concat": r"\text{each head gets its band of columns back}",
+    "activation": r"\partial u = g \cdot \mathrm{GELU}'(u)",
+    "probs": r"\text{not on the loss path: the loss reads the logits directly}",
+    "loss": r"\frac{\partial L}{\partial z} = \frac{p - y}{n}",
+}
+
+
 @lru_cache(maxsize=4096)
 def describe(stage_id: str, cfg: ModelConfig) -> StageMeta:
+    meta = _describe(stage_id, cfg)
+    meta.backward = BACKWARD.get(meta.kind, "")
+    return meta
+
+
+def _describe(stage_id: str, cfg: ModelConfig) -> StageMeta:
     L = cfg.n_layer
     if stage_id == "embed.tok":
         return StageMeta(stage_id, "embed", weights=["wte"], formula=r"e_t = W_{te}[\text{token}_t]",

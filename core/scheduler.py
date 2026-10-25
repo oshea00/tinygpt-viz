@@ -14,6 +14,7 @@ from typing import Callable
 
 import torch
 
+from .manual_backward import compare as manual_compare
 from .sampling import SampleSettings, sample_next
 from .trace_io import encode_tensors, encode_trace, encode_weights
 from .tracer import trace
@@ -60,7 +61,7 @@ class ModelWorker(threading.Thread):
     def status(self) -> dict:
         t = self.trainer
         return {"step": t.step_num, "playing": self.playing, "lr": t.cfg.lr, "batchSize": t.cfg.batch_size,
-                "traceEvery": t.cfg.trace_every, "device": t.device}
+                "traceEvery": t.cfg.trace_every, "device": t.device, "checkpoints": t.checkpoints()}
 
     # -- the loop -----------------------------------------------------------
 
@@ -135,6 +136,9 @@ class ModelWorker(threading.Thread):
             self._sample(cmd)
         elif kind == "loadCheckpoint":
             self.playing = False
+            # Replaying must not lose training: keep the current state as a checkpoint first.
+            if t.step_num not in t.checkpoints():
+                t.save_checkpoint()
             t.load_checkpoint(cmd.get("step"))
             self.weights_version += 1
             self.emit({"type": "status", **self.status()})
@@ -142,6 +146,17 @@ class ModelWorker(threading.Thread):
         elif kind == "stepExplain":
             self.playing = False
             self._step_explain(cmd.get("prompt", self.probe))
+            self.emit({"type": "status", **self.status()})
+        elif kind == "manualBackward":
+            # Hand-written backward vs autograd, stage by stage, for the prompt's trace.
+            prompt = cmd.get("prompt", self.probe)
+            tr = self.trace_prompt(prompt)
+            if not any(st.grad is not None for st in tr.stages):
+                raise ValueError("the prompt needs at least two tokens to have a loss")
+            weights = {n: p.detach().float().cpu().numpy() for n, p in t.model.named_weights().items()}
+            self.emit({"type": "manualBackward", "prompt": prompt, "step": t.step_num, **manual_compare(tr, weights)})
+        elif kind == "save":
+            t.save_checkpoint()
             self.emit({"type": "status", **self.status()})
         elif kind == "hello":
             self.emit(self.hello())

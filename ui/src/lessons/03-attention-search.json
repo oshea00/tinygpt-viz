@@ -1,0 +1,38 @@
+{
+ "id": "attention-search",
+ "order": 3,
+ "title": "Attention as search",
+ "summary": "One head, one query: the dot products behind an attention pattern.",
+ "steps": [
+  {
+   "text": "Each position makes three vectors: a **query** (what am I looking for?), a **key** (what do I offer?) and a **value** (what do I pass on?). Attention compares one query with every earlier key.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "attention",
+   "head": [
+    1,
+    0
+   ],
+   "position": "last"
+  },
+  {
+   "text": "In the **Q·K explorer**, the top bar strip is the query of the selected position. Each row below is an earlier key: their element-wise products, the dot product, the scaled score, and the softmax weight. Large scores come from bars that agree in sign.",
+   "tab": "attention"
+  },
+  {
+   "text": "Click any character in the arcs or any cell of the matrix to move the query. Then find what this head is looking at.",
+   "tab": "attention",
+   "ask": {
+    "question": "In the Q·K explorer, click the key with the **largest weight** for the current query.",
+    "check": {
+     "kind": "attnTop"
+    },
+    "hint": "Switch the order to “by weight”: it is the top row.",
+    "correct": "Its score is the largest, and softmax turns the largest score into the largest weight."
+   }
+  },
+  {
+   "text": "Softmax is why a modest lead in score becomes a large lead in weight: weights are `exp(score)` over the row's total. The matrix view shows every query's row at once; the masked triangle is where a query would look at the future.",
+   "tab": "attention"
+  }
+ ]
+}

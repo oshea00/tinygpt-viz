@@ -1,0 +1,43 @@
+{
+ "id": "positions",
+ "order": 2,
+ "title": "Where am I? Position embeddings",
+ "summary": "Why the model needs a second table, and what happens without it.",
+ "steps": [
+  {
+   "text": "Attention, on its own, treats its input as a set: it cannot tell “ab” from “ba”. So each position also gets a learned vector from the **position table** `wpe`, added to the token's vector.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "inspector",
+   "stage": "embed.pos"
+  },
+  {
+   "text": "This heatmap has one row per position, and it is the same for every prompt: it depends only on where a character is, never on what it is. Smooth changes from row to row are the model's sense of distance.",
+   "stage": "embed.pos",
+   "ask": {
+    "question": "Open the sum of the two, `x₀ = tok + pos`, in the pipeline map on the left.",
+    "check": {
+     "kind": "stage",
+     "ids": [
+      "embed.sum"
+     ]
+    },
+    "hint": "It is the first node on the spine, with a ⊕.",
+    "correct": "This is the residual stream's starting point: what each position knows before any layer runs."
+   }
+  },
+  {
+   "text": "Now an experiment: shuffle the position embeddings, so every character is told the wrong position. Watch the next-token panel on the right, and the loss in the interventions tab.",
+   "tab": "interventions",
+   "interventions": [
+    {
+     "kind": "shuffle_pos",
+     "seed": 1
+    }
+   ]
+  },
+  {
+   "text": "The predictions fall apart: the model has lost track of order. Clearing the intervention restores them.",
+   "interventions": []
+  }
+ ]
+}

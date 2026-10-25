@@ -1,0 +1,36 @@
+{
+ "id": "mlp",
+ "order": 5,
+ "title": "The MLP",
+ "summary": "Neurons that fire on specific patterns, and the two-thirds of the weights they hold.",
+ "steps": [
+  {
+   "text": "After attention, each position passes through an **MLP** on its own: expand to 4× the width, apply GELU, project back. These layers hold about two-thirds of the model's weights.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "inspector",
+   "stage": "L1.mlp.up"
+  },
+  {
+   "text": "This is the expanded layer before the non-linearity: one column per neuron, one row per position.",
+   "stage": "L1.mlp.up"
+  },
+  {
+   "text": "After **GELU**, negative values are squashed towards zero. Columns that stay pale for every position are neurons that did not fire on this prompt; bright cells are neurons responding to something specific at that position.",
+   "stage": "L1.mlp.gelu",
+   "ask": {
+    "question": "Click a bright cell: a neuron firing strongly at one position.",
+    "check": {
+     "kind": "stage",
+     "ids": [
+      "L1.mlp.gelu"
+     ]
+    },
+    "correct": "Its provenance shows the pre-activation u and GELU(u). The interventions tab can now ablate exactly this neuron."
+   }
+  },
+  {
+   "text": "Ablate that neuron (interventions tab, “use L1 neuron … from the inspector”) and watch which predictions change. Most single neurons change little: the work is spread out.",
+   "tab": "interventions"
+  }
+ ]
+}

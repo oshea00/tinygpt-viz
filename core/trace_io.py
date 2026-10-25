@@ -79,7 +79,7 @@ def decode_trace(buf: bytes) -> Trace:
     stages = []
     for s in h["stages"]:
         meta = StageMeta(**{k: s[k] for k in ("id", "kind", "layer", "head", "inputs", "weights",
-                                              "formula", "explain") if k in s})
+                                              "formula", "explain", "backward") if k in s})
         grad = _array(data, {"offset": s["gradOffset"]}, s["shape"]) if "gradOffset" in s else None
         stages.append(StageRecord(meta, _array(data, s), grad))
     return Trace(step=h["step"], tokens=h["tokens"], text=h["text"], stages=stages, loss=h["loss"],

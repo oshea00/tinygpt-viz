@@ -3,10 +3,10 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
-Implemented so far: milestones 1–10 (instrumented core, tracer with gradients, WebSocket
+Implemented so far: milestones 1–11 (instrumented core, tracer with gradients, WebSocket
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
 attention views, generation, residual stream and logit lens, network atlas,
-interventions).
+interventions, lessons, checkpoint replay, manual backward mode, static demo).
 
 ## Setup
 
@@ -65,7 +65,24 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   temperature, top-k and top-p (excluded tokens greyed). Sample one character or run auto; generated
   text is coloured by how likely each choice was, the 100-character window is boxed as it slides,
   and clicking a generated character reloads the trace that produced it.
-- **Training panel**: play, pause, single-step, reset, learning rate, batch size, checkpoints.
+- **Training panel**: play, pause, single-step, reset, learning rate, batch size, and a replay
+  slider over saved checkpoints (with "play through") to watch the model learn.
+- **Lessons** (header menu): nine guided lessons that drive the views, with questions checked
+  against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.
+- **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
+  checks autograd against a hand-written backward pass (`core/manual_backward.py`).
+
+## Static demo
+
+An inference-only build that runs the model in the browser (TypeScript, in a Web Worker) with no
+Python, for sharing:
+
+```sh
+uv run python -m core.export --config default   # latest checkpoint → ui/demo-public/demo/
+cd ui && npm run build:demo                      # → ui/dist-demo/, a static site (about 4.5 MB)
+```
+
+Serve `ui/dist-demo/` from any static host. Training, interventions and gradients need the server.
 
 ## Tests
 

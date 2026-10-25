@@ -1,5 +1,7 @@
 <script lang="ts">
   import { app, settings } from "./state/app.svelte";
+  import LessonMenu from "./lessons/LessonMenu.svelte";
+  import LessonPlayer from "./lessons/LessonPlayer.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import InterventionsView from "./views/interventions/InterventionsView.svelte";
@@ -19,6 +21,7 @@
 <div class="app">
   <header>
     <strong>TinyGPT Visualizer</strong>
+    <LessonMenu />
     {#if cfg}
       <span class="muted mono">
         {cfg.name} · {cfg.n_layer} layers × {cfg.n_head} heads · d={cfg.d_model} · vocab {cfg.vocab_size} ·
@@ -30,13 +33,18 @@
         {app.interventions.length} intervention{app.interventions.length > 1 ? "s" : ""} active
       </button>
     {/if}
-    <span class="conn" class:on={app.connected}>{app.connected ? "connected" : "connecting…"}</span>
+    {#if app.demo}
+      <span class="conn on">static demo · inference only</span>
+    {:else}
+      <span class="conn" class:on={app.connected}>{app.connected ? "connected" : "connecting…"}</span>
+    {/if}
     {#if app.error}<span class="error">{app.error}</span>{/if}
   </header>
 
   <aside class="left panel"><PipelineMap /></aside>
 
   <main>
+    <LessonPlayer />
     <section class="panel pad"><PromptBox /></section>
     <section class="panel pad">
       <Stepper />
@@ -48,8 +56,10 @@
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
         <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
-        <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
-        <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
+        {#if !app.demo}
+          <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
+          <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
+        {/if}
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
       {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
@@ -62,7 +72,7 @@
 
   <aside class="right">
     <section class="panel pad"><OutputPanel /></section>
-    <section class="panel pad"><TrainingPanel /></section>
+    {#if !app.demo}<section class="panel pad"><TrainingPanel /></section>{/if}
   </aside>
 </div>
 

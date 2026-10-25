@@ -20,6 +20,7 @@ export interface Stage {
   weights: string[];
   formula: string;
   explain: string;
+  backward: string;      // TeX for the stage's backward rule
 }
 
 export interface Trace {
@@ -85,6 +86,7 @@ export interface Status {
   batchSize: number;
   traceEvery: number;
   device: string;
+  checkpoints: number[];
 }
 
 export interface Hello extends Status {
@@ -93,7 +95,6 @@ export interface Hello extends Status {
   vocab: string[];
   params: number;
   paramGroups: Record<string, number>;
-  checkpoints: number[];
   probe: string;
 }
 
@@ -103,6 +104,8 @@ export type Command =
   | { type: "set"; lr?: number; batchSize?: number; traceEvery?: number; probe?: string }
   | { type: "sample"; prompt?: string; temperature: number; topK?: number; topP?: number; n: number }
   | { type: "loadCheckpoint"; step: number }
+  | { type: "save" }
+  | { type: "manualBackward"; prompt: string }
   | { type: "stepExplain"; prompt?: string };
 
 export interface MetricsMsg {
@@ -124,7 +127,23 @@ export interface SampleMsg {
   probs?: number[];
 }
 
+export interface GradCheck {
+  maxAbsDiff: number;
+  relative: number;
+  nearZero: boolean;     // zero in exact arithmetic; both sides hold only rounding noise
+}
+
+export interface ManualBackwardMsg {
+  type: "manualBackward";
+  prompt: string;
+  step: number;
+  stages: Record<string, GradCheck>;
+  weights: Record<string, GradCheck>;
+  worstRelative: number;
+}
+
 export type JsonMsg =
+  | ManualBackwardMsg
   | Hello
   | MetricsMsg
   | SampleMsg

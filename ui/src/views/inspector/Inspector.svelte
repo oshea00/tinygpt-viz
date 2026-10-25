@@ -40,6 +40,15 @@
     return Array.from({ length: n_head }, (_, h) => ({ start: h * dh, end: (h + 1) * dh, color: headColor(h) }));
   });
 
+  // Backward phase: the stage's backward rule, checked against a hand-written backward pass.
+  $effect(() => {
+    if (backward && trace) app.requestManual();
+  });
+  const check = $derived(
+    backward && stage && app.manual && trace && app.manual.prompt === trace.prompt && app.manual.step === trace.step
+      ? app.manual.stages[stage.id] : null,
+  );
+
   const pickedR = $derived(selection.position >= 0 && selection.position < dims[0] ? selection.position : -1);
   const pickedC = $derived(selection.dim >= 0 && selection.dim < dims[1] ? selection.dim : -1);
 </script>
@@ -100,6 +109,26 @@
   {/if}
 
   <div class="lesson">
+    {#if backward && stage.backward}
+      <div class="muted small">backward rule</div>
+      <Formula tex={stage.backward} />
+      {#if app.interventions.length}
+        <p class="muted small">Hand-written check unavailable while interventions are active.</p>
+      {:else if check}
+        <p class="check small">
+          Hand-written backward (<span class="mono">core/manual_backward.py</span>) vs autograd for this stage:
+          max |Δ| <span class="mono">{fmt(check.maxAbsDiff, 2)}</span>
+          {#if check.nearZero}
+            · <b>zero in exact arithmetic</b>; both sides are rounding noise
+          {:else}
+            · relative <span class="mono">{fmt(check.relative, 2)}</span>
+          {/if}
+          <span class={check.relative < 1e-4 ? "ok" : "bad"}>{check.relative < 1e-4 ? "✓ agree" : "✗ differ"}</span>
+          {#if app.manual}<span class="muted">· worst over all {Object.keys(app.manual.stages).length} stages and {Object.keys(app.manual.weights).length} weights: {fmt(app.manual.worstRelative, 2)}</span>{/if}
+        </p>
+      {/if}
+      <div class="muted small">forward</div>
+    {/if}
     <Formula tex={stage.formula} />
     <p>{stage.explain}</p>
     {#if stage.weights.length}<p class="muted">weights: <span class="mono">{stage.weights.join(", ")}</span></p>{/if}
@@ -131,6 +160,10 @@
   .axes { font-size: 11px; margin: 4px 0 0; }
   .loss { font-size: 28px; margin: 12px 0; }
   .lesson { margin-top: 10px; max-width: 760px; }
+  .small { font-size: 11px; }
+  .check { background: var(--accent-soft); padding: 4px 8px; border-radius: 6px; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
   .lesson p { margin: 4px 0; }
   .link { border: none; background: none; color: var(--accent); padding: 0 6px 0 0; text-decoration: underline; }
 </style>

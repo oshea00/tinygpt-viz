@@ -40,6 +40,7 @@ export function decodeTrace(f: Frame): Trace {
     weights: s.weights ?? [],
     formula: s.formula ?? "",
     explain: s.explain ?? "",
+    backward: s.backward ?? "",
     output: f.tensor(s),
     grad: s.gradOffset !== undefined ? f.tensor({ shape: s.shape, offset: s.gradOffset }) : undefined,
   }));

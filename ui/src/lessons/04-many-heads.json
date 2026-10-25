@@ -1,0 +1,33 @@
+{
+ "id": "many-heads",
+ "order": 4,
+ "title": "Many heads",
+ "summary": "The head gallery, naming heads, and ablating one to see what it does.",
+ "steps": [
+  {
+   "text": "Each layer runs several heads side by side, each with its own query, key and value projections, so each can learn a different habit. The **head gallery** shows them all for this prompt.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She",
+   "tab": "attention"
+  },
+  {
+   "text": "The badge under each head summarises its habit: a fixed target (previous, self, first) if it has one; otherwise how **sharp** it is and how far back it looks on average.",
+   "ask": {
+    "question": "Click the **sharpest** head in the gallery: the one that puts most weight on a single key.",
+    "check": {
+     "kind": "headBest",
+     "stat": "peak"
+    },
+    "hint": "Look for the thinnest diagonal lines, and a “sharp” badge.",
+    "correct": "Give it a name in the box under it, if you can describe what it does."
+   }
+  },
+  {
+   "text": "To learn what a head does, remove it. Ablating zeroes its output in every trace. Use the **ablate** button under the head you picked, then open the **interventions** tab to see the effect on the loss and on each position's prediction.",
+   "tab": "attention"
+  },
+  {
+   "text": "Heads that matter raise the loss when removed, and the per-position chart shows where they matter. Try a few heads: some barely change anything.",
+   "tab": "interventions"
+  }
+ ]
+}

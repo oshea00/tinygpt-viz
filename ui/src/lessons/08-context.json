@@ -1,0 +1,22 @@
+{
+ "id": "context",
+ "order": 8,
+ "title": "Why only 100 characters?",
+ "summary": "The context window, and why it is a hard limit.",
+ "steps": [
+  {
+   "text": "The position table has exactly 100 rows, so the model can only ever see 100 positions. Longer text is cut to its last 100 characters: the window **slides**.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree.",
+   "tab": "inspector",
+   "stage": "embed.pos"
+  },
+  {
+   "text": "Under the prompt box: the characters that slid out of view are no longer anywhere in the network. Whatever they said is forgotten unless it was repeated later.",
+   "tab": "attention"
+  },
+  {
+   "text": "Generation repeats this for every new character: run the whole window, read the last row, sample, append, slide. The attention matrix is T×T, so cost grows with the square of the window: one reason context is limited.",
+   "tab": "attention"
+  }
+ ]
+}

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { app } from "../../state/app.svelte";
   import LossChart from "./LossChart.svelte";
+  import Replay from "./Replay.svelte";
 
   const s = $derived(app.status);
   const train = (action: "play" | "pause" | "step" | "reset") => app.send({ type: "train", action });
-  let ckpt = $state("");
 </script>
 
 <div>
@@ -43,15 +43,7 @@
     </div>
   {/if}
 
-  {#if app.hello?.checkpoints.length}
-    <div class="row">
-      <select bind:value={ckpt}>
-        <option value="">checkpoint…</option>
-        {#each app.hello.checkpoints as c}<option value={String(c)}>step {c}</option>{/each}
-      </select>
-      <button disabled={!ckpt} onclick={() => app.send({ type: "loadCheckpoint", step: +ckpt })}>load</button>
-    </div>
-  {/if}
+  <Replay />
 
   {#if app.autoSample}
     <div class="sample">
