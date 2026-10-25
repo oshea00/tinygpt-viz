@@ -58,7 +58,7 @@
             <span class="b before" style:height="{pb * 100}%"></span>
             <span class="b after" class:down={pa < pb} style:height="{pa * 100}%"></span>
           </div>
-          <span class="mono lab">{ex.text[i + 1]}</span>
+          <span class="mono lab" class:word={ex.text[i + 1].length > 1}>{ex.text[i + 1]}</span>
         </div>
       {/each}
     </div>
@@ -105,6 +105,8 @@
   .after { background: var(--ok); }
   .after.down { background: var(--bad); }
   .lab { font-size: 9px; }
+  /* Multi-character (BPE) tokens would overlap at this column width: run them downwards. */
+  .lab.word { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; line-height: 11px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .triple { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
   .triple.wide { grid-template-columns: 1fr; }
   .lbl { font-size: 11px; margin-bottom: 2px; }

@@ -9,8 +9,9 @@
   let playing = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  // Between checkpoints (training moved on since the last save) the slider rests at the end.
   $effect(() => {
-    if (current >= 0 && !playing) index = current;
+    if (!playing) index = current >= 0 ? current : steps.length - 1;
   });
 
   function load(i: number) {
@@ -36,7 +37,7 @@
   <div class="replay">
     <div class="head">
       <span class="muted">replay checkpoints</span>
-      <span class="mono">step {steps[index]}</span>
+      <span class="mono">{current < 0 && !playing && app.status ? `step ${app.status.step} (not saved)` : `step ${steps[index]}`}</span>
     </div>
     <input type="range" min="0" max={steps.length - 1} value={index} disabled={app.status?.playing}
            oninput={(e) => { playing = false; load(+(e.target as HTMLInputElement).value); }} />

@@ -174,7 +174,7 @@
             <span class="b before" style:height="{p.before * 100}%"></span>
             <span class="b after" class:down={p.after < p.before - 1e-4} style:height="{p.after * 100}%"></span>
           </div>
-          <span class="mono lab">{trace.text[i]}</span>
+          <span class="mono lab" class:word={trace.text[i].length > 1}>{trace.text[i]}</span>
         </div>
       {/each}
     </div>
@@ -217,4 +217,6 @@
   .cbars { height: 80px; width: 100%; display: flex; align-items: flex-end; gap: 1px; }
   .cbars .b { flex: 1; display: block; min-height: 1px; }
   .lab { font-size: 9px; }
+  /* Multi-character (BPE) tokens would overlap at this column width: run them downwards. */
+  .lab.word { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; line-height: 11px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 </style>
