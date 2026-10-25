@@ -66,9 +66,14 @@ export function drawHeatmap(ctx: CanvasRenderingContext2D, t: Tensor, x0: number
   ctx.drawImage(scratch, x0, y0, w, h);
 
   if (masked.length) {
+    // One rectangle per run of adjacent masked cells in a row: a causal mask is one run per row.
     ctx.fillStyle = hatchPattern(ctx) ?? `rgb(${MASKED_RGB.join(",")})`;
-    for (const i of masked) {
-      ctx.fillRect(x0 + (i % cols) * o.cellW, y0 + Math.floor(i / cols) * o.cellH, o.cellW, o.cellH);
+    for (let k = 0; k < masked.length; ) {
+      const start = masked[k];
+      let end = start;
+      while (k + 1 < masked.length && masked[k + 1] === end + 1 && (end + 1) % cols !== 0) end = masked[++k];
+      k++;
+      ctx.fillRect(x0 + (start % cols) * o.cellW, y0 + Math.floor(start / cols) * o.cellH, (end - start + 1) * o.cellW, o.cellH);
     }
   }
   if (o.markClipped && o.cellW >= 5 && o.cellH >= 5) {

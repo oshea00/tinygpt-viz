@@ -97,7 +97,9 @@ def main() -> None:
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{args.config} at step {trainer.step_num} on {trainer.device}: http://localhost:{args.port}")
-    uvicorn.run(create_app(trainer), host="127.0.0.1", port=args.port, log_level="warning")
+    # No per-message compression: deflating megabytes of float32 costs more than sending them locally.
+    uvicorn.run(create_app(trainer), host="127.0.0.1", port=args.port, log_level="warning",
+                ws_per_message_deflate=False)
 
 
 if __name__ == "__main__":

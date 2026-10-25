@@ -5,6 +5,7 @@ inspector from this, so nothing about the network's shape is hand-coded there.
 
 import re
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 
 from .config import ModelConfig
 
@@ -28,6 +29,7 @@ def _resid_before(l: int) -> str:
     return "embed.sum" if l == 0 else f"L{l - 1}.resid_mlp"
 
 
+@lru_cache(maxsize=4096)
 def describe(stage_id: str, cfg: ModelConfig) -> StageMeta:
     L = cfg.n_layer
     if stage_id == "embed.tok":

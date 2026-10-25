@@ -13,12 +13,13 @@
   const backward = $derived(selection.phase === "backward");
 
   function thumb(canvas: HTMLCanvasElement, p: { t: Tensor; seq: boolean; mask: boolean }) {
-    const draw = (q: typeof p) => drawThumb(canvas, q.t, tensorRange([q.t.data], q.seq ? "sequential" : "diverging", 99, false, ""), q.mask);
+    const draw = (q: typeof p) => drawThumb(canvas, q.t, tensorRange([q.t.data], q.seq ? "sequential" : "diverging", 99, false, "", THUMB_SAMPLE), q.mask);
     draw(p);
     return { update: draw };
   }
 
   const ROW_H = 26;
+  const THUMB_SAMPLE = 2000;   // enough for a 30-pixel preview; these redraw on every trace
 </script>
 
 <div class="map">

@@ -35,8 +35,17 @@ class Trace:
         return next(s for s in self.stages if s.meta.id == stage_id)
 
 
-def _to_numpy(t: torch.Tensor) -> np.ndarray:
-    return t.detach().float().cpu().numpy()
+def _to_numpy(tensors: list[torch.Tensor]) -> list[np.ndarray]:
+    """Copy many tensors to the CPU in one transfer: on a GPU, one copy per tensor would
+    mean ~170 synchronisations per trace."""
+    if not tensors:
+        return []
+    flat = torch.cat([t.detach().float().reshape(-1) for t in tensors]).cpu().numpy()
+    out, i = [], 0
+    for t in tensors:
+        out.append(flat[i:i + t.numel()].reshape(tuple(t.shape)))
+        i += t.numel()
+    return out
 
 
 def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
@@ -76,22 +85,25 @@ def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
             _, loss = model(idx, targets if has_target else None)
             if with_grad:
                 loss.backward()
-        weight_grads = {n: _to_numpy(p.grad) for n, p in model.named_weights().items()
-                        if p.grad is not None} if with_grad else {}
+        named = [(n, p.grad) for n, p in model.named_weights().items() if with_grad and p.grad is not None]
+        weight_grads = dict(zip([n for n, _ in named], _to_numpy([g for _, g in named])))
     finally:
         for n, p in model.named_parameters():
             p.grad = saved_grads[n]
         model.train(was_training)
 
+    unbatch = lambda x: x[0] if x.dim() > 0 else x   # noqa: E731  (traces are batch size 1)
+    outputs = _to_numpy([unbatch(x) for x in live.values()])
+    with_grads = [x for x in live.values() if with_grad and x.grad is not None]
+    grads = iter(_to_numpy([unbatch(x.grad) for x in with_grads]))
     stages = []
-    for stage_id, x in live.items():
-        out = x[0] if x.dim() > 0 else x
+    for (stage_id, x), out in zip(live.items(), outputs):
         grad = None
         if with_grad and x.grad is not None:
-            grad = _to_numpy(x.grad[0] if x.dim() > 0 else x.grad)
+            grad = next(grads)
         elif with_grad and x.requires_grad:
-            grad = np.zeros(tuple(out.shape), dtype=np.float32)   # stage did not affect this loss
-        stages.append(StageRecord(describe(stage_id, model.cfg), _to_numpy(out), grad))
+            grad = np.zeros(out.shape, dtype=np.float32)   # stage did not affect this loss
+        stages.append(StageRecord(describe(stage_id, model.cfg), out, grad))
     return Trace(step=step, tokens=tokens, text=token_text, stages=stages,
                  loss=loss.item() if loss is not None else None, targets=targets[0].tolist(),
                  weight_grads=weight_grads)

@@ -14,13 +14,15 @@ export interface Range {
   label: string;
 }
 
-const SAMPLE = 40_000;
+const SAMPLE = 20_000;
 
-/** p-th percentile of |x| (diverging) or x (sequential) over finite values, sampled. */
-function percentile(arrays: Float32Array[], p: number, abs: boolean): number {
+/** p-th percentile of |x| (diverging) or x (sequential) over finite values, sampled.
+ * Runs for every thumbnail on every trace, so it uses a native typed-array sort. */
+function percentile(arrays: Float32Array[], p: number, abs: boolean, sample = SAMPLE): number {
   const total = arrays.reduce((n, a) => n + a.length, 0);
-  const stride = Math.max(1, Math.floor(total / SAMPLE));
-  const vals: number[] = [];
+  const stride = Math.max(1, Math.ceil(total / sample));
+  const vals = new Float32Array(Math.ceil(total / stride) + arrays.length);
+  let n = 0;
   let max = 0;
   let i = 0;
   for (const a of arrays) {
@@ -28,12 +30,12 @@ function percentile(arrays: Float32Array[], p: number, abs: boolean): number {
       const v = abs ? Math.abs(a[j]) : a[j];
       if (!Number.isFinite(v)) continue;
       if (v > max) max = v;
-      if (i % stride === 0) vals.push(v);
+      if (i % stride === 0) vals[n++] = v;
     }
   }
-  if (p >= 100 || vals.length === 0) return max || 1;
-  vals.sort((a, b) => a - b);
-  return vals[Math.min(vals.length - 1, Math.floor((p / 100) * vals.length))] || max || 1;
+  if (p >= 100 || n === 0) return max || 1;
+  const sorted = vals.subarray(0, n).sort();
+  return sorted[Math.min(n - 1, Math.floor((p / 100) * n))] || max || 1;
 }
 
 export function isSequential(stage: Stage, grad: boolean): boolean {
@@ -43,8 +45,9 @@ export function isSequential(stage: Stage, grad: boolean): boolean {
 /** Stages of one type across layers and heads share a key: L2.attn.H1.weights → L*.attn.H*.weights */
 export const stageTypeKey = (id: string) => id.replace(/^L\d+/, "L*").replace(/\.H\d+\./, ".H*.");
 
-export function tensorRange(arrays: Float32Array[], kind: MapKind, clip: number, symlog: boolean, label: string): Range {
-  const hi = percentile(arrays, clip, kind === "diverging");
+export function tensorRange(arrays: Float32Array[], kind: MapKind, clip: number, symlog: boolean, label: string,
+                            sample = SAMPLE): Range {
+  const hi = percentile(arrays, clip, kind === "diverging", sample);
   return { kind, lo: kind === "diverging" ? -hi : 0, hi, symlog, label };
 }
 
