@@ -8,6 +8,12 @@ import { row } from "../lib/tensor";
 
 export type Tab = "inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
 
+/** How the running model reads text; lessons adapt to it. */
+export type Reads = "char" | "bpe";
+
+/** A config to suggest when a lesson needs the other kind of model (see core/config.py). */
+export const CONFIG_FOR: Record<Reads, string> = { char: "char-small", bpe: "bpe-small" };
+
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
 export type Check =
@@ -33,8 +39,8 @@ export interface LessonStep {
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   ask?: { question: string; check: Check; hint?: string; correct?: string };
-  bpe?: Partial<Omit<LessonStep, "bpe">>;   // replaces these fields when the model reads BPE tokens
-  only?: "char" | "bpe";                    // show this step only for that kind of model
+  /** Per kind of model: fields that replace the step's own, or null to leave the step out. */
+  variants?: Partial<Record<Reads, Partial<Omit<LessonStep, "variants">> | null>>;
 }
 
 export interface Lesson {
@@ -42,6 +48,7 @@ export interface Lesson {
   order: number;
   title: string;
   summary: string;
+  requires?: Reads;             // only works with this kind of model (shown, disabled, otherwise)
   steps: LessonStep[];
 }
 
@@ -85,14 +92,17 @@ export function lessonVars(cfg: { tokenizer: string; d_model: number; vocab_size
   return { unit: bpe ? "token" : "character", units: bpe ? "tokens" : "characters", d: String(cfg.d_model), V: cfg.vocab_size.toLocaleString() };
 }
 
-/** The lesson's steps for this model: steps for the other kind of model left out. */
-export function stepsFor(lesson: Lesson, tokenizer: string): LessonStep[] {
-  return lesson.steps.filter((st) => !st.only || st.only === (tokenizer === "bpe" ? "bpe" : "char"));
-}
+export const readsOf = (tokenizer: string | undefined): Reads => (tokenizer === "bpe" ? "bpe" : "char");
 
-/** The step as it applies to this model: BPE overrides merged in. */
-export function stepFor(step: LessonStep, tokenizer: string): LessonStep {
-  return tokenizer === "bpe" && step.bpe ? { ...step, ...step.bpe } : step;
+export const available = (lesson: Lesson, reads: Reads) => !lesson.requires || lesson.requires === reads;
+
+/** The lesson's steps as they apply to this kind of model: variants merged in, and steps a
+ * variant leaves out (null) dropped. */
+export function stepsFor(lesson: Lesson, reads: Reads): LessonStep[] {
+  return lesson.steps.flatMap((st) => {
+    const v = st.variants?.[reads];
+    return v === null ? [] : [v ? { ...st, ...v } : st];
+  });
 }
 
 /** Minimal inline formatting for narration: **bold**, `code` and {{vars}}, everything else escaped. */

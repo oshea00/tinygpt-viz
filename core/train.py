@@ -2,7 +2,7 @@
 
 The trainer owns no thread; the scheduler decides when step() runs.
 
-    uv run python -m core.train --config default --steps 5000
+    uv run python -m core.train --config char-small --steps 5000
 """
 
 import argparse
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import torch
 
-from .config import PROFILES, ModelConfig, TrainConfig, pick_device
+from .config import ALIASES, DEFAULT_PROFILE, PROFILE_CHOICES, ModelConfig, TrainConfig, pick_device, profile
 from .data import CharData, load_data
 from .model import GPT
 from .sampling import SampleSettings, generate
@@ -36,9 +36,19 @@ class Trainer:
         self.cfg = train_cfg
         self.device = device
         self.model_cfg = model_cfg.with_vocab(data.tokenizer.vocab_size)
-        self.run_dir = run_dir or RUNS_DIR / self.model_cfg.name
+        self.run_dir = run_dir or self._default_run_dir()
         self.schedule = checkpoint_schedule()
         self.reset(train_cfg.seed)
+
+    def _default_run_dir(self) -> Path:
+        """runs/<profile>; checkpoints saved under a profile's earlier name are moved here once."""
+        path = RUNS_DIR / self.model_cfg.name
+        for old, new in ALIASES.items():
+            legacy = RUNS_DIR / old
+            if new == self.model_cfg.name and legacy.exists() and not path.exists():
+                legacy.rename(path)
+                print(f"moved checkpoints from {legacy} to {path}")
+        return path
 
     def reset(self, seed: int | None = None) -> None:
         seed = self.cfg.seed if seed is None else seed
@@ -126,7 +136,7 @@ class Trainer:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="default", choices=list(PROFILES))
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--lr", type=float, default=TrainConfig.lr)
     p.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
@@ -136,14 +146,14 @@ def main() -> None:
     args = p.parse_args()
 
     device = pick_device(args.device)
-    trainer = Trainer(PROFILES[args.config], TrainConfig(lr=args.lr, batch_size=args.batch_size),
-                      load_data(PROFILES[args.config].tokenizer), device)
+    cfg = profile(args.config)
+    trainer = Trainer(cfg, TrainConfig(lr=args.lr, batch_size=args.batch_size), load_data(cfg.tokenizer), device)
     if args.resume:
         trainer.load_checkpoint()
     else:
         trainer.save_checkpoint()   # step 0: the untrained baseline
     groups = trainer.model.param_groups_count()
-    print(f"{args.config} on {device}: {trainer.model.num_params():,} params "
+    print(f"{cfg.name} on {device}: {trainer.model.num_params():,} params "
           + ", ".join(f"{k} {v:,}" for k, v in groups.items()))
     t0 = time.time()
     while trainer.step_num < args.steps:

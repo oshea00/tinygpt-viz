@@ -7,7 +7,7 @@ Implemented: milestones 1–12 (instrumented core, tracer with gradients, WebSoc
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
 attention views, generation, residual stream and logit lens, network atlas,
 interventions, lessons, checkpoint replay, manual backward mode, static demo, and the
-Concepts profile with its concept explorer).
+BPE model with its concept explorer).
 
 ## Setup
 
@@ -22,24 +22,31 @@ cd ui && npm install && npm run build && cd ..
 ## Train
 
 ```sh
-uv run python -m core.train --config default --steps 20000
+uv run python -m core.train --config char-small --steps 20000
 ```
 
-Profiles: `tiny` (32k params), `default` (215k), `larger` (1.2M) read characters; `concepts`
-(5.8M, tied embeddings) reads a 4,096-token BPE trained on TinyStories, so most words are one
-token. Default reaches validation loss ≈ 0.95 in about 7 minutes on a GPU (about 30 on CPU).
-Checkpoints land in `runs/<config>/` on a log-spaced schedule for later replay.
+Configs are named by how the model reads text, then by size:
+
+| Config | Reads | Params | Shape | Notes |
+| --- | --- | --- | --- | --- |
+| `char-tiny` | characters (64) | 32k | 2 layers × 2 heads, d=32 | every number readable |
+| `char-small` | characters (64) | 215k | 4 × 4, d=64 | the default; val loss ≈ 0.95 in ~7 min on a GPU (~30 on CPU) |
+| `char-large` | characters (64) | 1.2M | 6 × 8, d=128 | better text; the atlas needs zooming |
+| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 × 8, d=256, tied embeddings | most words are one token; for the concept explorer |
+
+The earlier names `tiny`, `default`, `larger` and `concepts` still work; their checkpoint
+directories are renamed to the new names the first time they are used. Checkpoints land in `runs/<config>/` on a log-spaced schedule for later replay.
 
 ```sh
 uv run python -m core.data --bpe     # Concepts corpus: 250 MB slice, BPE tokenizer, ~62M tokens
-uv run python -m core.train --config concepts --steps 20000 --lr 6e-4 --batch-size 128   # ~22 min on a 4090
-uv run python -m core.server --config concepts
+uv run python -m core.train --config bpe-small --steps 20000 --lr 6e-4 --batch-size 128   # ~22 min on a 4090
+uv run python -m core.server --config bpe-small
 ```
 
 ## Run the app
 
 ```sh
-uv run python -m core.server --config default    # loads the latest checkpoint; --fresh for random weights
+uv run python -m core.server --config char-small # loads the latest checkpoint; --fresh for random weights
 ```
 
 Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
@@ -67,7 +74,7 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   embeddings. Every view then shows the changed model; the interventions tab compares it with the
   original run (loss, next-token distribution, p(actual) per position, and where the change spreads
   stage by stage), and the inspector can show any stage as its change. Training is never affected.
-- **Concept explorer** (best with `--config concepts`): capture each tagged word of a prompt set
+- **Concept explorer** (best with `--config bpe-small`): capture each tagged word of a prompt set
   (editable templates such as "Lily saw a {animal} in the garden.") at every residual snapshot, from
   the trained model and the untrained step-0 model as a baseline. Then: similarity matrices,
   PCA maps (click a point to open its trace), nearest neighbours in the embedding table and in
@@ -93,7 +100,7 @@ An inference-only build that runs the model in the browser (TypeScript, in a Web
 Python, for sharing:
 
 ```sh
-uv run python -m core.export --config default   # latest checkpoint → ui/demo-public/demo/
+uv run python -m core.export --config char-small # latest checkpoint → ui/demo-public/demo/
 cd ui && npm run build:demo                      # → ui/dist-demo/, a static site (about 4.5 MB)
 ```
 

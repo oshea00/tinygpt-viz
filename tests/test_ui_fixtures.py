@@ -16,7 +16,7 @@ FIXTURES = Path(__file__).resolve().parent.parent / "ui" / "src" / "fixtures"
 
 def test_write_ui_fixtures():
     torch.manual_seed(0)
-    model = GPT(PROFILES["tiny"].with_vocab(16))
+    model = GPT(PROFILES["char-tiny"].with_vocab(16))
     ids = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]
     t = trace(model, ids, [chr(97 + i) for i in ids], step=42, next_token=9)
     FIXTURES.mkdir(parents=True, exist_ok=True)

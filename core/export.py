@@ -1,6 +1,6 @@
 """Export a checkpoint for the static browser demo (inference only, no Python needed).
 
-    uv run python -m core.export --config default            # latest checkpoint
+    uv run python -m core.export --config char-small         # latest checkpoint
     cd ui && npm run build:demo                              # → ui/dist-demo, a static site
 
 Writes, under ui/demo-public/demo/: weights.bin (the same binary frame the live app
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from .config import PROFILES, TrainConfig
+from .config import DEFAULT_PROFILE, PROFILE_CHOICES, TrainConfig, profile
 from .data import load_data
 from .scheduler import DEFAULT_PROBE
 from .trace_io import encode_trace, encode_weights
@@ -25,9 +25,10 @@ OUT = Path(__file__).resolve().parent.parent / "ui" / "demo-public" / "demo"
 
 
 def export(config: str, step: int | None, out: Path = OUT, probe: str = DEFAULT_PROBE) -> Path:
-    if PROFILES[config].tokenizer != "char":
-        raise SystemExit("the static demo tokenizes characters in TypeScript; BPE profiles need the server")
-    trainer = Trainer(PROFILES[config], TrainConfig(), load_data(PROFILES[config].tokenizer), "cpu")
+    cfg = profile(config)
+    if cfg.tokenizer != "char":
+        raise SystemExit("the static demo tokenizes characters in TypeScript; bpe-* models need the server")
+    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), "cpu")
     trainer.load_checkpoint(step)
     model, tok = trainer.model, trainer.data.tokenizer
     out.mkdir(parents=True, exist_ok=True)
@@ -52,12 +53,12 @@ def export(config: str, step: int | None, out: Path = OUT, probe: str = DEFAULT_
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="default", choices=list(PROFILES))
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
     p.add_argument("--step", type=int, default=None, help="checkpoint step (default: latest)")
     args = p.parse_args()
     out = export(args.config, args.step)
     size = sum(f.stat().st_size for f in out.iterdir()) / 1e6
-    print(f"exported {args.config} to {out} ({size:.1f} MB)")
+    print(f"exported {profile(args.config).name} to {out} ({size:.1f} MB)")
 
 
 if __name__ == "__main__":

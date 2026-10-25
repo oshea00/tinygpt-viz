@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { available, CONFIG_FOR } from "./lesson";
   import { player } from "./player.svelte";
 </script>
 
@@ -7,9 +8,12 @@
   {#if player.menuOpen}
     <div class="menu panel">
       {#each player.lessons as l}
-        <button class="item" onclick={() => player.start(l)}>
+        {@const ok = available(l, player.reads)}
+        <button class="item" disabled={!ok} onclick={() => player.start(l)}>
           <span class="n">{l.order}</span>
-          <span><b>{l.title}</b><br /><span class="muted">{l.summary}</span></span>
+          <span><b>{l.title}</b><br /><span class="muted">{l.summary}</span>
+            {#if !ok}<br /><span class="needs">needs a {l.requires === "bpe" ? "BPE" : "character"} model: start the server with <code>--config {CONFIG_FOR[l.requires!]}</code></span>{/if}
+          </span>
         </button>
       {/each}
     </div>
@@ -22,4 +26,8 @@
   .item { display: grid; grid-template-columns: 22px 1fr; gap: 6px; width: 100%; text-align: left; border: none; padding: 6px; font-size: 12px; }
   .item:hover { background: var(--accent-soft); }
   .n { font-weight: 700; color: var(--accent); }
+  .item:disabled { opacity: 0.55; cursor: default; }
+  .item:disabled:hover { background: none; }
+  .needs { color: var(--bad); }
+  code { font-family: var(--mono); }
 </style>

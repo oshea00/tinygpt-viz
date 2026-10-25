@@ -2,10 +2,10 @@
  "id": "concepts",
  "order": 10,
  "title": "Where concepts live",
- "summary": "Clusters, a probe and a steering test on the Concepts model (start the server with --config concepts).",
+ "summary": "Clusters, a probe and a steering test, on a model whose tokens are mostly whole words.",
  "steps": [
   {
-   "text": "This lesson uses the **Concepts** model: a 4,096-token vocabulary, so most words are one token. Start the server with `--config concepts`. The explorer runs a set of prompts and records the residual vector of each tagged word at every snapshot.",
+   "text": "With this model's {{V}}-token vocabulary most words are one token, so each word has one vector per layer to compare. The explorer runs a set of prompts and records the residual vector of each tagged word at every snapshot.",
    "tab": "concepts",
    "conceptPanel": "similarity",
    "ask": {
@@ -42,5 +42,6 @@
    "tab": "concepts",
    "conceptPanel": "attribution"
   }
- ]
+ ],
+ "requires": "bpe"
 }

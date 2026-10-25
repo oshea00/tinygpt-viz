@@ -9,8 +9,10 @@
    "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree.",
    "tab": "inspector",
    "stage": "embed.pos",
-   "bpe": {
-    "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree. Lily wanted to climb the tree, but it was very tall. Max barked and ran around the tree. A kind old man saw them and smiled. He helped Lily climb up to the first branch. From the branch, Lily could see the whole park. She saw her mom waving at her. Lily waved back and laughed. Then she climbed down and gave Max a big hug. They walked home together, happy and tired."
+   "variants": {
+    "bpe": {
+     "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree. Lily wanted to climb the tree, but it was very tall. Max barked and ran around the tree. A kind old man saw them and smiled. He helped Lily climb up to the first branch. From the branch, Lily could see the whole park. She saw her mom waving at her. Lily waved back and laughed. Then she climbed down and gave Max a big hug. They walked home together, happy and tired."
+    }
    }
   },
   {

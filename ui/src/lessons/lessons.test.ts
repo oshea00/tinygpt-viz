@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
 import type { Trace } from "../types";
-import { formatText, isCorrect, lessonVars, stepFor, stepsFor, type Lesson } from "./lesson";
+import { available, formatText, isCorrect, lessonVars, stepsFor, type Lesson } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
@@ -21,7 +21,9 @@ describe("starter lessons", () => {
     it(`${l.order}. ${l.title} refers only to things that exist`, () => {
       expect(l.steps.length).toBeGreaterThan(2);
       // Check every step as both kinds of model see it.
-      for (const s of l.steps.flatMap((st) => [stepFor(st, "char"), stepFor(st, "bpe")])) {
+      const kinds = (["char", "bpe"] as const).filter((k) => available(l, k));
+      expect(kinds.length).toBeGreaterThan(0);
+      for (const s of kinds.flatMap((k) => stepsFor(l, k))) {
         expect(s.text.length).toBeGreaterThan(20);
         const known = Object.keys(lessonVars({ tokenizer: "bpe", d_model: 1, vocab_size: 1 }));
         for (const t of [s.text, s.ask?.question ?? "", s.ask?.hint ?? "", s.ask?.correct ?? ""]) {
@@ -63,9 +65,16 @@ describe("answer checks", () => {
     expect(stepsFor(tokens, "bpe").at(-1)!.tab).toBe("atlas");
   });
 
-  it("applies BPE overrides only for BPE models", () => {
-    const st = { text: "x".repeat(30), prompt: "a", bpe: { prompt: "b" } };
-    expect(stepFor(st, "char").prompt).toBe("a");
-    expect(stepFor(st, "bpe").prompt).toBe("b");
+  it("merges a step's variant for this kind of model, and drops steps it nulls", () => {
+    const st = { text: "x".repeat(30), prompt: "a", variants: { bpe: { prompt: "b" } } };
+    const lesson = { id: "x", order: 0, title: "", summary: "", steps: [st, { ...st, variants: { char: null } }] };
+    expect(stepsFor(lesson, "char").map((x) => x.prompt)).toEqual(["a"]);
+    expect(stepsFor(lesson, "bpe").map((x) => x.prompt)).toEqual(["b", "a"]);   // the second step has no bpe variant
+  });
+
+  it("marks lessons that need the other kind of model", () => {
+    const concepts = lessons.find((l) => l.id === "concepts")!;
+    expect(available(concepts, "bpe")).toBe(true);
+    expect(available(concepts, "char")).toBe(false);
   });
 });

@@ -62,7 +62,7 @@
       there was not learned. Attribution and neurons work without capturing.</p>
     {#if app.hello?.config.tokenizer !== "bpe"}
       <p class="muted">This model reads characters, so each word spans several tokens: choose “mean of sub-tokens”, or
-        restart the server with <code>--config concepts</code> for a model with whole-word tokens.</p>
+        restart the server with <code>--config bpe-small</code> for a model with whole-word tokens.</p>
     {/if}
   </div>
 {:else if concepts.panel === "similarity"}<Similarity />

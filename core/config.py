@@ -40,13 +40,24 @@ class TrainConfig:
     seed: int = 1337
 
 
+# Named by how they read text, then by size: the character models differ only in size; the
+# BPE model reads a 4,096-token vocabulary, so most words are one token.
 PROFILES: dict[str, ModelConfig] = {
-    "tiny": ModelConfig("tiny", n_layer=2, n_head=2, d_model=32, d_mlp=128),
-    "default": ModelConfig("default", n_layer=4, n_head=4, d_model=64, d_mlp=256),
-    "larger": ModelConfig("larger", n_layer=6, n_head=8, d_model=128, d_mlp=512),
-    "concepts": ModelConfig("concepts", n_layer=6, n_head=8, d_model=256, d_mlp=1024,
-                            tokenizer="bpe", tied=True),
+    "char-tiny": ModelConfig("char-tiny", n_layer=2, n_head=2, d_model=32, d_mlp=128),
+    "char-small": ModelConfig("char-small", n_layer=4, n_head=4, d_model=64, d_mlp=256),
+    "char-large": ModelConfig("char-large", n_layer=6, n_head=8, d_model=128, d_mlp=512),
+    "bpe-small": ModelConfig("bpe-small", n_layer=6, n_head=8, d_model=256, d_mlp=1024,
+                             tokenizer="bpe", tied=True),
 }
+DEFAULT_PROFILE = "char-small"
+
+# Earlier names, still accepted on the command line (and their run directories migrated).
+ALIASES = {"tiny": "char-tiny", "default": "char-small", "larger": "char-large", "concepts": "bpe-small"}
+PROFILE_CHOICES = [*PROFILES, *ALIASES]
+
+
+def profile(name: str) -> ModelConfig:
+    return PROFILES[ALIASES.get(name, name)]
 
 
 def pick_device(requested: str | None = None) -> str:

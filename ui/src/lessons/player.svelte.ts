@@ -2,7 +2,7 @@
 
 import { concepts } from "../concepts/store.svelte";
 import { app, selection, settings } from "../state/app.svelte";
-import { isCorrect, lessonVars, loadLessons, stepFor, stepsFor, type Lesson, type LessonStep } from "./lesson";
+import { available, isCorrect, lessonVars, loadLessons, readsOf, stepsFor, type Lesson, type LessonStep, type Reads } from "./lesson";
 
 class Player {
   readonly lessons = loadLessons();
@@ -10,14 +10,18 @@ class Player {
   index = $state(0);
   menuOpen = $state(false);
 
+  /** How the running model reads text: lessons and their steps adapt to it. */
+  get reads(): Reads {
+    return readsOf(app.hello?.config.tokenizer);
+  }
+
   /** The current lesson's steps for the running model. */
   get steps(): LessonStep[] {
-    return this.lesson ? stepsFor(this.lesson, app.hello?.config.tokenizer ?? "char") : [];
+    return this.lesson ? stepsFor(this.lesson, this.reads) : [];
   }
 
   get step(): LessonStep | null {
-    const s = this.steps[this.index];
-    return s ? stepFor(s, app.hello?.config.tokenizer ?? "char") : null;
+    return this.steps[this.index] ?? null;
   }
 
   get vars(): Record<string, string> {
@@ -35,6 +39,7 @@ class Player {
   }
 
   start(lesson: Lesson): void {
+    if (!available(lesson, this.reads)) return;
     this.lesson = lesson;
     this.menuOpen = false;
     app.stopAuto();

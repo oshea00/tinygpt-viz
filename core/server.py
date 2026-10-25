@@ -1,6 +1,6 @@
 """Local server: a WebSocket bridge to the model worker, plus the built UI.
 
-    uv run python -m core.server --config default
+    uv run python -m core.server --config char-small
     then open http://localhost:8765
 """
 
@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import PROFILES, TrainConfig, pick_device
+from .config import DEFAULT_PROFILE, PROFILE_CHOICES, TrainConfig, pick_device, profile
 from .data import load_data
 from .scheduler import Message, ModelWorker
 from .train import Trainer
@@ -87,17 +87,17 @@ def main() -> None:
     import uvicorn
 
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default="default", choices=list(PROFILES))
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
     p.add_argument("--device", default=None)
     p.add_argument("--fresh", action="store_true", help="start from random weights, not the latest checkpoint")
     p.add_argument("--port", type=int, default=8765)
     args = p.parse_args()
 
-    trainer = Trainer(PROFILES[args.config], TrainConfig(), load_data(PROFILES[args.config].tokenizer),
-                      pick_device(args.device))
+    cfg = profile(args.config)
+    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), pick_device(args.device))
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
-    print(f"{args.config} at step {trainer.step_num} on {trainer.device}: http://localhost:{args.port}")
+    print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}: http://localhost:{args.port}")
     # No per-message compression: deflating megabytes of float32 costs more than sending them locally.
     uvicorn.run(create_app(trainer), host="127.0.0.1", port=args.port, log_level="warning",
                 ws_per_message_deflate=False)

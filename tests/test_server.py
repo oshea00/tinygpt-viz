@@ -12,7 +12,7 @@ from core.train import Trainer
 
 @pytest.fixture
 def client(tmp_path):
-    trainer = Trainer(PROFILES["tiny"], TrainConfig(batch_size=8, trace_every=5, eval_every=1000),
+    trainer = Trainer(PROFILES["char-tiny"], TrainConfig(batch_size=8, trace_every=5, eval_every=1000),
                       CharData(), "cpu", run_dir=tmp_path)
     with TestClient(create_app(trainer, sample_every=10_000)) as c:
         yield c

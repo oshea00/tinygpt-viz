@@ -12,7 +12,7 @@ TOK = CharData().tokenizer
 def _model() -> GPT:
     from core.config import PROFILES
     torch.manual_seed(0)
-    return GPT(PROFILES["default"].with_vocab(TOK.vocab_size))
+    return GPT(PROFILES["char-small"].with_vocab(TOK.vocab_size))
 
 
 def test_capture_reads_the_target_word():

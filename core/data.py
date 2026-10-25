@@ -130,7 +130,7 @@ class CharData:
 
 
 class BPEData(CharData):
-    """The Concepts profile's corpus: the same batching over BPE token ids."""
+    """The bpe-* profiles' corpus: the same batching over BPE token ids."""
 
     dtype = np.uint16
 
@@ -149,7 +149,7 @@ def load_data(tokenizer: str) -> CharData:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--bpe", action="store_true", help="build the Concepts profile's BPE corpus")
+    p.add_argument("--bpe", action="store_true", help="build the BPE corpus for the bpe-* profiles")
     p.add_argument("--train-mb", type=float, default=None)
     p.add_argument("--val-mb", type=float, default=None)
     args = p.parse_args()

@@ -10,9 +10,11 @@
    "tab": "inspector",
    "stage": "embed.tok",
    "position": "last",
-   "bpe": {
-    "prompt": "Once upon a time, there was a little girl.",
-    "text": "A GPT never sees letters. The tokenizer turns the text into ids, one per position. This model's {{V}}-token vocabulary makes most words a single token, usually including the space before it (`␣upon`). The chips under the prompt are the positions: this model reads up to **100** of them."
+   "variants": {
+    "bpe": {
+     "prompt": "Once upon a time, there was a little girl.",
+     "text": "A GPT never sees letters. The tokenizer turns the text into ids, one per position. This model's {{V}}-token vocabulary makes most words a single token, usually including the space before it (`␣upon`). The chips under the prompt are the positions: this model reads up to **100** of them."
+    }
    }
   },
   {
@@ -29,17 +31,19 @@
     "hint": "Rows are positions, counting from 0: O-n-c-e.",
     "correct": "Below the heatmap, the working shows it is simply copied from row of `wte` for 'e'."
    },
-   "bpe": {
-    "ask": {
-     "question": "Click any cell in the row for **␣upon** (position 1).",
-     "check": {
-      "kind": "position",
-      "positions": [
-       1
-      ]
-     },
-     "hint": "Rows are positions, counting from 0: Once, ␣upon.",
-     "correct": "Below the heatmap, the working shows it is simply copied from the row of `wte` for ␣upon."
+   "variants": {
+    "bpe": {
+     "ask": {
+      "question": "Click any cell in the row for **␣upon** (position 1).",
+      "check": {
+       "kind": "position",
+       "positions": [
+        1
+       ]
+      },
+      "hint": "Rows are positions, counting from 0: Once, ␣upon.",
+      "correct": "Below the heatmap, the working shows it is simply copied from the row of `wte` for ␣upon."
+     }
     }
    }
   },
@@ -56,18 +60,20 @@
     },
     "correct": "Compare its colours with row 3: the same vector."
    },
-   "bpe": {
-    "text": "The same token always gets the same row. This prompt has **␣a** twice (“upon a time”, “was a little”): both rows are identical, because the lookup knows nothing about where a token sits.",
-    "ask": {
-     "question": "Click a cell in the row for the second **␣a** (position 7).",
-     "check": {
-      "kind": "position",
-      "positions": [
-       7
-      ]
-     },
-     "hint": "Count from 0: Once, ␣upon, ␣a, ␣time, “,”, ␣there, ␣was, ␣a.",
-     "correct": "Compare its colours with row 2: the same vector."
+   "variants": {
+    "bpe": {
+     "text": "The same token always gets the same row. This prompt has **␣a** twice (“upon a time”, “was a little”): both rows are identical, because the lookup knows nothing about where a token sits.",
+     "ask": {
+      "question": "Click a cell in the row for the second **␣a** (position 7).",
+      "check": {
+       "kind": "position",
+       "positions": [
+        7
+       ]
+      },
+      "hint": "Count from 0: Once, ␣upon, ␣a, ␣time, “,”, ␣there, ␣was, ␣a.",
+      "correct": "Compare its colours with row 2: the same vector."
+     }
     }
    }
   },
@@ -77,7 +83,6 @@
    "atlasMode": "values"
   },
   {
-   "only": "bpe",
    "text": "Zoom in on the top of `token table wte` in the atlas (outlined in gold): a band of vertical stripes. Those rows belong to tokens that **never occur** in the training text, mostly single bytes such as `�`, `=` and `@`. They started out random, but now they are almost the same vector, so each column is one colour.",
    "tab": "atlas",
    "stage": "embed.tok",
@@ -90,6 +95,9 @@
     },
     "hint": "This model ties its embeddings: `wte` is also its output layer.",
     "correct": "Every training step pushes down the score of every token that is not the right answer. A token that never appears is never the answer and never an input, so that push is the only thing that ever changes its row, and it is the same push for all of them. They all converged on one direction, away from anything the model predicts."
+   },
+   "variants": {
+    "char": null
    }
   }
  ]

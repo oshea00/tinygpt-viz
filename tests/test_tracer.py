@@ -124,5 +124,5 @@ def test_round_trip_and_size(default_model: GPT):
 
 def test_describe_covers_tied():
     from core.config import PROFILES
-    cfg = PROFILES["concepts"].with_vocab(4096)
+    cfg = PROFILES["bpe-small"].with_vocab(4096)
     assert describe("logits", cfg).weights == ["wte"]

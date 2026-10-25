@@ -40,7 +40,7 @@ def test_single_target_and_short_prompt(tiny_model: GPT):
 
 def test_tied_embeddings():
     torch.manual_seed(0)
-    cfg = PROFILES["tiny"].with_vocab(VOCAB)
+    cfg = PROFILES["char-tiny"].with_vocab(VOCAB)
     from dataclasses import replace
     model = _trained_like(GPT(replace(cfg, tied=True)))
     r = _check(model, 20)
