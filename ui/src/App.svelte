@@ -2,6 +2,8 @@
   import { app, settings } from "./state/app.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
+  import LogitLens from "./views/lens/LogitLens.svelte";
+  import ResidualView from "./views/residual/ResidualView.svelte";
   import OutputPanel from "./views/output/OutputPanel.svelte";
   import PromptBox from "./views/output/PromptBox.svelte";
   import PipelineMap from "./views/pipeline/PipelineMap.svelte";
@@ -36,9 +38,14 @@
       <nav class="tabs">
         <button class:on={settings.tab === "inspector"} onclick={() => (settings.tab = "inspector")}>tensor inspector</button>
         <button class:on={settings.tab === "attention"} onclick={() => (settings.tab = "attention")}>attention</button>
+        <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
+        <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
         <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
       </nav>
-      {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />{:else}<OneStep />{/if}
+      {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
+      {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
+      {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
+      {:else}<OneStep />{/if}
     </section>
   </main>
 

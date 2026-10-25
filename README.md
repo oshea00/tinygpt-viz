@@ -3,9 +3,9 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
-Implemented so far: milestones 1–7 (instrumented core, tracer with gradients, WebSocket
+Implemented so far: milestones 1–8 (instrumented core, tracer with gradients, WebSocket
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
-attention views, generation).
+attention views, generation, residual stream and logit lens).
 
 ## Setup
 
@@ -44,6 +44,11 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
 - **Attention**: arcs over the text from the selected position, the masked T×T matrix per head,
   a Q·K explorer (one query against every earlier key: products, dot, scaled score, weight), and a
   head gallery with pattern badges and names you can give each head.
+- **Residual stream**: one position's vector at every snapshot (or what each sublayer writes),
+  write sizes per sublayer and position, and the gradient highway: at each residual add, how much
+  gradient passes straight through and how much comes back through the sublayer.
+- **Logit lens**: the final layer norm and unembedding applied to every residual snapshot, as a
+  snapshots × positions grid of top guesses, with p(actual next token) through the layers.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by

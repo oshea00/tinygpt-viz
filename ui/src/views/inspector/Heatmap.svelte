@@ -25,7 +25,7 @@
   let hover = $state<{ r: number; c: number; x: number; y: number } | null>(null);
 
   const dims = $derived(dims2(tensor));
-  const labelW = $derived(rowLabels ? 26 : 0);
+  const labelW = $derived(rowLabels ? Math.max(26, 8 + 6.5 * Math.max(...rowLabels.map((l) => l.length))) : 0);
   const cellW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))) * zoom);
   const cellH = $derived(Math.max(1, Math.min(cellW / zoom, Math.max(4, Math.floor(maxHeight / dims[0])))) * zoom);
   const bandH = $derived(colBands?.length ? 6 : 0);

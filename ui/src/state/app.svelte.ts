@@ -209,7 +209,11 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(0);   // 0: fit to width
-  tab = $state<"inspector" | "attention" | "onestep">("inspector");
+  tab = $state<"inspector" | "attention" | "residual" | "lens" | "onestep">("inspector");
+  residualMode = $state<"snapshots" | "writes">("snapshots");
+  highwayScope = $state<"position" | "all">("all");
+  lensMode = $state<"confidence" | "actual">("confidence");
+  lensSnap = $state(-1);   // snapshot row picked in the logit lens (-1: last)
   arcsAllHeads = $state(false);
   arcsTint = $state(false);
   qkSort = $state<"position" | "weight">("position");
