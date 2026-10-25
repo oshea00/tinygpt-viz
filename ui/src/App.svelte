@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app, settings } from "./state/app.svelte";
+  import AtlasView from "./views/atlas/AtlasView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
   import LogitLens from "./views/lens/LogitLens.svelte";
@@ -40,11 +41,13 @@
         <button class:on={settings.tab === "attention"} onclick={() => (settings.tab = "attention")}>attention</button>
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
+        <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
         <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>one training step</button>
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
       {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
       {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
+      {:else if settings.tab === "atlas"}<AtlasView />
       {:else}<OneStep />{/if}
     </section>
   </main>
@@ -67,9 +70,11 @@
   .conn { margin-left: auto; font-size: 12px; color: var(--bad); }
   .conn.on { color: var(--ok); }
   .error { color: var(--bad); font-size: 12px; }
-  .left { grid-area: left; overflow: auto; padding: 4px 8px 12px; }
-  main { grid-area: main; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
-  .right { grid-area: right; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+  /* Stable gutters: a scrollbar appearing must not change a column's width, or views that
+     size themselves from width (heatmaps, atlas) can resize, change height, and loop. */
+  .left { grid-area: left; overflow: auto; scrollbar-gutter: stable; padding: 4px 8px 12px; }
+  main { grid-area: main; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
+  .right { grid-area: right; display: flex; flex-direction: column; gap: 10px; overflow: auto; scrollbar-gutter: stable; }
   .pad { padding: 10px 12px; }
   .grow { flex: 1; }
   .tabs { display: flex; gap: 4px; margin-bottom: 10px; }

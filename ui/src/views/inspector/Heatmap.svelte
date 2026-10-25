@@ -89,7 +89,9 @@
     bind:this={canvas}
     onmousemove={(e) => {
       const p = cellAt(e);
-      hover = p ? { ...p, x: e.offsetX, y: e.offsetY } : null;
+      // Viewport coordinates, kept on screen: the tooltip is fixed-position so it never
+      // overflows the scroll container (which would add scrollbars and resize the heatmap).
+      hover = p ? { ...p, x: Math.min(e.clientX + 14, window.innerWidth - 240), y: Math.min(e.clientY + 12, window.innerHeight - 48) } : null;
     }}
     onmouseleave={() => (hover = null)}
     onclick={(e) => {
@@ -98,7 +100,7 @@
     }}
   ></canvas>
   {#if hover}
-    <div class="tip mono" style:left="{hover.x + 14}px" style:top="{hover.y + 10}px">
+    <div class="tip mono" style:left="{hover.x}px" style:top="{hover.y}px">
       row {hover.r}{rowLabels ? ` "${rowLabels[hover.r]}"` : ""} · col {hover.c}{colLabels ? ` "${colLabels[hover.c]}"` : ""}<br />
       <b>{fmt(at(tensor, hover.r, hover.c), 5)}</b>
     </div>
@@ -106,10 +108,12 @@
 </div>
 
 <style>
-  .wrap { position: relative; width: 100%; overflow: auto; }
+  /* Horizontal scrolling only (when zoomed): a vertical scrollbar would steal width, and the
+     cell size is computed from width. */
+  .wrap { width: 100%; overflow-x: auto; overflow-y: hidden; }
   canvas { display: block; cursor: crosshair; }
   .tip {
-    position: absolute; pointer-events: none; z-index: 5; white-space: nowrap;
+    position: fixed; pointer-events: none; z-index: 50; white-space: nowrap;
     background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
     padding: 3px 7px; font-size: 11px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
   }

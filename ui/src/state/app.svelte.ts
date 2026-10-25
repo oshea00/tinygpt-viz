@@ -30,6 +30,8 @@ class AppState {
   status = $state<Status | null>(null);
   trace = $state.raw<Trace | null>(null);
   weights = $state.raw<Weights | null>(null);
+  prevWeights = $state.raw<Weights | null>(null);    // the snapshot before `weights`, for "recent change"
+  pinned = $state.raw<{ trace: Trace; weights: Weights } | null>(null);   // reference for atlas diffs
   stepExplain = $state.raw<StepExplain | null>(null);
   lossPoints = $state.raw<[number, number][]>([]);
   valPoints = $state.raw<[number, number][]>([]);
@@ -140,6 +142,8 @@ class AppState {
         break;
       }
       case "weights":
+        // Each weights message is a fresh copy, so keeping the previous one costs one model's worth of memory.
+        if (this.weights && this.weights.version !== m.weights.version) this.prevWeights = this.weights;
         this.weights = m.weights;
         break;
       case "stepExplain":
@@ -209,7 +213,8 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(0);   // 0: fit to width
-  tab = $state<"inspector" | "attention" | "residual" | "lens" | "onestep">("inspector");
+  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "onestep">("inspector");
+  atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   residualMode = $state<"snapshots" | "writes">("snapshots");
   highwayScope = $state<"position" | "all">("all");
   lensMode = $state<"confidence" | "actual">("confidence");
