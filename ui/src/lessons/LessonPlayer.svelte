@@ -52,6 +52,9 @@
   .progress span { display: block; height: 100%; background: var(--accent); }
   .text { margin: 4px 0 8px; max-width: 900px; font-size: 13.5px; line-height: 1.5; }
   .text :global(code), .ask :global(code) { font-family: var(--mono); background: var(--accent-soft); padding: 0 3px; border-radius: 3px; }
+  /* The question box is always light, in either theme: code there takes the box's own text
+     colour on a faint darkening of its background, not the theme's accent tint. */
+  .ask :global(code) { background: rgb(0 0 0 / 0.08); color: inherit; font-weight: 600; }
   .ask { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 5px 8px; border-radius: 6px; background: #fef3c7; color: #78350f; margin-bottom: 8px; }
   .ask.done { background: #d1fae5; color: #065f46; }
   .hint { font-style: italic; }

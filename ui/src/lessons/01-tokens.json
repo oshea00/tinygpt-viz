@@ -29,7 +29,7 @@
      ]
     },
     "hint": "Rows are positions, counting from 0: O-n-c-e.",
-    "correct": "Below the heatmap, the working shows it is simply copied from row of `wte` for 'e'."
+    "correct": "The breakdown under the heatmap shows the value is copied straight from the row of `wte` for “e”."
    },
    "variants": {
     "bpe": {
@@ -42,7 +42,7 @@
        ]
       },
       "hint": "Rows are positions, counting from 0: Once, ␣upon.",
-      "correct": "Below the heatmap, the working shows it is simply copied from the row of `wte` for ␣upon."
+      "correct": "The breakdown under the heatmap shows the value is copied straight from the `␣upon` row of `wte`."
      }
     }
    }
