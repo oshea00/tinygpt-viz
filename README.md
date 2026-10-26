@@ -16,7 +16,7 @@ training with checkpoint replay, a manual backward mode, and a concept explorer.
 Requires [uv](https://docs.astral.sh/uv/) and Node 20+.
 
 ```sh
-uv sync                          # Python deps (PyTorch with CUDA 12.8 wheels on Linux/Windows)
+uv sync                          # Python deps (PyTorch with CUDA 12.8 wheels on Linux/Windows, MPS on macOS)
 cd ui && npm install && npm run build && cd ..
 ```
 

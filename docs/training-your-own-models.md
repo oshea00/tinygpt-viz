@@ -5,12 +5,12 @@
 ## Train from the command line
 
 ```sh
-uv run python -m core.train --steps 20000   # ~22 minutes on a desktop GPU
+uv run python -m core.train --steps 20000   # ~22 minutes on a desktop GPU, ~2 hours on an M5 Pro
 ```
 
 The first run downloads a 250 MB slice of [TinyStories](https://arxiv.org/abs/2305.07759), short stories in simple English, trains the 4,096-token vocabulary on it, and tokenizes about 62M tokens (`uv run python -m core.data` does just this step). The defaults (learning rate 6e-4, batch 128) are the ones the published model was trained with. Every 1,000 steps it prints a sample, and you can watch the text go from noise to *"Once upon a time, there was a girl named…"*.
 
-Every run starts by timing a few real steps on the device it found and printing an estimate, so a run that is going to take all night says so in the first minute. The timings above are for a desktop GPU: a power-capped laptop GPU can be far slower, and the report flags one when it sees it. `--dry-run` stops after the report; `--log-every N` sets how often the progress line appears (default every 10 steps).
+Every run starts by timing a few real steps on the device it found and printing an estimate, so a run that is going to take all night says so in the first minute. The timings above are for an RTX 4090 and an Apple M5 Pro: a power-capped laptop GPU can be far slower, and the report flags one when it sees it. `--dry-run` stops after the report; `--log-every N` sets how often the progress line appears (default every 10 steps).
 
 ```sh
 uv run python -m core.train --steps 20000 --dry-run

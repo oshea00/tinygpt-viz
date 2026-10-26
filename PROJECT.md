@@ -39,13 +39,13 @@ The MLPs hold over half the weights, and the embedding table almost a fifth. One
 
 **Architecture choices, fixed for clarity:** pre-layer-norm blocks (as in GPT-2), learned absolute position embeddings (a 100×256 table the learner can inspect), GELU in the MLP, causal mask, no dropout. Input and output share one embedding table, so the vocabulary does not double the model's size. The model is written with explicit matmuls, masking, softmax and layer norm rather than `nn.MultiheadAttention`, so the code reads like the maths.
 
-**Training.** AdamW (lr 6e-4, batch 128, 100 warm-up steps, weight decay 0.1, gradient clipping at 1.0). 20,000 steps take about 22 minutes on a desktop GPU. Thirty checkpoints on a log-spaced schedule give the replay slider detail where learning is fastest. Trained checkpoints are published on Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), and the server downloads them on first start, so using the app needs neither a GPU nor the corpus.
+**Training.** AdamW (lr 6e-4, batch 128, 100 warm-up steps, weight decay 0.1, gradient clipping at 1.0). 20,000 steps take about 22 minutes on a desktop GPU (an RTX 4090) and about 2 hours on an Apple M5 Pro. Thirty checkpoints on a log-spaced schedule give the replay slider detail where learning is fastest. Trained checkpoints are published on Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), and the server downloads them on first start, so using the app needs neither a GPU nor the corpus.
 
 ## Architecture
 
 One machine: a Python process owns the model on the CPU or GPU and does inference, training, autograd and trace capture, and serves a web front end that shows it all live in a browser tab.
 
-1. **Core (Python, PyTorch).** Owns weights, optimiser and data. Runs on CPU or CUDA; Apple MPS is accepted but untested.
+1. **Core (Python, PyTorch).** Owns weights, optimiser and data. Runs on CPU, CUDA, or Apple Silicon through MPS (tested on macOS Tahoe with an M5 Pro, including training).
 2. **Trainer.** One AdamW update at a time, so the UI can play, pause, single-step and reset, with learning rate, batch size and trace frequency adjustable live. Training is opt-in: only a server started with `--train` changes its weights, which suits a class where everyone should see the same model.
 3. **Tracer.** Records every stage's output, and with a backward pass every stage's gradient and every weight's gradient, for a prompt. It runs on demand, not on every training batch: a full 100-token trace holds about 5.7M values (23 MB as float32) before gradients.
 4. **Scheduler.** One model thread and one command queue. UI requests (run a prompt, intervene, sample) run between training steps, so there is no GPU contention and no half-updated weights in a trace.
@@ -212,7 +212,7 @@ One colour language across every view: signed values use a diverging blue–whit
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Core | Python 3.13 + PyTorch (CPU or CUDA), model code adapted from [nanoGPT](https://github.com/karpathy/nanoGPT) | Autograd and GPU support for free |
+| Core | Python 3.13 + PyTorch (CPU, CUDA or MPS), model code adapted from [nanoGPT](https://github.com/karpathy/nanoGPT) | Autograd and GPU support for free |
 | Concurrency | One model thread; one command queue serialises model access | Traces always reflect one consistent set of weights |
 | Server and bridge | FastAPI + uvicorn on localhost; a WebSocket with binary frames | Raw float32 frames: no encoding cost for traces of tens of MB |
 | App shell | A browser tab; the Python server also serves the built UI | Nothing to install beyond Python and Node |
