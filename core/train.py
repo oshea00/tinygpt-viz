@@ -130,9 +130,10 @@ class Trainer:
         if not steps:
             raise FileNotFoundError(f"no checkpoints in {self.run_dir}")
         step = steps[-1] if step is None else step
-        state = torch.load(self.checkpoint_path(step), map_location=self.device)
+        state = torch.load(self.checkpoint_path(step), map_location=self.device, weights_only=True)
         self.model.load_state_dict(state["model"])
-        self.opt.load_state_dict(state["opt"])
+        if "opt" in state:      # shared checkpoints are weights only: training resumes with fresh moments
+            self.opt.load_state_dict(state["opt"])
         self.step_num = state["step"]
 
 

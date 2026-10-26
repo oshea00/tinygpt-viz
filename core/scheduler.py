@@ -226,7 +226,7 @@ class ModelWorker(threading.Thread):
             if 0 not in t.checkpoints():
                 raise ValueError("no step-0 checkpoint to compare with")
             m = GPT(t.model_cfg).to(t.device)
-            m.load_state_dict(torch.load(t.checkpoint_path(0), map_location=t.device)["model"])
+            m.load_state_dict(torch.load(t.checkpoint_path(0), map_location=t.device, weights_only=True)["model"])
             self._untrained = m
         return self._untrained
 

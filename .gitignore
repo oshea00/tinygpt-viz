@@ -20,3 +20,6 @@ ui/dist/
 # Static demo assets and build
 ui/demo-public/
 ui/dist-demo/
+
+# huggingface_hub download metadata
+.cache/

@@ -41,6 +41,18 @@ Checkpoints are saved under `runs/<config>/` at roughly logarithmic intervals, s
 
 You don't have to train first: with `--train`, the app can train from random weights while you watch. See [Training](08-training.md).
 
+### Or download trained checkpoints
+
+If `runs/<config>/` is empty, the server first downloads that model's checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), along with the small validation set the neuron examples use. A model that only runs needs nothing else, so a machine without a GPU never downloads or tokenizes TinyStories. The shared checkpoints contain only weights. With `--train`, training continues from them using a fresh optimizer, and the full corpus is built the first time training needs it.
+
+To publish your own runs, log in once with `hf auth login`, then:
+
+```sh
+uv run python -m core.hub push --config all     # every profile with checkpoints; --repo <user>/<name> for another repo
+```
+
+Set `TINYGPT_HF_REPO` (or pass `--repo` to `core.hub pull`) to download from a repo other than the default.
+
 ## Run the app
 
 ```sh

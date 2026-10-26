@@ -112,13 +112,20 @@ class CharData:
 
     dtype = np.uint8
 
-    def __init__(self, data_dir: Path = DATA_DIR):
-        if not (data_dir / "train.bin").exists():
+    def __init__(self, data_dir: Path = DATA_DIR, need_train: bool = True):
+        if self._missing(data_dir, need_train):
             build()
         self.tokenizer = CharTokenizer.load(data_dir / "char_vocab.json")
-        self.splits = {
-            s: np.memmap(data_dir / f"{s}.bin", dtype=self.dtype, mode="r") for s in ("train", "val")
-        }
+        self.splits = self._open(data_dir)
+
+    @staticmethod
+    def _missing(data_dir: Path, need_train: bool) -> bool:
+        """Only val.bin is needed to run a model (neuron examples); train.bin only to train it."""
+        return not (data_dir / "val.bin").exists() or (need_train and not (data_dir / "train.bin").exists())
+
+    def _open(self, data_dir: Path) -> dict[str, np.memmap]:
+        return {s: np.memmap(data_dir / f"{s}.bin", dtype=self.dtype, mode="r")
+                for s in ("train", "val") if (data_dir / f"{s}.bin").exists()}
 
     def get_batch(self, split: str, batch_size: int, block_size: int, device: str,
                   generator: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
@@ -134,17 +141,20 @@ class BPEData(CharData):
 
     dtype = np.uint16
 
-    def __init__(self, data_dir: Path = BPE_DIR):
-        if not (data_dir / "train.bin").exists():
+    def __init__(self, data_dir: Path = BPE_DIR, need_train: bool = True):
+        if self._missing(data_dir, need_train):
             build_bpe()
         self.tokenizer = BPETokenizer.load(data_dir / "tokenizer.json")
-        self.splits = {
-            s: np.memmap(data_dir / f"{s}.bin", dtype=self.dtype, mode="r") for s in ("train", "val")
-        }
+        self.splits = self._open(data_dir)
 
 
-def load_data(tokenizer: str) -> CharData:
-    return BPEData() if tokenizer == "bpe" else CharData()
+def data_dir(tokenizer: str) -> Path:
+    return BPE_DIR if tokenizer == "bpe" else DATA_DIR
+
+
+def load_data(tokenizer: str, need_train: bool = True) -> CharData:
+    """need_train=False: a model that only runs, so a corpus is built only if val.bin is missing."""
+    return (BPEData if tokenizer == "bpe" else CharData)(data_dir(tokenizer), need_train)
 
 
 if __name__ == "__main__":

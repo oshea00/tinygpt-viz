@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, TrainConfig, pick_device, profile
+from . import hub
 from .data import load_data
 from .scheduler import Message, ModelWorker
 from .train import Trainer
@@ -108,7 +109,9 @@ def main() -> None:
         device = pick_device(args.device)
     except DeviceError as e:
         raise SystemExit(f"error: {e}")
-    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), device)
+    if not args.fresh and not hub.has_checkpoints(cfg):
+        hub.pull(cfg)
+    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer, need_train=args.train), device)
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}, training {'on' if args.train else 'off'}: "
