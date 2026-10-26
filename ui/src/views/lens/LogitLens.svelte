@@ -2,7 +2,7 @@
   // Read a prediction out of every residual snapshot, not just the last: apply the final
   // layer norm and unembedding early. Reading down a column shows the guess forming.
   import { app, selection, settings } from "../../state/app.svelte";
-  import { cssColor } from "../../lib/colormap";
+  import { cssColor, inkOn } from "../../lib/colormap";
   import { snapshots } from "../../lib/residual";
 
   const trace = $derived(app.trace!);
@@ -88,7 +88,7 @@
             {#each r as c, t}
               {@const v = shade(c)}
               <td class:sel={t === pos} class:correct={c.correct}
-                  style:background={cssColor("sequential", v)} style:color={v > 0.55 ? "#fff" : undefined}
+                  style:background={cssColor("sequential", v)} style:color={inkOn("sequential", v)}
                   title="{lens.snaps[s].label}, after “{trace.text[t]}”: top “{vocab[c.top]}” {(c.pTop * 100).toFixed(1)}%{c.pActual !== null ? `, actual “${vocab[trace.targets[t]]}” ${(c.pActual * 100).toFixed(1)}%` : ''}"
                   onclick={() => { selection.position = t; settings.lensSnap = s; }}>{vocab[c.top]}</td>
             {/each}

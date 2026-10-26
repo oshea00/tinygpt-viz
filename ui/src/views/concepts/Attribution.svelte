@@ -4,7 +4,7 @@
   import { app } from "../../state/app.svelte";
   import { concepts } from "../../concepts/store.svelte";
   import { attentionRollout } from "../../lib/concepts";
-  import { cssColor } from "../../lib/colormap";
+  import { cssColor, inkOn } from "../../lib/colormap";
   import { row } from "../../lib/tensor";
 
   const trace = $derived(app.trace);
@@ -60,30 +60,37 @@
   </div>
   {#each rows as [name, vals, tip]}
     <section class="attr">
-      <h2 title={tip}>{name}</h2>
+      <h2>{name} <span class="muted tip">{tip}</span></h2>
       {#if vals}
         {@const max = Math.max(1e-9, ...vals.map(Math.abs))}
         <div class="toks mono">
           {#each vals as v, j}
-            <span style:background={cssColor("diverging", v / max)} style:color={Math.abs(v / max) > 0.6 ? "#fff" : undefined} title="{v.toFixed(4)}">{trace.text[j]}</span>
+            <span class="tok" title="{v.toFixed(4)}">
+              <span class="word" style:background={cssColor("diverging", v / max)} style:color={inkOn("diverging", v / max)}>{trace.text[j]}</span>
+              <span class="val">{v >= 0 ? "" : "−"}{Math.round(Math.abs(v / max) * 100)}</span>
+            </span>
           {/each}
-          <span class="target">→ {target}</span>
+          <span class="tok"><span class="word target">→ {target}</span></span>
         </div>
       {:else}
         <p class="muted">computing…</p>
       {/if}
     </section>
   {/each}
-  <p class="muted note">Red: pushed towards “{target}”; blue: against it (rollout is never negative). Where the three agree, the
-    evidence is strong; where they disagree, each is measuring something different.</p>
+  <p class="muted note">Red: pushed towards “{target}”; blue: against it (rollout is never negative). The number under each
+    word is its score as a percentage of the row's largest, so compare which words lead within a row, not sizes across rows.
+    Where the three agree, the evidence is strong; where they disagree, each is measuring something different.</p>
 {/if}
 
 <style>
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-bottom: 8px; }
   .row label { display: flex; gap: 4px; align-items: center; }
   .attr { margin-bottom: 10px; }
+  .tip { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
   .toks { display: flex; flex-wrap: wrap; gap: 2px; font-size: 12px; }
-  .toks span { padding: 1px 3px; border-radius: 3px; border: 1px solid var(--line); }
-  .toks .target { border-style: dashed; font-weight: 700; }
+  .tok { display: flex; flex-direction: column; align-items: center; }
+  .word { padding: 1px 3px; border-radius: 3px; border: 1px solid var(--line); }
+  .val { font-size: 10px; color: var(--muted); }
+  .target { border-style: dashed; font-weight: 700; }
   .note { font-size: 11px; }
 </style>

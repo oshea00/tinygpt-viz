@@ -33,6 +33,17 @@ export function cssColor(kind: MapKind, t: number): string {
   return `rgb(${L[i]},${L[i + 1]},${L[i + 2]})`;
 }
 
+/** Text colour that stays readable on cssColor(kind, t), in either theme: the theme's own
+ * text colour is light in dark mode and vanishes on the pale middle of a map. */
+export function inkOn(kind: MapKind, t: number): string {
+  const L = kind === "diverging" ? DIVERGING : SEQUENTIAL;
+  const i = lutIndex(kind, t) * 3;
+  const lin = (c: number) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+  const Y = 0.2126 * lin(L[i]) + 0.7152 * lin(L[i + 1]) + 0.0722 * lin(L[i + 2]);
+  // WCAG contrast against white is 1.05 / (Y + 0.05), against black (Y + 0.05) / 0.05.
+  return 1.05 / (Y + 0.05) > (Y + 0.05) / 0.05 ? "#fff" : "#000";
+}
+
 /** Head identity is a hue, used the same way everywhere. */
 export const HEAD_HUES = ["#d97706", "#059669", "#2563eb", "#c026d3", "#dc2626", "#0891b2", "#65a30d", "#7c3aed"];
 export const headColor = (h: number) => HEAD_HUES[h % HEAD_HUES.length];
