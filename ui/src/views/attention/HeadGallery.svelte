@@ -85,7 +85,7 @@
   .pic { padding: 0; border: none; width: 100%; aspect-ratio: 1; display: block; background: none; }
   canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
   .badge { font-size: 10.5px; text-align: center; margin-top: 2px; }
-  .focus { font-size: 9.5px; color: var(--muted); text-align: center; white-space: nowrap; }
+  .focus { font-size: 9.5px; color: var(--muted); text-align: center; }
   .focus .track { display: block; height: 3px; margin: 1px 0 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .focus .fill { display: block; height: 100%; background: var(--accent); }
   .ablate { width: 100%; font-size: 10.5px; padding: 0 4px; margin-top: 2px; }
