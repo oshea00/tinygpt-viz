@@ -40,6 +40,23 @@ Configs are named by how the model reads text, then by size:
 The earlier names `tiny`, `default`, `larger` and `concepts` still work; their checkpoint
 directories are renamed to the new names the first time they are used. Checkpoints land in `runs/<config>/` on a log-spaced schedule for later replay.
 
+Every run begins by timing a few real steps on the device it found and printing an estimate,
+so a run that is going to take all night says so in the first minute. `--dry-run` stops after
+that report; `--log-every N` sets how often the progress line appears (default every 10 steps).
+The quoted timings below are for a desktop GPU: a power-capped laptop GPU can be far slower,
+and the report flags one when it sees it.
+
+```sh
+uv run python -m core.train --config bpe-small --steps 20000 --batch-size 128 --dry-run
+```
+```
+bpe-small: 6L 8H d256 vocab 4,096 ctx 100, batch 128
+device: cuda - NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6.4 GB VRAM
+  ! memory clock 810 of 5501 MHz at 10 W - this GPU is power-capped, so bandwidth-bound work runs several times slower than its rating
+measured: 4,011 ms/step, 3,192 tok/s, peak 4.2 GB VRAM
+estimate: 22.9h for 20,000 steps (22.3h training + 34m eval + 2m sampling), ~2.2 GB of checkpoints
+```
+
 ```sh
 uv run python -m core.data --bpe     # Concepts corpus: 250 MB slice, BPE tokenizer, ~62M tokens
 uv run python -m core.train --config bpe-small --steps 20000 --lr 6e-4 --batch-size 128   # ~22 min on a 4090

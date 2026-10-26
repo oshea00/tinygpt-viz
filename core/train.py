@@ -12,9 +12,11 @@ from pathlib import Path
 
 import torch
 
-from .config import ALIASES, DEFAULT_PROFILE, PROFILE_CHOICES, ModelConfig, TrainConfig, pick_device, profile
+from .config import (ALIASES, DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, ModelConfig,
+                     TrainConfig, pick_device, profile)
 from .data import CharData, load_data
 from .model import GPT
+from .preflight import device_info, fmt_duration, measure, report
 from .sampling import SampleSettings, generate
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -142,28 +144,52 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
     p.add_argument("--device", default=None)
     p.add_argument("--sample-every", type=int, default=1000)
+    p.add_argument("--log-every", type=int, default=10,
+                   help="steps between one-line progress updates (eval runs on its own, slower schedule)")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the device report and time estimate, then exit without training")
     args = p.parse_args()
 
-    device = pick_device(args.device)
+    try:
+        device = pick_device(args.device)
+    except DeviceError as e:
+        raise SystemExit(f"error: {e}")
     cfg = profile(args.config)
-    trainer = Trainer(cfg, TrainConfig(lr=args.lr, batch_size=args.batch_size), load_data(cfg.tokenizer), device)
+    train_cfg = TrainConfig(lr=args.lr, batch_size=args.batch_size)
+    print(f"loading the {cfg.tokenizer} corpus (downloads and builds it on first use)", flush=True)
+    trainer = Trainer(cfg, train_cfg, load_data(cfg.tokenizer), device)
     if args.resume:
         trainer.load_checkpoint()
-    else:
-        trainer.save_checkpoint()   # step 0: the untrained baseline
+        print(f"resumed at step {trainer.step_num}", flush=True)
+
     groups = trainer.model.param_groups_count()
-    print(f"{cfg.name} on {device}: {trainer.model.num_params():,} params "
-          + ", ".join(f"{k} {v:,}" for k, v in groups.items()))
+    print(f"{trainer.model.num_params():,} params: "
+          + ", ".join(f"{k} {v:,}" for k, v in groups.items()), flush=True)
+    print("timing a few steps to estimate the run...", flush=True)
+    est = measure(trainer, args.steps, args.sample_every)
+    print(report(trainer.model_cfg, train_cfg, device_info(device), est, args.steps, trainer.step_num),
+          flush=True)
+    if args.dry_run:
+        return
+    if not args.resume:
+        trainer.save_checkpoint()   # step 0: the untrained baseline
+
     t0 = time.time()
+    start_step = trainer.step_num
     while trainer.step_num < args.steps:
         m = trainer.step()
         s = m["step"]
-        if s % trainer.cfg.eval_every == 0 or s == args.steps:
-            print(f"step {s:6d}  loss {m['loss']:.3f}  val {trainer.eval_val():.3f}  "
-                  f"{m['tokensPerSec']:,.0f} tok/s  {time.time() - t0:.0f}s")
-        if s % args.sample_every == 0 or s == args.steps:
-            print("---\n" + trainer.sample().replace("\x04", "␄\n") + "\n---")
+        last = s == args.steps
+        if args.log_every and (s % args.log_every == 0 or last):
+            elapsed = time.time() - t0
+            left = elapsed / max(1, s - start_step) * (args.steps - s)
+            print(f"step {s:6d}/{args.steps}  loss {m['loss']:.3f}  {m['tokensPerSec']:,.0f} tok/s  "
+                  f"{fmt_duration(elapsed)} elapsed  {fmt_duration(left)} left", flush=True)
+        if s % trainer.cfg.eval_every == 0 or last:
+            print(f"step {s:6d}  val {trainer.eval_val():.3f}", flush=True)
+        if s % args.sample_every == 0 or last:
+            print("---\n" + trainer.sample().replace("\x04", "␄\n") + "\n---", flush=True)
     trainer.save_checkpoint()
 
 

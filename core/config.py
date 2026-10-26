@@ -60,10 +60,28 @@ def profile(name: str) -> ModelConfig:
     return PROFILES[ALIASES.get(name, name)]
 
 
+class DeviceError(RuntimeError):
+    """A device the user asked for that this machine cannot provide."""
+
+
 def pick_device(requested: str | None = None) -> str:
+    """Auto-detect, or validate a device named on the command line.
+
+    A requested device must actually exist. Silently falling back to CPU is the worst
+    outcome: the run still starts, and only the wall clock reveals the GPU was never used.
+    """
     import torch
 
     if requested:
+        kind = torch.device(requested).type
+        if kind == "cuda" and not torch.cuda.is_available():
+            raise DeviceError(
+                f"--device {requested}, but torch.cuda.is_available() is False. This torch is "
+                f"{torch.__version__} (CUDA build: {torch.version.cuda or 'none'}) — either a "
+                "CPU-only wheel, or no driver visible to this container/WSL instance."
+            )
+        if kind == "mps" and not torch.backends.mps.is_available():
+            raise DeviceError(f"--device {requested}, but no Metal device is available.")
         return requested
     if torch.cuda.is_available():
         return "cuda"

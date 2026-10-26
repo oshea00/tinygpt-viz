@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import DEFAULT_PROFILE, PROFILE_CHOICES, TrainConfig, pick_device, profile
+from .config import DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, TrainConfig, pick_device, profile
 from .data import load_data
 from .scheduler import Message, ModelWorker
 from .train import Trainer
@@ -104,7 +104,11 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = profile(args.config)
-    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), pick_device(args.device))
+    try:
+        device = pick_device(args.device)
+    except DeviceError as e:
+        raise SystemExit(f"error: {e}")
+    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), device)
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}, training {'on' if args.train else 'off'}: "
