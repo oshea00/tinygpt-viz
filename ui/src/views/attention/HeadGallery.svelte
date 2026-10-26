@@ -12,7 +12,8 @@
     Array.from({ length: cfg.n_layer }, (_, l) =>
       Array.from({ length: cfg.n_head }, (_, h) => {
         const w = trace.byId.get(`L${l}.attn.H${h}.weights`)!.output;
-        return { l, h, w, pattern: headPattern(headStats(w)) };
+        const stats = headStats(w);
+        return { l, h, w, pattern: headPattern(stats), focus: stats.peak };
       }),
     ),
   );
@@ -55,6 +56,9 @@
           <canvas use:thumb={c.w}></canvas>
         </button>
         <div class="badge mono">{c.pattern}</div>
+        <div class="focus mono" title="focus: the average weight each row gives its heaviest key (1 = always one key)">
+          focus {c.focus.toFixed(2)}<span class="track"><span class="fill" style:width="{c.focus * 100}%"></span></span>
+        </div>
         <button class="ablate" class:on={ablated} title="zero this head's output in every trace"
                 onclick={() => ablated
                   ? app.setInterventions(app.interventions.filter((iv) => !(iv.kind === "head" && iv.layer === c.l && iv.head === c.h)))
@@ -69,7 +73,8 @@
 </div>
 <p class="muted note">Badges: a fixed habit (mean weight on the previous / same / first position) if the head has one;
   otherwise “sharp” (most weight on one key, chosen by content), “local” or “broad”, and how many positions back it
-  looks on average. Measured on this prompt only, so try a few.</p>
+  looks on average. <b>Focus</b>: the average weight each row gives its heaviest key, whatever the badge; 1 means every
+  query looks at a single key. Measured on this prompt only, so try a few.</p>
 
 <style>
   .gallery { display: grid; gap: 8px; align-items: center; }
@@ -80,6 +85,9 @@
   .pic { padding: 0; border: none; width: 100%; aspect-ratio: 1; display: block; background: none; }
   canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
   .badge { font-size: 10.5px; text-align: center; margin-top: 2px; }
+  .focus { font-size: 9.5px; color: var(--muted); text-align: center; white-space: nowrap; }
+  .focus .track { display: block; height: 3px; margin: 1px 0 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .focus .fill { display: block; height: 100%; background: var(--accent); }
   .ablate { width: 100%; font-size: 10.5px; padding: 0 4px; margin-top: 2px; }
   .ablate.on { background: #fde68a; border-color: #d97706; color: #78350f; }
   .name { width: 100%; font-size: 11px; padding: 1px 4px; margin-top: 2px; }

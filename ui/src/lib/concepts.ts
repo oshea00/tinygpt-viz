@@ -66,7 +66,12 @@ export function similarityMatrix(vs: ArrayLike<number>[]): Float32Array {
 export function pca(rows: Float64Array[], k = 2, iters = 200): { components: Float64Array[]; variance: number[]; total: number } {
   const d = rows[0]?.length ?? 0;
   const cov = Array.from({ length: d }, () => new Float64Array(d));
-  for (const r of rows) for (let i = 0; i < d; i++) for (let j = 0; j < d; j++) cov[i][j] += (r[i] * r[j]) / rows.length;
+  // Symmetric: fill the upper triangle, then mirror it (halves the work for large tables).
+  for (const r of rows) for (let i = 0; i < d; i++) {
+    const ri = r[i] / rows.length, ci = cov[i];
+    for (let j = i; j < d; j++) ci[j] += ri * r[j];
+  }
+  for (let i = 0; i < d; i++) for (let j = 0; j < i; j++) cov[i][j] = cov[j][i];
   const total = cov.reduce((s, r, i) => s + r[i], 0);
   const components: Float64Array[] = [], variance: number[] = [];
   for (let c = 0; c < k; c++) {

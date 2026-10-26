@@ -117,14 +117,15 @@ Every forward stage has a matching gradient, the same shape as its output, so ev
 
 ## Views
 
-The views share one selection (stage, layer, head, position, dimension); clicking in any view updates the others. The pipeline map, the next-token panel and the training panel are always on screen; the rest are tabs in the main area.
+The views share one selection (stage, layer, head, position, dimension, and optionally a tracked residual dimension); clicking in any view updates the others. The pipeline map, the next-token panel and the training panel are always on screen; the rest are tabs in the main area.
 
 | View | Answers the question | Core visual |
 | --- | --- | --- |
 | Pipeline map and stepper | Where am I in the computation? | Residual spine with attention and MLP branches; a live thumbnail per stage |
 | Tensor inspector | What exactly is this number and where did it come from? | Heatmap of any tensor; cell drill-down to the dot product or gradient terms |
 | Attention | Which earlier tokens does each position look at, and why? | Arcs over text, masked T×T matrix, Q·K explorer, head gallery |
-| Residual stream | How does a token's vector change through the network? | The vector at each of the 13 snapshots; write size per sublayer; the gradient highway |
+| Embeddings | What has the model learned about tokens and positions? | The token and position tables as 2D maps; nearest rows |
+| Residual stream | How does a token's vector change through the network? | The vector at each of the 13 snapshots; write size per sublayer; dimension sizes and a tracked dimension; trajectories; the gradient highway |
 | Logit lens | When does the model settle on the next token? | Snapshots × positions grid of top predictions |
 | Network atlas | What does the whole network look like at once? | Every weight and activation as one zoomable bitmap |
 | Interventions | What does this part of the model do? | Ablations and edits, compared with the original run |
@@ -138,11 +139,13 @@ The views share one selection (stage, layer, head, position, dimension); clickin
 
 **Attention.** Arcs over the prompt from the selected position to the tokens it attends to (or tinted tokens); the masked weights matrix per head; a Q·K explorer showing one query against every earlier key, with the products, dot product, scaled score and weight; and a 6 layers × 8 heads gallery with pattern badges (local, previous, sharp…) and names the learner can give each head.
 
-**Residual stream.** For the selected position, its 256-dimensional vector at each snapshot (after the embedding, then after each attention and each MLP) or what each sublayer wrote; the write size per sublayer, at that position and across all positions; and the gradient highway.
+**Embeddings.** The token table and the position table as maps: each table's rows centred and projected onto its top two principal components, drawn at one scale for both axes. The position table is a line in position order, usually smooth. The token table is coloured by what each token looks like, with the prompt's tokens labelled, a search box, and the nearest rows of any token clicked; the tokens never seen in training collapse to one dot. The token map's PCA takes under a second in the browser, so it is not redrawn on every training step.
+
+**Residual stream.** For the selected position, its 256-dimensional vector at each snapshot (after the embedding, then after each attention and each MLP) or what each sublayer wrote; the write size per sublayer, at that position and across all positions; and the gradient highway. **Dimension sizes** shows each dimension's mean |x| at a snapshot: a few dimensions are many times the median. Any dimension can be **tracked**: a chart follows it through the snapshots, with what each sublayer wrote to it, and the inspector and atlas mark its column in every stage that shares the stream's coordinates (embeddings, snapshots, layer norms, the attention and MLP outputs; not Q, K, V, the heads or the MLP's hidden layer). **Trajectories** project every position at every snapshot into one 2D view, each snapshot centred and scaled to unit length so the later layers do not dominate, and draw each position's path through the network.
 
 **Logit lens.** The final layer norm and unembedding applied to every residual snapshot, not just the last: a grid of snapshots × positions, each cell the top guess shaded by confidence (or by p(actual next token)). Reading down a column shows the guess forming layer by layer. The server decodes the snapshots, since decoding 13 × 100 rows against 4,096 tokens is GPU work.
 
-**Network atlas.** The whole model as one image in execution order, one pixel per number: about 5.8M weight pixels plus this prompt's activations, rendered with WebGL2 so pan and zoom are instant. Zoomed out it shows structure; zooming in adds tile labels and then the numbers. Modes: values, gradients, weight × input for the selected position, difference from a pinned snapshot, and the most recent weight change during training. Clicking any pixel opens it in the inspector. Pixel position has no meaning of its own, so the atlas works as a map paired with the other views.
+**Network atlas.** The whole model as one image in execution order, one pixel per number: about 5.8M weight pixels plus this prompt's activations, rendered with WebGL2 so pan and zoom are instant. Zoomed out it shows structure; zooming in adds tile labels and then the numbers. Modes: values, gradients, weight × input for the selected position, difference from a pinned snapshot, and the most recent weight change during training. The selected position's row is outlined in every activation tile, and a tracked residual dimension's column is dashed. Clicking any pixel opens it in the inspector. Pixel position has no meaning of its own, so the atlas works as a map paired with the other views.
 
 **Next token and generation.** The top 40 of the next-token distribution, reshaped live by temperature, top-k and top-p, with excluded tokens greyed. Sample one token or run continuously; generated text is coloured by how likely each choice was, the 100-token window is boxed as it slides, and clicking a generated token reloads the trace that produced it.
 
@@ -157,10 +160,10 @@ The views share one selection (stage, layer, head, position, dimension); clickin
 
 Interventions never affect training.
 
-**Guided lessons.** A lesson is a script over the same views: a sequence of steps, each setting the selection, display mode, prompt and interventions, with narration and optionally a question checked against what the learner clicks ("click the key with the largest weight"). Answers that depend on what the model learned, such as which head is sharpest, are computed from the live trace, so lessons work at any checkpoint. Lessons are plain JSON in `ui/src/lessons/`, so new ones need no code. The starter set:
+**Guided lessons.** A lesson is a script over the same views: a sequence of steps, each setting the selection, display mode, prompt and interventions, with narration and optionally a question checked against what the learner clicks ("click the key with the largest weight"). Answers that depend on what the model learned, such as which head is sharpest, are computed from the live trace, so lessons work at any checkpoint. Lessons are plain JSON in `ui/src/lessons/`, so new ones need no code. A name in lesson or help text that matches a glossary entry (a weight such as `wte`, a stage such as `L2.mlp.up`, or a `[[term]]`) links to the **glossary** in the help panel: every weight with its shape, every kind of stage with the forward and backward TeX the inspector shows (read from the trace, so it cannot drift), and the main concepts. The starter set:
 
-1. Text to numbers: tokens, the embedding table, and tokens the model never saw.
-2. Where am I? Position embeddings.
+1. Text to numbers: tokens, the embedding table and its map, and tokens the model never saw.
+2. Where am I? Position embeddings and their map.
 3. Attention as search: one head, one query.
 4. Many heads: the head gallery and ablation.
 5. The MLP: neurons that fire on specific patterns.
@@ -246,9 +249,6 @@ The app is desktop-first: a 100×100 attention matrix and the atlas need a wide 
 
 Ideas from the design that remain open:
 
-- **Embedding projections:** a 2D projection of the position embeddings (often a smooth curve) and of the token table.
-- **Residual trajectories:** each position's vector projected to 2D at each snapshot, drawn as a path through the network.
-- **Dimension tracking:** one residual dimension highlighted through every stage.
 - **A sparse autoencoder** on the residual stream, to find features without choosing concepts in advance.
 - **A static, browser-only demo** with a TypeScript forward pass and BPE encoder; `bpe-small`'s weights are about 23 MB as float32.
 - **A native window and installers** (pywebview or Tauri).

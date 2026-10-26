@@ -60,6 +60,10 @@
     "hint": "This model ties its embeddings: `wte` is also its output layer.",
     "correct": "Every training step pushes down the score of every token that is not the right answer. A token that never appears is never the answer and never an input, so that push is the only thing that ever changes its row, and it is the same push for all of them. They all converged on one direction, away from anything the model predicts."
    }
+  },
+  {
+   "text": "The same table as a map, in the **embeddings** tab: each point is one row of `wte`, projected onto the table's two main directions. The labelled points are this prompt's tokens. Hover the lone dot at the far edge of the map: it is many points on top of each other, the tokens that never occur in training, which ended up almost the same vector. Click any point to list the rows closest to it; tokens used in similar ways often sit together.",
+   "tab": "embeddings"
   }
  ]
 }

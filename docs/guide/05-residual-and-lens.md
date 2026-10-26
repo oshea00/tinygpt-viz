@@ -8,9 +8,31 @@ Each position carries one vector through the whole network: the **residual strea
 
 The residual stream tab follows the selected position (click a token chip to change it):
 
-- **Position through the stream**: one row per snapshot, after the embedding and after each attention and MLP. Switch to **what each sublayer writes** to see the additions instead; those rows add up to the final vector. Magnitudes grow with depth, so **symmetric log** helps.
+- **Position through the stream**: one row per snapshot, after the embedding and after each attention and MLP. Switch to **what each sublayer writes** to see the additions instead; those rows add up to the final vector. Magnitudes grow with depth, so **symmetric log** helps. Click a column to [track that dimension](#tracking-a-dimension).
 - **Write size**: how big each sublayer's addition is at this position (thick bar), next to the size of the stream after it (thin bar).
 - **Write size at every position**: the same for every position at once. Click a column to select that position.
+
+### Tracking a dimension
+
+![A tracked dimension](../images/dim-tracking.png)
+
+Most of the stream's 256 dimensions mean little on their own, but a few are far larger than the rest. **Dimension sizes** shows each dimension's average size over the positions, at a snapshot you choose, and lists the largest. This is why the [concept explorer](10-concepts.md) centres vectors before comparing them: otherwise the large dimensions make every vector look alike.
+
+Click a bar, a listed dimension, or a column of the stream to **track** it:
+
+- **Dimension d through the network**: its value at every snapshot, one line per position, the selected position bold.
+- **Written to dim d**: what each sublayer added to it at the selected position, the steps of the bold line.
+- The [inspector](03-inspector.md) and the [atlas](06-atlas.md) mark the tracked dimension's column in every stage that uses the stream's own coordinates: the embeddings, the snapshots, the layer norms, and the two sublayer outputs. Q, K, V, the heads and the MLP's hidden layer use other coordinates, so they are not marked.
+
+**stop tracking ×** (or the × in the inspector) clears it.
+
+### Trajectories
+
+![Trajectories through the stream](../images/trajectories.png)
+
+Every position's vector at each snapshot, projected onto the two main directions of all of them together, and drawn as a path from the embedding (open circle, x₀) to the last layer. Darker paths are later positions; the selected position is bold and labelled with its token. Paths that run together are positions the model is treating alike at that depth; a path that jumps shows a sublayer that changed that position a lot.
+
+**normalise each snapshot** (on by default) centres each snapshot and scales its vectors to unit length. Without it, the later layers' larger vectors dominate the picture. Click a path to select its position.
 
 ### The gradient highway
 

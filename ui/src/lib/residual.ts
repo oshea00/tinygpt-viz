@@ -1,5 +1,5 @@
-// The residual stream: its snapshots, what each sublayer writes to it, how gradients flow
-// back through it, and the logit lens (reading a prediction out of every snapshot).
+// The residual stream: its snapshots, what each sublayer writes to it, and how gradients flow
+// back through it.
 
 import type { Trace } from "../types";
 import { norm, row } from "./tensor";

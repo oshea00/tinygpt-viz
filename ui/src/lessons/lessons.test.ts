@@ -9,7 +9,7 @@ const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
 const b = readFileSync(new URL("../fixtures/trace.bin", import.meta.url));
 const trace = (decodeBinary(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer) as { trace: Trace }).trace;
-const TABS = ["inspector", "attention", "residual", "lens", "atlas", "interventions", "concepts", "onestep"];
+const TABS = ["inspector", "embeddings", "attention", "residual", "lens", "atlas", "interventions", "concepts", "onestep"];
 
 describe("starter lessons", () => {
   it("are numbered 1..n with unique ids", () => {

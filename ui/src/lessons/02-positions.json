@@ -26,6 +26,10 @@
    }
   },
   {
+   "text": "The position table as a map, in the **embeddings** tab: each point is one row of `wpe`, joined in position order. The line is usually smooth, because neighbouring positions get similar vectors. That lets attention tell \"just before\" from \"long ago\" with one dot product.",
+   "tab": "embeddings"
+  },
+  {
    "text": "Now an experiment: shuffle the position embeddings, so every token is told the wrong position. Watch the next-token panel on the right, and the loss in the interventions tab.",
    "tab": "interventions",
    "interventions": [

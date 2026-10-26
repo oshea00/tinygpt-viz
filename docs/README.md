@@ -21,6 +21,7 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | [Interventions](guide/09-interventions.md) | Ablating heads and neurons, editing values, before and after |
 | [Concept explorer](guide/10-concepts.md) | How the model represents words: similarity, probes, steering |
 | [Lessons](guide/11-lessons.md) | The ten guided lessons |
+| [Embeddings](guide/12-embeddings.md) | The token and position tables as maps |
 
 ## For instructors and lesson authors
 

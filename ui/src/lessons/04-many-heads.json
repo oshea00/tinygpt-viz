@@ -10,14 +10,14 @@
    "tab": "attention"
   },
   {
-   "text": "The badge under each head summarises its habit: a fixed target (previous, self, first) if it has one; otherwise how **sharp** it is and how far back it looks on average.",
+   "text": "The badge under each head summarises its habit: a fixed target (previous, self, first) if it has one; otherwise how **sharp** it is and how far back it looks on average. Under the badge, **focus** measures sharpness for every head: the average weight each row gives its heaviest key, where 1 means every query looks at just one key.",
    "ask": {
-    "question": "Click the **sharpest** head in the gallery: the one that puts most weight on a single key.",
+    "question": "Click the **sharpest** head in the gallery: the one with the highest focus.",
     "check": {
      "kind": "headBest",
      "stat": "peak"
     },
-    "hint": "Look for the thinnest diagonal lines, and a “sharp” badge.",
+    "hint": "Compare the focus bars under the badges. The sharpest head can have any badge: a head that always looks at the previous token is very sharp too. In its thumbnail, each row has one dark cell.",
     "correct": "Give it a name in the box under it, if you can describe what it does."
    }
   },

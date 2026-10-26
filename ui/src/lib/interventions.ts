@@ -51,6 +51,29 @@ export function targetProbs(trace: Trace, baseline: Trace): { before: number; af
   return trace.targets.flatMap((t, i) => (t >= 0 ? [{ before: at(pb, i, t), after: at(pa, i, t) }] : []));
 }
 
+export interface PositionChange {
+  position: number;
+  target: number;        // the actual next token
+  before: number;        // its probability without the interventions
+  after: number;         // and with them
+  loss: number;          // change in this position's loss, log(before) − log(after): positive is worse
+}
+
+/** The position whose prediction of the actual next token changed most. The loss on the prompt
+ * averages over every position, so a change concentrated in a few looks small there. */
+export function biggestChange(trace: Trace, baseline: Trace): PositionChange | null {
+  const pa = trace.byId.get("probs")!.output, pb = baseline.byId.get("probs")!.output;
+  if (dims2(pa)[0] !== dims2(pb)[0]) return null;
+  let best: PositionChange | null = null;
+  trace.targets.forEach((t, i) => {
+    if (t < 0) return;
+    const before = at(pb, i, t), after = at(pa, i, t);
+    const loss = Math.log(Math.max(before, 1e-12)) - Math.log(Math.max(after, 1e-12));
+    if (!best || Math.abs(loss) > Math.abs(best.loss)) best = { position: i, target: t, before, after, loss };
+  });
+  return best;
+}
+
 /** Whether a baseline matches a trace well enough to compare (same prompt and weights). */
 export function comparable(trace: Trace | null, baseline: Trace | null): baseline is Trace {
   return !!trace && !!baseline && baseline.prompt === trace.prompt && baseline.step === trace.step && baseline.tokens.length === trace.tokens.length;

@@ -53,10 +53,25 @@ class Player {
   go(i: number): void {
     if (!this.lesson) return;
     this.index = Math.max(0, Math.min(this.steps.length - 1, i));
-    this.apply(this.step!);
+    if (this.apply(this.step!)) app.run();
   }
 
-  private apply(s: LessonStep): void {
+  /** Back to how the current step began: a step only sets what it changes and inherits the
+   * rest (prompt, tab, stage) from the steps before it, so replay them all from a clean
+   * selection with no interventions. Answers are worked out from the selection, so this also
+   * un-answers the step's question. */
+  reset(): void {
+    if (!this.lesson) return;
+    app.stopAuto();
+    selection.reset();
+    let rerun = app.interventions.length > 0;
+    app.interventions = [];
+    for (const s of this.steps.slice(0, this.index + 1)) rerun = this.apply(s) || rerun;
+    if (rerun) app.run();
+  }
+
+  /** Apply one step's settings; true when the model must run again to show them. */
+  private apply(s: LessonStep): boolean {
     let rerun = false;
     if (s.prompt !== undefined && s.prompt !== app.prompt) {
       app.prompt = s.prompt;
@@ -83,7 +98,7 @@ class Player {
     if (s.residualMode) settings.residualMode = s.residualMode;
     if (s.conceptPanel) concepts.panel = s.conceptPanel;
     settings.compare = false;
-    if (rerun) app.run();
+    return rerun;
   }
 }
 

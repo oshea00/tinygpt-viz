@@ -6,6 +6,7 @@
   import LessonPlayer from "./lessons/LessonPlayer.svelte";
   import ConceptsView from "./views/concepts/ConceptsView.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
+  import EmbeddingsView from "./views/embeddings/EmbeddingsView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import InterventionsView from "./views/interventions/InterventionsView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
@@ -19,7 +20,17 @@
   import TrainingPanel from "./views/training/TrainingPanel.svelte";
 
   const cfg = $derived(app.hello?.config);
+
+  // Glossary links can appear in any formatted text (lessons, help): one handler for all.
+  function onDocClick(e: MouseEvent) {
+    const a = (e.target as Element | null)?.closest?.("a.gloss");
+    if (!a) return;
+    e.preventDefault();
+    settings.openGlossary(a.getAttribute("data-gloss"));
+  }
 </script>
+
+<svelte:document onclick={onDocClick} />
 
 <div class="app">
   <header>
@@ -55,6 +66,7 @@
     <section class="panel pad grow">
       <nav class="tabs">
         <button class:on={settings.tab === "inspector"} onclick={() => (settings.tab = "inspector")}>inspector</button>
+        <button class:on={settings.tab === "embeddings"} onclick={() => (settings.tab = "embeddings")}>embeddings</button>
         <button class:on={settings.tab === "attention"} onclick={() => (settings.tab = "attention")}>attention</button>
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
@@ -66,6 +78,7 @@
         {/if}
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
+      {:else if settings.tab === "embeddings"}{#if app.trace}<EmbeddingsView />{/if}
       {:else if settings.tab === "residual"}{#if app.trace}<ResidualView />{/if}
       {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
       {:else if settings.tab === "atlas"}<AtlasView />

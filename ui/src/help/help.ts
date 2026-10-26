@@ -95,9 +95,25 @@ export const TOPICS: Record<string, HelpTopic> = {
       "**snapshots of x** or **what each sublayer writes** (the rows then sum to the final vector).",
       "**Write size**: how big each sublayer's addition is at this position, and at every position.",
       "**Gradient highway**: on the way back, how much gradient passes straight through each add and how much returns through the sublayer.",
+      "**Dimension sizes**: the average size of each of the stream's dimensions; a few are far larger than the rest. Click a bar, or a column of the stream, to **track** that dimension: a chart follows it through every snapshot, and the inspector and atlas mark it wherever the stream's coordinates apply.",
+      "**Trajectories**: every position's path through the snapshots, projected to 2D. Paths that run together are positions the model treats alike at that depth.",
     ],
-    tryThis: ["Click different tokens in the prompt: which sublayer writes most for punctuation, or for the start of a word?"],
+    tryThis: [
+      "Click different tokens in the prompt: which sublayer writes most for punctuation, or for the start of a word?",
+      "Track the largest dimension: is it large for every position, and which sublayer makes it so?",
+    ],
     guide: "05-residual-and-lens.md",
+  },
+  embeddings: {
+    title: "Embeddings",
+    what: "The model's two learned input tables as maps: the position table (one point per position) and the token table (one point per vocabulary entry), each projected onto its two main directions.",
+    how: [
+      "**Position table**: the points are joined in position order; the prompt's positions are larger and the selected one is ringed. Click one to select it.",
+      "**Token table**: coloured by what the token looks like; the prompt's tokens are labelled. Type in the box to highlight tokens containing some text, and click a point to list its nearest rows.",
+      "While training runs the maps keep the weights they were drawn from; **refresh the maps** redraws them.",
+    ],
+    tryThis: ["Hover the lone dot at the edge of the token map: it is many tokens the model never saw in training, stacked on one spot."],
+    guide: "12-embeddings.md",
   },
   lens: {
     title: "Logit lens",

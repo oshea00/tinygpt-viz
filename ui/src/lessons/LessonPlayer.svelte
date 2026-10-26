@@ -38,7 +38,7 @@
       {:else}
         <button class="primary" onclick={() => player.go(player.index + 1)}>{step.ask && !player.answered ? "skip" : "next"}</button>
       {/if}
-      <button class="link" onclick={() => player.go(player.index)}>reset this step</button>
+      <button class="link" onclick={() => player.reset()}>reset this step</button>
     </div>
   </section>
 {/if}

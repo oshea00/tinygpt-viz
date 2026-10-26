@@ -3,7 +3,7 @@
   // shown against a baseline run of the same prompt without it.
   import type { Intervention } from "../../types";
   import { app, selection, settings } from "../../state/app.svelte";
-  import { comparable, describe, stageChanges, targetProbs } from "../../lib/interventions";
+  import { biggestChange, comparable, describe, stageChanges, targetProbs } from "../../lib/interventions";
   import { at, dims2, fmt, row } from "../../lib/tensor";
 
   const cfg = $derived(app.hello!.config);
@@ -31,6 +31,7 @@
   const base = $derived(comparable(trace, app.baseline) ? app.baseline : null);
   const changes = $derived(base ? stageChanges(trace, base).filter((c) => c.change > 0) : []);
   const probs = $derived(base ? targetProbs(trace, base) : []);
+  const biggest = $derived(base ? biggestChange(trace, base) : null);
   const lossDelta = $derived(base && base.loss !== null && trace.loss !== null ? trace.loss - base.loss : null);
 
   // Next-token distribution at the selected (or last) position, before and after.
@@ -132,6 +133,13 @@
         <b class="mono">{fmt(base.loss!, 4)} → {fmt(trace.loss!, 4)}</b>
         <span class={lossDelta > 0 ? "bad" : "ok"}>{lossDelta > 0 ? "+" : ""}{fmt(lossDelta, 4)}</span></div>
     {/if}
+    {#if biggest && Math.abs(biggest.loss) > 1e-6}
+      <div><div class="muted">biggest change, at one position</div>
+        <button class="pick mono" title="select this position" onclick={() => (selection.position = biggest!.position)}>
+          {trace.text[biggest.position]} → {app.hello?.vocab[biggest.target]}</button>
+        <span class={biggest.loss > 0 ? "bad" : "ok"}>{biggest.loss > 0 ? "+" : ""}{fmt(biggest.loss, 3)}</span>
+        <span class="muted small">p {fmt(biggest.before, 2)} → {fmt(biggest.after, 2)}</span></div>
+    {/if}
     <div><div class="muted">first stage changed</div><b class="mono">{changes[0]?.id ?? "none"}</b></div>
     <div><div class="muted">stages changed</div><b class="mono">{changes.length} / {trace.stages.length}</b></div>
   </div>
@@ -141,7 +149,7 @@
       <h2>Next token after position {pos} “{trace.text[pos]}”: before ▪ after ▪</h2>
       {#each nextTok as t}
         <div class="pair">
-          <span class="mono tok">{app.hello?.vocab[t.i]}</span>
+          <span class="mono tok" title={app.hello?.vocab[t.i]}>{app.hello?.vocab[t.i]}</span>
           <span class="bars2">
             <span class="b before" style:width="{t.before * 100}%"></span>
             <span class="b after" style:width="{t.after * 100}%"></span>
@@ -194,12 +202,15 @@
   .link { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; font-size: 11px; }
   .summary { display: flex; gap: 28px; flex-wrap: wrap; margin: 4px 0 12px; }
   .summary b { font-size: 14px; }
+  .pick { font-size: 14px; font-weight: 700; border: none; background: none; padding: 0; color: inherit; text-decoration: underline dotted; cursor: pointer; }
+  .small { font-size: 11px; }
   .ok { color: var(--ok); }
   .bad { color: var(--bad); }
   .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 12px; }
   @media (max-width: 1300px) { .two { grid-template-columns: minmax(0, 1fr); } }
-  .pair { display: grid; grid-template-columns: 20px 1fr 110px; gap: 6px; align-items: center; font-size: 12px; margin: 2px 0; }
-  .tok { text-align: center; }
+  /* Tokens are mostly whole words: a fixed column wide enough for them keeps the bars aligned. */
+  .pair { display: grid; grid-template-columns: 10ch 1fr 110px; gap: 6px; align-items: center; font-size: 12px; margin: 2px 0; }
+  .tok { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bars2 { display: grid; gap: 1px; }
   .bars2 .b { display: block; height: 6px; border-radius: 2px; min-width: 1px; }
   .before { background: #a5b4fc; }
@@ -212,7 +223,8 @@
   .cid { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ctrack { height: 7px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .cfill { display: block; height: 100%; background: #d97706; }
-  .pchart { display: flex; gap: 1px; align-items: flex-end; overflow-x: auto; padding-bottom: 4px; }
+  /* Columns align at the top, so every bar shares one baseline and labels of any length hang below. */
+  .pchart { display: flex; gap: 1px; align-items: flex-start; overflow-x: auto; padding-bottom: 4px; }
   .col { display: flex; flex-direction: column; align-items: center; width: 11px; flex: none; }
   .cbars { height: 80px; width: 100%; display: flex; align-items: flex-end; gap: 1px; }
   .cbars .b { flex: 1; display: block; min-height: 1px; }

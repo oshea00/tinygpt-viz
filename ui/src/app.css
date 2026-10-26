@@ -45,3 +45,6 @@ input, select, textarea {
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }
 h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+/* Links into the glossary (help/glossary.ts), from lesson and help text. */
+a.gloss { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+a.gloss:hover { color: var(--accent); text-decoration-style: solid; }

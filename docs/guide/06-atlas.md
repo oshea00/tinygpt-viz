@@ -26,6 +26,7 @@ The legend under the atlas explains these:
 
 - **Gold outline**: the selected stage's tile. The weights it uses have dashed gold outlines.
 - **Thin line across activation tiles**: the selected position's row.
+- **Dashed column**: a [tracked residual dimension](05-residual-and-lens.md#tracking-a-dimension), in the embedding tables and in every activation tile that uses the stream's coordinates.
 - **Grey hatching**: masked cells, or nothing to show in the current mode.
 - **Grey veil over rows**: rows that came from the [KV cache](07-generation.md#kv-cache-mode).
 

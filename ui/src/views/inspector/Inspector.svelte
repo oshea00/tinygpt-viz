@@ -4,6 +4,7 @@
   import { dims2, fmt } from "../../lib/tensor";
   import { headColor } from "../../lib/colormap";
   import { comparable, difference } from "../../lib/interventions";
+  import { inResidualBasis } from "../../lib/embeddings";
   import { tensorRange } from "../../lib/scale";
   import Formula from "./Formula.svelte";
   import Heatmap from "./Heatmap.svelte";
@@ -54,7 +55,10 @@
   const reusedRows = $derived(inc && !backward && !diff && tensor && tensor.shape.length >= 2 && tensor.shape[0] === trace!.tokens.length ? inc.reused : 0);
 
   const pickedR = $derived(selection.position >= 0 && selection.position < dims[0] ? selection.position : -1);
-  const pickedC = $derived(selection.dim >= 0 && selection.dim < dims[1] ? selection.dim : -1);
+  // A tracked residual dimension takes over the column highlight in stages that use the
+  // stream's coordinates; elsewhere a column means something else (a neuron, a key position).
+  const tracking = $derived(!!stage && inResidualBasis(stage.id) && selection.trackDim >= 0 && selection.trackDim < dims[1]);
+  const pickedC = $derived(tracking ? selection.trackDim : selection.dim >= 0 && selection.dim < dims[1] ? selection.dim : -1);
 </script>
 
 {#if !trace || !stage || !tensor || !range}
@@ -108,9 +112,11 @@
       maskUpper={stage.kind === "mask" || stage.kind === "softmax"}
       {reusedRows}
       {colBands}
-      onpick={(r, c) => { selection.position = r; selection.dim = c; }}
+      onpick={(r, c) => { selection.position = r; selection.dim = c; if (tracking) selection.trackDim = c; }}
     />
-    <p class="axes muted">rows: positions (token) · columns: {colWord}</p>
+    <p class="axes muted">rows: positions (token) · columns: {colWord}
+      {#if tracking}· <span class="track">tracking residual dimension {selection.trackDim}</span>
+        <button class="link" onclick={() => (selection.trackDim = -1)}>×</button>{/if}</p>
     {#if inc && !backward && !diff}
       <p class="kv">
         {#if inc.reused}
@@ -173,6 +179,7 @@
   .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 8px; font-size: 12px; }
   .range { font-size: 11px; }
   .axes { font-size: 11px; margin: 4px 0 0; }
+  .track { color: var(--accent); }
   .kv { font-size: 12px; margin: 6px 0 0; padding: 4px 8px; border-radius: 6px; background: var(--accent-soft); }
   .loss { font-size: 28px; margin: 12px 0; }
   .lesson { margin-top: 10px; max-width: 760px; }

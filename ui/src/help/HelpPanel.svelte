@@ -1,17 +1,20 @@
 <script lang="ts">
-  // Help for the open tab, or for one of the always-visible panels.
+  // Help for the open tab, or for one of the always-visible panels, or the glossary.
   import { app, settings } from "../state/app.svelte";
   import { formatText } from "../lessons/lesson";
-  import { LAYOUT, PANELS, TOPICS, type HelpTopic } from "./help";
+  import Glossary from "./Glossary.svelte";
+  import { LAYOUT, PANELS, TOPICS } from "./help";
 
   const tabTopic = $derived(TOPICS[settings.tab] ?? LAYOUT);
-  const topic = $derived(settings.helpTopic === "layout" ? LAYOUT : settings.helpTopic ? PANELS[settings.helpTopic] : tabTopic);
+  const glossary = $derived(settings.helpTopic === "glossary");
+  const topic = $derived(settings.helpTopic === "layout" || glossary ? LAYOUT : settings.helpTopic ? PANELS[settings.helpTopic] : tabTopic);
   const choices = $derived([
     [null, `${tabTopic.title} (open tab)`],
     ["layout", LAYOUT.title],
     ["pipeline", PANELS.pipeline.title],
     ["generation", PANELS.generation.title],
     ...(app.hello?.training ? [["training", PANELS.training.title] as const] : []),
+    ["glossary", "Glossary"],
   ] as const);
 </script>
 
@@ -21,18 +24,23 @@
       <b>Help</b>
       <nav>
         {#each choices as [key, label]}
-          <button class:on={settings.helpTopic === key} onclick={() => (settings.helpTopic = key)}>{label}</button>
+          <button class:on={settings.helpTopic === key} onclick={() => (key === "glossary" ? settings.openGlossary(null) : (settings.helpTopic = key))}>{label}</button>
         {/each}
       </nav>
       <button class="close" title="close help" onclick={() => (settings.help = false)}>×</button>
     </div>
-    <h3>{topic.title}</h3>
-    <p class="what">{@html formatText(topic.what)}</p>
-    <ul>{#each topic.how as line}<li>{@html formatText(line)}</li>{/each}</ul>
-    {#if topic.tryThis.length}
-      <p class="try"><b>Try:</b> {@html formatText(topic.tryThis.join(" "))}</p>
+    {#if glossary}
+      <h3>Glossary</h3>
+      <Glossary />
+    {:else}
+      <h3>{topic.title}</h3>
+      <p class="what">{@html formatText(topic.what)}</p>
+      <ul>{#each topic.how as line}<li>{@html formatText(line)}</li>{/each}</ul>
+      {#if topic.tryThis.length}
+        <p class="try"><b>Try:</b> {@html formatText(topic.tryThis.join(" "))}</p>
+      {/if}
+      <p class="more muted">More in the guide: <a href="/docs/guide/{topic.guide}" target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
     {/if}
-    <p class="more muted">More in the guide: <a href="/docs/guide/{topic.guide}" target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
   </section>
 {/if}
 

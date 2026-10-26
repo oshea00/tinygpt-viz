@@ -97,7 +97,8 @@
   .summary b { font-size: 15px; }
   .ok { color: var(--ok); }
   .bad { color: var(--bad); }
-  .pchart { display: flex; gap: 1px; align-items: flex-end; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+  /* Columns align at the top, so every bar shares one baseline and labels of any length hang below. */
+  .pchart { display: flex; gap: 1px; align-items: flex-start; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
   .col { display: flex; flex-direction: column; align-items: center; width: 11px; flex: none; }
   .bars { height: 90px; width: 100%; display: flex; align-items: flex-end; gap: 1px; }
   .b { flex: 1; display: block; min-height: 1px; }

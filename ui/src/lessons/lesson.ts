@@ -5,8 +5,9 @@ import type { Intervention, Trace } from "../types";
 import { headStats } from "../lib/attention";
 import { argmax } from "../lib/residual";
 import { row } from "../lib/tensor";
+import { glossKey } from "../help/glossary";
 
-export type Tab = "inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
+export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
 
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
@@ -92,10 +93,24 @@ export function unavailable(lesson: Lesson, training: boolean): string | null {
 
 export const available = (lesson: Lesson, training = true) => unavailable(lesson, training) === null;
 
-/** Minimal inline formatting for narration: **bold**, `code` and {{vars}}, everything else escaped. */
+const unescape = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const glossLink = (key: string, inner: string) => `<a class="gloss" href="#${key}" data-gloss="${key}">${inner}</a>`;
+
+/** Minimal inline formatting for narration: **bold**, `code`, [[term]] or [[shown text|term]],
+ * and {{vars}}, everything else escaped. A `code` span that names a glossary entry, and every
+ * [[term]] that does, links to it (help/glossary.ts). */
 export function formatText(text: string, vars: Record<string, string> = {}): string {
   const esc = text.replace(/\{\{(\w+)\}\}/g, (m, k) => vars[k] ?? m).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+  return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/`(.+?)`/g, (_, c) => {
+      const key = glossKey(unescape(c));
+      return key ? glossLink(key, `<code>${c}</code>`) : `<code>${c}</code>`;
+    })
+    .replace(/\[\[(.+?)\]\]/g, (_, c) => {
+      const [shown, term] = c.split("|");
+      const key = glossKey(unescape(term ?? shown));
+      return key ? glossLink(key, shown) : shown;
+    });
 }
 
 export function loadLessons(): Lesson[] {

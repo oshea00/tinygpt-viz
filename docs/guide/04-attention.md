@@ -40,6 +40,8 @@ Every head's pattern for the current prompt, one row per layer. The badge under 
 - **sharp · 2.3 back**: most of the weight goes to one key, chosen by content, on average 2.3 positions back.
 - **local** or **broad**: weight spread over nearby or many positions.
 
+Under the badge, **focus** measures sharpness for every head, whatever its badge: the average weight each row gives its heaviest key, from near 0 (spread over many keys) to 1 (every query looks at one key). A head with a fixed habit, such as previous, is usually very focused too.
+
 Badges are measured on the current prompt, so try a few. Give a head a name in the box under it (names are saved in your browser).
 
 **ablate** zeroes that head's output in every view, so you can see what it was doing. Then open the [interventions](09-interventions.md) tab for the effect on the loss and on each prediction. **restore** undoes it.

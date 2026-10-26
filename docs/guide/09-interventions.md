@@ -22,6 +22,7 @@ You can combine several. The header shows how many are active; remove them with 
 Every view then shows the changed model. The interventions tab compares it with the original:
 
 - **loss on this prompt**, before and after, and the **first stage changed**: where the effect enters.
+- **biggest change, at one position**: the prediction the intervention changed most, with that position's change in loss and the probability of the actual next token before and after. The loss on the prompt averages over every position, so an intervention that matters a lot in a few places can look small there; click the change to select that position.
 - **Next token**: the distribution before and after, for the selected position.
 - **Where the change goes**: every changed stage in the order they run, with how much it changed relative to its size. Click one to open it in the inspector, which then shows the **change from intervention**.
 - **p(actual next token) at each position**, before and after: where the change matters for the predictions.

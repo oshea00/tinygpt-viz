@@ -98,6 +98,7 @@ Lessons start by clearing interventions, so each one starts from the plain model
 Narration, questions, hints and answers are plain text with:
 
 - `**bold**` and `` `code` ``,
+- links to the glossary: a `` `code` `` span that names a weight or stage (`` `wte` ``, `` `W_Q` ``, `` `L2.mlp.up` ``; any layer or head number works) links to its entry automatically, and `[[term]]` links plain words to a concept, such as `[[residual stream]]` or `[[the maps|PCA]]` to show other text. A term with no entry is shown as plain text, so a typo does no harm; the glossary's entries are in `ui/src/help/glossary.ts`. Where a stage and a concept share a name (`logits`, `loss`), the stage wins: link the concept by another of its names, such as `[[cross-entropy]]`.
 - placeholders filled in from the running model: `{{d}}` (the vector width, 256 on `bpe-small`) and `{{V}}` (the vocabulary size).
 
 Use the placeholders rather than writing *256*, so a lesson stays correct if the model changes.

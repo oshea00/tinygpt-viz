@@ -7,6 +7,8 @@
   import { tensorRange } from "../../lib/scale";
   import { dims2, fmt, row } from "../../lib/tensor";
   import Heatmap from "../inspector/Heatmap.svelte";
+  import DimTrack from "./DimTrack.svelte";
+  import Trajectories from "./Trajectories.svelte";
 
   const trace = $derived(app.trace!);
   const pos = $derived(selection.query(trace));
@@ -52,10 +54,15 @@
     </span>
   </div>
   <Heatmap tensor={stream.t} {range} rowLabels={stream.labels} maxCell={14}
-           selCol={selection.dim < d ? selection.dim : -1} onpick={(_, c) => (selection.dim = c)} />
+           selCol={selection.trackDim >= 0 ? selection.trackDim : selection.dim < d ? selection.dim : -1}
+           onpick={(_, c) => { selection.dim = c; selection.trackDim = c; }} />
   <p class="muted note">columns: the {d} residual dimensions · range <span class="mono">±{fmt(range.hi, 3)}</span>
-    {settings.residualMode === "snapshots" ? "· magnitudes tend to grow with depth; try symmetric log" : "· the rows sum to the final snapshot"}</p>
+    {settings.residualMode === "snapshots" ? "· magnitudes tend to grow with depth; try symmetric log" : "· the rows sum to the final snapshot"}
+    · click a column to follow that dimension</p>
 </section>
+
+<DimTrack />
+<Trajectories />
 
 <div class="two">
   <section>

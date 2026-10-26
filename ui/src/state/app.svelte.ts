@@ -254,6 +254,9 @@ class Selection {
   phase = $state<"forward" | "backward">("forward");
   position = $state(-1);   // -1: none selected
   dim = $state(-1);
+  /** A residual-stream dimension followed through every stage that shares the stream's
+   * coordinates (see inResidualBasis in lib/embeddings.ts); -1: none. */
+  trackDim = $state(-1);
   layer = $state(0);       // the head the attention views show; follows any attention stage selected
   head = $state(0);
 
@@ -275,6 +278,16 @@ class Selection {
     this.select(`L${layer}.attn.H${head}.weights`);
   }
 
+  /** Back to nothing selected, as when the app opens. */
+  reset(): void {
+    this.select("embed.sum", "forward");
+    this.position = -1;
+    this.dim = -1;
+    this.trackDim = -1;
+    this.layer = 0;
+    this.head = 0;
+  }
+
   /** The selected position, or the last one if none is selected. */
   query(trace: Trace): number {
     return this.position >= 0 && this.position < trace.tokens.length ? this.position : trace.tokens.length - 1;
@@ -285,21 +298,28 @@ export const selection = new Selection();
 
 class Settings {
   help = $state(false);                    // the help panel
-  helpTopic = $state<string | null>(null);   // a panel's help (see help/help.ts PANELS); null: the open tab
+  helpTopic = $state<string | null>(null);   // a panel's help (see help/help.ts PANELS), "glossary"; null: the open tab
+  glossaryKey = $state<string | null>(null); // the glossary entry a link pointed to
 
   openHelp(topic: string | null): void {
     this.helpTopic = topic;
     this.help = true;
   }
+
+  openGlossary(key: string | null): void {
+    this.glossaryKey = key;
+    this.openHelp("glossary");
+  }
   scaleMode = $state<ScaleMode>("tensor");
   clip = $state(99);
   symlog = $state(false);
   cell = $state(3);   // cell size multiplier; 0: fit to width
-  tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
+  tab = $state<"inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   atlasView = $state.raw<{ scale: number; tx: number; ty: number } | null>(null);   // kept across tab switches
   residualMode = $state<"snapshots" | "writes">("snapshots");
+  trajNormalise = $state(true);   // residual trajectories: scale each snapshot's vectors to unit length
   highwayScope = $state<"position" | "all">("all");
   lensMode = $state<"confidence" | "actual">("confidence");
   lensSnap = $state(-1);   // snapshot row picked in the logit lens (-1: last)

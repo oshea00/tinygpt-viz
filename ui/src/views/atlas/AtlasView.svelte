@@ -4,6 +4,7 @@
   // (the pipeline map follows); double-click to open it in the inspector.
   import { app, selection, settings } from "../../state/app.svelte";
   import { theme } from "../../state/theme.svelte";
+  import { inResidualBasis } from "../../lib/embeddings";
   import { buildLayout, hitTest, LABEL, renderAtlas, SECTION_GAP, tilesForStage, TITLE, type AtlasMode, type Layout, type Rendered, type Tile } from "../../lib/atlas";
   import { createRenderer, type AtlasRenderer, type View } from "../../lib/glAtlas";
   import { REUSED } from "../../lib/heatmap";
@@ -74,7 +75,7 @@
   });
 
   $effect(() => {
-    void view; void w; void h; void hover; void selection.position; void selection.stageId; void theme.current;
+    void view; void w; void h; void hover; void selection.position; void selection.stageId; void selection.trackDim; void theme.current;
     redraw();
   });
 
@@ -185,6 +186,18 @@
       if (t.kind === "act" && t.rows === trace.tokens.length && visible(t)) {
         ctx.strokeRect(sx(t.x) - 0.5, sy(t.y + p) - 0.5, t.cols * scale + 1, Math.max(1, scale) + 1);
       }
+    }
+
+    // A tracked residual dimension: its column in every tile that uses the stream's coordinates
+    // (activations, and the embedding tables), dashed so it reads apart from the position row.
+    const k = selection.trackDim;
+    if (k >= 0) {
+      ctx.setLineDash([3, 2]);
+      for (const t of layout.tiles) {
+        const residual = t.kind === "act" ? inResidualBasis(t.name) : t.name === "wte" || t.name === "wpe";
+        if (residual && !t.sub && k < t.cols && visible(t)) ctx.strokeRect(sx(t.x + k) - 0.5, sy(t.y) - 0.5, Math.max(1, scale) + 1, t.rows * scale + 1);
+      }
+      ctx.setLineDash([]);
     }
 
     if (scale >= NUMBERS_AT && rendered) {
