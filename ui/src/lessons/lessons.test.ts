@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
 import type { Trace } from "../types";
-import { available, unavailable, formatText, isCorrect, lessonVars, type Lesson } from "./lesson";
+import { available, unavailable, formatText, isCorrect, lessonVars, type Lesson, type Selected } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
@@ -31,6 +31,21 @@ describe("starter lessons", () => {
         if (s.head) expect(s.head[0] < 2 && s.head[1] < 2).toBe(true);
         if (s.ask?.check.kind === "stage") for (const id of s.ask.check.ids) expect(trace.byId.has(id), id).toBe(true);
         if (s.ask?.check.kind === "tab") expect(TABS).toContain(s.ask.check.tab);
+        if (s.ask?.check.kind === "bright") for (const id of s.ask.check.ids) expect(trace.byId.has(id), id).toBe(true);
+      }
+    });
+
+    // What "reset this step" leaves (see Player.reset): a question its own step already
+    // answers shows ✓ before the learner does anything, and reset cannot clear it.
+    it(`${l.order}. ${l.title} asks nothing the step itself answers`, () => {
+      const sel: Selected = { stageId: "embed.sum", position: -1, dim: -1, layer: 0, head: 0, tab: "inspector" };
+      for (const [i, s] of l.steps.entries()) {
+        if (s.tab) sel.tab = s.tab;
+        if (s.head) [sel.layer, sel.head] = s.head;
+        if (s.stage) sel.stageId = s.stage;
+        if (s.position !== undefined) sel.position = s.position === "last" ? -1 : s.position;
+        if (s.dim !== undefined) sel.dim = s.dim;
+        if (s.ask) expect(isCorrect(s.ask.check, sel, trace, 2, 2), `step ${i + 1}`).toBe(false);
       }
     });
   }
@@ -42,6 +57,31 @@ describe("answer checks", () => {
     expect(isCorrect({ kind: "stage", ids: ["embed.sum"] }, sel, trace, 2, 2)).toBe(true);
     expect(isCorrect({ kind: "position", positions: [4] }, sel, trace, 2, 2)).toBe(false);
     expect(isCorrect({ kind: "tab", tab: "attention" }, sel, trace, 2, 2)).toBe(true);
+  });
+
+  it("checks a bright cell, an early lens hit, and the asks that need an action", () => {
+    const out = trace.byId.get("L1.mlp.gelu")!.output;
+    const max = Math.max(...out.data);
+    const peak = out.data.indexOf(max), cols = out.shape[out.shape.length - 1];
+    const at = { ...sel, stageId: "L1.mlp.gelu", position: Math.floor(peak / cols), dim: peak % cols };
+    expect(isCorrect({ kind: "bright", ids: ["L1.mlp.gelu"] }, at, trace, 2, 2)).toBe(true);
+    expect(isCorrect({ kind: "bright", ids: ["L1.mlp.gelu"] }, { ...at, dim: -1 }, trace, 2, 2)).toBe(false);
+
+    const T = trace.tokens.length;
+    const p = trace.targets.findIndex((t) => t >= 0);
+    const topIds = Array.from({ length: 6 }, () => Array.from({ length: T }, () => [-1]));
+    topIds[0][p] = [trace.targets[p]];
+    topIds[5][p] = [trace.targets[p]];
+    const lens = { type: "lens" as const, prompt: trace.prompt!, step: trace.step, snapshots: [], topIds, topP: [], pActual: [] };
+    const lensSel = { ...sel, position: p };
+    expect(isCorrect({ kind: "lensEarly" }, lensSel, trace, 2, 2, { lens, lensSnap: 0 })).toBe(true);
+    expect(isCorrect({ kind: "lensEarly" }, lensSel, trace, 2, 2, { lens, lensSnap: 5 })).toBe(false);   // a late row
+    expect(isCorrect({ kind: "lensEarly" }, lensSel, trace, 2, 2, { lens, lensSnap: -1 })).toBe(false);  // nothing clicked
+
+    expect(isCorrect({ kind: "captured" }, sel, trace, 2, 2)).toBe(false);
+    expect(isCorrect({ kind: "captured" }, sel, trace, 2, 2, { captured: true })).toBe(true);
+    expect(isCorrect({ kind: "trained" }, sel, trace, 2, 2, { trained: true })).toBe(true);
+    expect(isCorrect({ kind: "reveal" }, sel, trace, 2, 2, { revealed: true })).toBe(true);
   });
 
   it("finds exactly one best head", () => {

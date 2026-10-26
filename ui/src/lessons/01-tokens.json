@@ -54,8 +54,7 @@
    "ask": {
     "question": "Why would tokens the model never saw end up identical?",
     "check": {
-     "kind": "tab",
-     "tab": "atlas"
+     "kind": "reveal"
     },
     "hint": "This model ties its embeddings: `wte` is also its output layer.",
     "correct": "Every training step pushes down the score of every token that is not the right answer. A token that never appears is never the answer and never an input, so that push is the only thing that ever changes its row, and it is the same push for all of them. They all converged on one direction, away from anything the model predicts."

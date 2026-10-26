@@ -22,8 +22,7 @@
    "ask": {
     "question": "Open the **training step** tab and take a step.",
     "check": {
-     "kind": "tab",
-     "tab": "onestep"
+     "kind": "trained"
     },
     "correct": "Compare the gradient with the update Adam actually applied: they look different."
    }

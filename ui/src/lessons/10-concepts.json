@@ -11,8 +11,7 @@
    "ask": {
     "question": "Press **capture** (keep “also the untrained model” ticked).",
     "check": {
-     "kind": "tab",
-     "tab": "concepts"
+     "kind": "captured"
     },
     "correct": "Each captured word is now a vector per snapshot, from the trained model and from the untrained one."
    }

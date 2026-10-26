@@ -26,10 +26,10 @@
    "ask": {
     "question": "Click a cell in a column where an **early** row is already correct (underlined).",
     "check": {
-     "kind": "tab",
-     "tab": "lens"
+     "kind": "lensEarly"
     },
-    "correct": "Some predictions are easy enough to be readable from the embeddings; others only form in the last layers."
+    "correct": "Some predictions are easy enough to be readable from the embeddings; others only form in the last layers.",
+    "hint": "Look in the top half of the rows for an underlined cell."
    }
   }
  ]

@@ -20,12 +20,13 @@
    "ask": {
     "question": "Click a bright cell: a neuron firing strongly at one position.",
     "check": {
-     "kind": "stage",
+     "kind": "bright",
      "ids": [
       "L1.mlp.gelu"
      ]
     },
-    "correct": "Its provenance shows the pre-activation u and GELU(u). The interventions tab can now ablate exactly this neuron."
+    "correct": "Its provenance shows the pre-activation u and GELU(u). The interventions tab can now ablate exactly this neuron.",
+    "hint": "Bright means at least half the largest value in the map."
    }
   },
   {

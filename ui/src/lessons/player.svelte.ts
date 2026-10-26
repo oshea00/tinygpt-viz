@@ -9,6 +9,7 @@ class Player {
   lesson = $state.raw<Lesson | null>(null);
   index = $state(0);
   menuOpen = $state(false);
+  revealed = $state(false);     // the answer to a "reveal" question was shown
 
   /** Whether the server allows training (started with --train). */
   get training(): boolean {
@@ -34,7 +35,11 @@ class Player {
     return isCorrect(ask.check, {
       stageId: selection.stageId, position: selection.position, dim: selection.dim,
       layer: selection.layer, head: selection.head, tab: settings.tab,
-    }, app.trace, app.hello.config.n_layer, app.hello.config.n_head);
+    }, app.trace, app.hello.config.n_layer, app.hello.config.n_head, {
+      lensSnap: settings.lensSnap, lens: app.serverLens, revealed: this.revealed,
+      captured: !!concepts.current && concepts.pending === 0 && (!concepts.withBaseline || !!concepts.untrained),
+      trained: !!app.stepExplain,
+    });
   }
 
   start(lesson: Lesson): void {
@@ -53,17 +58,23 @@ class Player {
   go(i: number): void {
     if (!this.lesson) return;
     this.index = Math.max(0, Math.min(this.steps.length - 1, i));
+    this.revealed = false;
     if (this.apply(this.step!)) app.run();
   }
 
   /** Back to how the current step began: a step only sets what it changes and inherits the
    * rest (prompt, tab, stage) from the steps before it, so replay them all from a clean
-   * selection with no interventions. Answers are worked out from the selection, so this also
-   * un-answers the step's question. */
+   * selection with no interventions. Answers are worked out from the selection and from what
+   * the question asked for (a capture, a training step), so clearing those un-answers it. */
   reset(): void {
     if (!this.lesson) return;
     app.stopAuto();
     selection.reset();
+    settings.lensSnap = -1;
+    this.revealed = false;
+    const check = this.step?.ask?.check.kind;
+    if (check === "captured") concepts.current = concepts.untrained = null;
+    if (check === "trained") app.stepExplain = null;
     let rerun = app.interventions.length > 0;
     app.interventions = [];
     for (const s of this.steps.slice(0, this.index + 1)) rerun = this.apply(s) || rerun;

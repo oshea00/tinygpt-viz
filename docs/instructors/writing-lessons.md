@@ -90,8 +90,15 @@ Lessons start by clearing interventions, so each one starts from the plain model
 | `{"kind": "tab", "tab": "atlas"}` | opened this tab |
 | `{"kind": "headBest", "stat": "prev"}` | selected the head that scores highest on `prev`, `self`, `first` or `peak` (sharpness) |
 | `{"kind": "attnTop"}` | clicked the key the selected head weights most for the current query |
+| `{"kind": "bright", "ids": ["L1.mlp.gelu"]}` | clicked a cell of one of these stages whose value is at least half the stage's largest |
+| `{"kind": "lensEarly"}` | clicked a logit-lens cell in the top half of the rows whose guess is correct |
+| `{"kind": "captured"}` | pressed **capture** in the concepts tab (with the untrained model too, if ticked) |
+| `{"kind": "trained"}` | taken a step in the training step tab |
+| `{"kind": "reveal"}` | pressed **show the answer**: for a question to think about, with the answer in `correct` |
 
-`headBest` and `attnTop` are worked out from the live model. Use them for anything that depends on what the model learned (which head does what): a hard-coded answer would be wrong at another checkpoint or on another model.
+A question must not be answered by its own step: a `tab` check on a step that opens that tab, or a `stage` check on a step that selects that stage, shows ✓ before the learner does anything. The lesson tests catch this. **Reset this step** clears the selection, the clicked lens row, a shown answer and, on a `captured` or `trained` step, the capture or training step.
+
+`headBest`, `attnTop`, `bright` and `lensEarly` are worked out from the live model. Use them for anything that depends on what the model learned (which head does what): a hard-coded answer would be wrong at another checkpoint or on another model.
 
 ## Formatting
 

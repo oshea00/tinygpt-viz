@@ -1,10 +1,10 @@
 // Lessons are plain JSON (see ./*.json): a sequence of steps, each setting up the views
 // and narrating, optionally asking the learner to find something. New lessons need no code.
 
-import type { Intervention, Trace } from "../types";
+import type { Intervention, LensMsg, Trace } from "../types";
 import { headStats } from "../lib/attention";
 import { argmax } from "../lib/residual";
-import { row } from "../lib/tensor";
+import { at, dims2, row } from "../lib/tensor";
 import { glossKey } from "../help/glossary";
 
 export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
@@ -16,7 +16,12 @@ export type Check =
   | { kind: "position"; positions: number[] }              // select one of these positions
   | { kind: "headBest"; stat: "prev" | "self" | "first" | "peak" }   // select the head scoring highest
   | { kind: "attnTop" }                                    // pick the key the selected head weights most for the query
-  | { kind: "tab"; tab: Tab };
+  | { kind: "tab"; tab: Tab }
+  | { kind: "bright"; ids: string[] }                      // click a cell of one of these stages at least half its maximum
+  | { kind: "lensEarly" }                                  // click a logit-lens cell in the first half of the rows that is correct
+  | { kind: "captured" }                                   // capture the concept prompt set (and the untrained model, if ticked)
+  | { kind: "trained" }                                    // take a step in the training step tab
+  | { kind: "reveal" };                                    // a question to think about: answered by showing the answer
 
 export interface LessonStep {
   text: string;                 // narration; **bold**, `code` and {{placeholders}} (see lessonVars) are rendered
@@ -55,9 +60,37 @@ export interface Selected {
   tab: string;
 }
 
-export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLayer: number, nHead: number): boolean {
+/** State outside the selection that some checks read. Only those checks need it. */
+export interface Live {
+  lensSnap?: number;            // logit-lens row clicked, -1 for none
+  lens?: LensMsg | null;
+  captured?: boolean;
+  trained?: boolean;
+  revealed?: boolean;
+}
+
+export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLayer: number, nHead: number, live: Live = {}): boolean {
   switch (check.kind) {
     case "stage": return check.ids.includes(sel.stageId);
+    case "bright": {
+      const out = trace?.byId.get(sel.stageId)?.output;
+      if (!out || !check.ids.includes(sel.stageId) || sel.position < 0 || sel.dim < 0) return false;
+      const [rows, cols] = dims2(out);
+      if (sel.position >= rows || sel.dim >= cols) return false;
+      let max = -Infinity;
+      for (const v of out.data) if (v > max) max = v;
+      return max > 0 && at(out, sel.position, sel.dim) >= max / 2;
+    }
+    case "lensEarly": {
+      const s = live.lensSnap ?? -1, p = sel.position, lens = live.lens;
+      if (!trace || !lens || lens.prompt !== trace.prompt || s < 0 || p < 0) return false;
+      if (s >= lens.topIds.length / 2) return false;
+      const target = trace.targets[p];
+      return target >= 0 && lens.topIds[s]?.[p]?.[0] === target;
+    }
+    case "captured": return !!live.captured;
+    case "trained": return !!live.trained;
+    case "reveal": return !!live.revealed;
     case "position": return check.positions.includes(sel.position);
     case "tab": return sel.tab === check.tab;
     case "headBest": {

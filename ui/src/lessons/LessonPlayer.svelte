@@ -25,6 +25,9 @@
       <div class="ask" class:done={player.answered}>
         <b>{player.answered ? "✓" : "?"}</b>
         <span>{@html formatText(player.answered ? (step.ask.correct ?? "That's it.") : step.ask.question, player.vars)}</span>
+        {#if !player.answered && step.ask.check.kind === "reveal"}
+          <button class="link" onclick={() => (player.revealed = true)}>show the answer</button>
+        {/if}
         {#if !player.answered && step.ask.hint}
           {#if showHint}<span class="hint">{@html formatText(step.ask.hint, player.vars)}</span>
           {:else}<button class="link" onclick={() => (showHint = true)}>hint</button>{/if}
