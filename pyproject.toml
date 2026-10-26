@@ -15,8 +15,9 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8.3", "httpx>=0.28"]
 # PyTorch builds, one at a time. cuda is the default: CUDA 12.8 on x86 Linux and Windows, CUDA 13.0
-# on ARM Linux (DGX Spark's GB10 needs CUDA 13), and the standard build (with Metal/MPS) on macOS. For AMD GPUs on Linux: export UV_NO_GROUP=cuda,
-# then uv sync --group rocm. For a smaller CPU-only install: the same with cpu.
+# on ARM Linux (the preferred build for DGX Spark), and the standard build (with Metal/MPS) on macOS.
+# For AMD GPUs on x86 Linux: export UV_NO_GROUP=cuda, then uv sync --group rocm. For a smaller
+# CPU-only install: the same with cpu.
 cuda = ["torch>=2.7"]
 rocm = ["torch>=2.7", "triton-rocm; sys_platform == 'linux' and platform_machine == 'x86_64'"]   # triton-rocm is only on the ROCm index
 cpu = ["torch>=2.7"]
