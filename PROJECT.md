@@ -391,4 +391,4 @@ Later decisions that change how this document reads:
 
 Status: milestones 1–12 are implemented. The README covers setup, and `docs/` is the user guide for learners and lesson authors.
 
-Sources: [nanoGPT README](https://github.com/karpathy/nanoGPT) · [Transformer Explainer repo](https://github.com/poloclub/transformer-explainer) · 
+Sources: [nanoGPT README](https://github.com/karpathy/nanoGPT) · [Transformer Explainer repo](https://github.com/poloclub/transformer-explainer)
