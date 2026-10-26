@@ -99,6 +99,8 @@ def main() -> None:
     p.add_argument("--config", default=DEFAULT_PROFILE, choices=list(PROFILES))
     p.add_argument("--device", default=None)
     p.add_argument("--fresh", action="store_true", help="start from random weights, not the latest checkpoint")
+    p.add_argument("--host", default="127.0.0.1",
+                   help="interface to bind; 0.0.0.0 serves other machines (there is no authentication)")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--train", action="store_true",
                    help="enable training: the training panel, the training step tab, and checkpoint replay")
@@ -115,9 +117,9 @@ def main() -> None:
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}, training {'on' if args.train else 'off'}: "
-          f"http://localhost:{args.port}")
+          f"http://{'localhost' if args.host in ('127.0.0.1', '0.0.0.0', '::') else args.host}:{args.port}")
     # No per-message compression: deflating megabytes of float32 costs more than sending them locally.
-    uvicorn.run(create_app(trainer, training=args.train), host="127.0.0.1", port=args.port, log_level="warning",
+    uvicorn.run(create_app(trainer, training=args.train), host=args.host, port=args.port, log_level="warning",
                 ws_per_message_deflate=False)
 
 

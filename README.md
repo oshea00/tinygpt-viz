@@ -50,7 +50,8 @@ There is one model, `bpe-small` (the default, so `--config` can be left out):
 | `bpe-small` | BPE tokens (4,096) | 5.8M | 6 layers × 8 heads, d=256, tied embeddings | most words are one token |
 
 Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
-`npm run dev` in `ui/` alongside the server; Vite proxies `/ws` to port 8765.
+`npm run dev` in `ui/` alongside the server; Vite proxies `/ws` to port 8765. The server binds
+127.0.0.1; pass `--host 0.0.0.0` to reach it from other machines (it has no authentication).
 
 - **Prompt box**: every keystroke re-runs the model; click a token to follow its row through every stage.
 - **Pipeline map** (left): the residual spine with attention and MLP branches, one live thumbnail per stage.
