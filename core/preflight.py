@@ -40,7 +40,8 @@ def device_info(device: str) -> DeviceInfo:
     if kind == "mps":
         return DeviceInfo(device, "Apple MPS")
     return DeviceInfo(device, f"CPU ({torch.get_num_threads()} threads)",
-                      note="no GPU found — expect a long run; try fewer --steps first")
+                      note="no GPU found — expect a long run; try fewer --steps first "
+                           "(for an AMD GPU on Linux, install the ROCm build: see the README)")
 
 
 def _cuda_throttle_note() -> str:

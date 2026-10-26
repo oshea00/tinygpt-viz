@@ -9,6 +9,8 @@ uv sync                                   # Python and PyTorch (CUDA wheels on L
 cd ui && npm install && npm run build && cd ..
 ```
 
+With an AMD GPU on Linux, install the ROCm build of PyTorch instead: run `export UV_NO_GROUP=cuda` (and add it to your shell profile), then `uv sync --group rocm`. `--group cpu` gives a smaller CPU-only install the same way.
+
 ## Run the app
 
 ```sh

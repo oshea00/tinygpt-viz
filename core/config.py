@@ -67,8 +67,10 @@ def pick_device(requested: str | None = None) -> str:
         if kind == "cuda" and not torch.cuda.is_available():
             raise DeviceError(
                 f"--device {requested}, but torch.cuda.is_available() is False. This torch is "
-                f"{torch.__version__} (CUDA build: {torch.version.cuda or 'none'}) — either a "
-                "CPU-only wheel, or no driver visible to this container/WSL instance."
+                f"{torch.__version__} (CUDA build: {torch.version.cuda or 'none'}, ROCm build: "
+                f"{torch.version.hip or 'none'}) — either a build for another GPU (for AMD on Linux: "
+                "export UV_NO_GROUP=cuda; uv sync --group rocm), or no driver visible to this "
+                "container/WSL instance."
             )
         if kind == "mps" and not torch.backends.mps.is_available():
             raise DeviceError(f"--device {requested}, but no Metal device is available.")

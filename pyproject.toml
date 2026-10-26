@@ -5,7 +5,6 @@ description = "Step through, generate with, and train a tiny real GPT, seeing ev
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "torch>=2.7",
     "numpy>=2.1",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -15,11 +14,34 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.3", "httpx>=0.28"]
+# PyTorch builds, one at a time. cuda is the default: CUDA 12.8 on Linux and Windows, and the
+# standard build (with Metal/MPS) on macOS. For AMD GPUs on Linux: export UV_NO_GROUP=cuda,
+# then uv sync --group rocm. For a smaller CPU-only install: the same with cpu.
+cuda = ["torch>=2.7"]
+rocm = ["torch>=2.7", "triton-rocm; sys_platform == 'linux'"]   # triton-rocm is only on the ROCm index
+cpu = ["torch>=2.7"]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu128", group = "cuda", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-rocm", group = "rocm", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+triton-rocm = [{ index = "pytorch-rocm", group = "rocm" }]
+
+[tool.uv]
+default-groups = ["dev", "cuda"]
+conflicts = [[{ group = "cuda" }, { group = "rocm" }, { group = "cpu" }]]
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.2"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

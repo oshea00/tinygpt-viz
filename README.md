@@ -20,6 +20,18 @@ uv sync                          # Python deps (PyTorch with CUDA 12.8 wheels on
 cd ui && npm install && npm run build && cd ..
 ```
 
+PyTorch comes in one of three builds, chosen by uv dependency group: `cuda` (the default, which on
+macOS is the standard build with MPS), `rocm` for AMD GPUs on Linux, and `cpu` for a smaller
+CPU-only install. To switch, turn the default off for this shell (add it to your shell profile to
+keep it), then sync the build you want:
+
+```sh
+export UV_NO_GROUP=cuda
+uv sync --group rocm             # PyTorch 2.14 for ROCm 7.2; or --group cpu
+```
+
+`uv run` then keeps that build. The ROCm build is not yet tested on AMD hardware.
+
 ## Run the app
 
 ```sh
