@@ -1,395 +1,265 @@
 # TinyGPT Visualizer — Design
 
-Oct 25, 2026 · @Mike O'Shea
+@Mike O'Shea
 
 ## Goals and audience
 
-The tool lets a learner type a prompt, then step through one forward pass of a real, trained GPT with a 100-token context, seeing every number at every stage, watch it generate text one token at a time, and watch it learn one gradient step at a time.
+The tool lets a learner type a prompt and step through one forward pass of a real, trained GPT with a 100-token context, seeing every number at every stage. They can watch it generate text one token at a time and learn one gradient step at a time.
 
-Audience: students and self-learners who know basic linear algebra (vectors, matrix multiply) but have never seen inside a transformer. A secondary audience is someone who wants to build their own small GPT and needs a reference that shows what correct intermediate values look like. A third is someone exploring how concepts are represented: where similar words land, and which prompt words drive a response.
+Audience: students and self-learners who know basic linear algebra (vectors, matrix multiply) but have never seen inside a transformer. A secondary audience is someone building their own small GPT who needs a reference for what correct intermediate values look like. A third is someone exploring how concepts are represented: where similar words land, and which prompt words drive a response.
 
 Design principles:
 
-- **Real model, real numbers.** Everything shown comes from an actual trained network, not an animation of an idealised one. The text it writes will be imperfect, which is itself instructive.
-- **Nothing hidden.** The model is sized so every weight and activation fits on screen at some zoom level. No stage is summarised away.
+- **Real model, real numbers.** Everything shown comes from an actual trained network, not an animation of an idealised one. The text it writes is imperfect, which is itself instructive.
+- **Nothing hidden.** Every weight and activation can be reached at some zoom level. No stage is summarised away.
 - **Overview first, then zoom.** The learner always knows where they are in the pipeline; any tensor can be expanded down to a single number and the formula that produced it.
 - **One token, one path.** Selecting a token position highlights its row through every stage, so the 100×d blocks stop being abstract.
-- **Poke it.** Learners can change inputs, ablate heads, and change sampling settings and see the consequences immediately, because inference is fast enough to re-run on every change.
+- **Poke it.** Learners can change inputs, ablate heads and change sampling settings and see the consequences immediately, because inference is fast enough to re-run on every change.
 
 ## The model
 
-> Since 2026-10-26 only the Concepts profile (`bpe-small`) remains; the character profiles below are kept as design history. See the last section.
+One model, `bpe-small`: a GPT with 6 layers, 8 heads of 32 dimensions, width 256, MLP hidden size 1,024 and a 100-token context. It reads a 4,096-token byte-level BPE vocabulary and is trained on [TinyStories](https://arxiv.org/abs/2305.07759). It has 5,813,248 parameters.
 
-Recommended default: a character-level GPT with 100-token context, 4 layers, 4 heads, width 64, about 215k parameters. Every weight fits in a \~465×465 pixel image, and one full forward pass produces about 800k activation values (≈3 MB as float32), so the whole network really can be shown as a bitmap.
+| Part | Shape | Parameters |
+| --- | --- | --- |
+| Token embedding `wte` (also the unembedding: tied) | 4,096 × 256 | 1,048,576 |
+| Position embedding `wpe` | 100 × 256 | 25,600 |
+| Per block: Q, K, V and output projections, with biases | 4 × 256 × 256 | 263,168 |
+| Per block: MLP up and down, with biases | 256 × 1,024, 1,024 × 256 | 525,568 |
+| Per block: two layer norms | 2 × 2 × 256 | 1,024 |
+| Final layer norm | 2 × 256 | 512 |
 
-| Config | Vocab | Context | Layers | Heads × head dim | Width d | MLP hidden | Params (approx) | Use |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Tiny | 65 chars | 100 | 2 | 2 × 16 | 32 | 128 | 32k | First lesson; every number readable |
-| Default | 65 chars | 100 | 4 | 4 × 16 | 64 | 256 | 215k | Main teaching model |
-| Larger | 65 chars | 100 | 6 | 8 × 16 | 128 | 512 | 1.2M | Better text; atlas view needs zoom |
-| Concepts | 4,096 BPE | 100 | 6 | 8 × 32 | 256 | 1,024 | 5.8M | Conceptual associations; trained on TinyStories |
+The MLPs hold over half the weights, and the embedding table almost a fifth. One forward pass over a full window is about 1 GFLOP of work, milliseconds on a GPU, so the tool re-runs the model on every keystroke or slider move, even while training.
 
-Where the 215k comes from: token embedding 65×64 (4k), learned position embedding 100×64 (6.4k), each block ≈50k (Q, K, V and output projections 4×64×64 = 16k; MLP 64×256 + 256×64 = 33k; biases and layer norms ≈1k), and the output unembedding 64×65 (4k). Teaching the parameter count is a lesson in itself: the MLPs hold two-thirds of the weights.
+**Why BPE.** Common words become single tokens, so one word is one position and one vector per layer to compare. The embedding table is a word table whose nearest neighbours can carry meaning, and 100 tokens is roughly 75 words, enough for a short prompt and response.
 
-Per layer the trace records Q, K, V (3 × 100×64), attention scores and weights (2 × 4 heads × 100×100), MLP hidden pre- and post-activation (2 × 100×256), and several residual snapshots (100×64 each). A forward pass is roughly 50 MFLOP, a few milliseconds in PyTorch or in plain JavaScript, so the tool can re-run the model on every keystroke or slider move, even while training.
+**Why about 4k tokens.** A very small BPE vocabulary mostly produces word fragments. Around 4k covers most of TinyStories' common words as whole tokens, usually with their leading space (`␣dog`). Rarer words still split; the concept tools read the last sub-token by default and can average over all of them.
 
-**Why characters for the mechanics profiles.** With 65 tokens the output distribution is a readable bar chart, the embedding table is a small image whose rows are recognisable letters, and tokenisation needs no explanation. The cost is that 100 characters is only about 15–20 words of context, and words are spread across several positions, which makes comparing words awkward. That is why the Concepts profile, below, uses BPE. The tokenizer sits behind an interface, so profiles differ only in config.
+**Why TinyStories.** It is a synthetic set of short stories that use only words a typical 3- to 4-year-old understands, generated by GPT-3.5 and GPT-4. Its authors show that models under 10M parameters trained on it write fluent, coherent stories, and that such small models are notably interpretable ([Eldan and Li, 2023](https://arxiv.org/abs/2305.07759)). Its vocabulary is full of easy-to-probe concepts: animals, colours, emotions, family roles, actions. The corpus is a 250 MB slice (about 62M tokens), with typographic punctuation normalised; the tokenizer is trained on the first 60 MB of it.
 
-**Training data.** Tiny Shakespeare (≈1 MB) is the classic choice and trains in minutes on a laptop. Alternatives that make generated text easier to judge: simple children's stories, names, or a narrow domain such as recipes. Expect output that looks right in shape (line breaks, speaker names, word-like strings) but is often nonsense: that gap is a teaching point about scale.
+**Architecture choices, fixed for clarity:** pre-layer-norm blocks (as in GPT-2), learned absolute position embeddings (a 100×256 table the learner can inspect), GELU in the MLP, causal mask, no dropout. Input and output share one embedding table, so the vocabulary does not double the model's size. The model is written with explicit matmuls, masking, softmax and layer norm rather than `nn.MultiheadAttention`, so the code reads like the maths.
 
-**Architecture choices, fixed for clarity:** pre-layer-norm blocks (as in GPT-2), learned absolute position embeddings (a 100×64 image the learner can inspect), GELU in the MLP, causal mask, no dropout at inference, untied embedding and unembedding so each can be shown separately.
-
-### Concepts profile
-
-A second model built for finding conceptual associations rather than for stepping through mechanics: BPE with about 4,096 tokens, trained on TinyStories, about 5.8M parameters. Same code, same 100-token context, same trace format; only the tokenizer, config and corpus change.
-
-- **Why BPE.** Common words become single tokens, so one word is one position and one vector per layer to compare. The embedding table becomes a word table whose nearest neighbours can carry meaning. And 100 tokens is roughly 75 words, enough for a short prompt and response.
-- **Why about 4k tokens, not 256–512.** A very small BPE vocabulary mostly produces word fragments, which brings back the character-level problem in a milder form. Around 4k covers most of TinyStories' common words as whole tokens. Rarer words still split; the tools read the last sub-token by default and can pool across all of them.
-- **Why TinyStories.** It is a synthetic set of short stories that use only words a typical 3- to 4-year-old understands, generated by GPT-3.5 and GPT-4. Its authors show that models under 10M parameters trained on it write fluent, coherent stories, and that such small models are notably interpretable ([Eldan and Li, 2023](https://arxiv.org/abs/2305.07759)). Its vocabulary is full of easy-to-probe concepts: animals, colours, emotions, family roles, actions.
-- **Tied embeddings.** Unlike the mechanics profiles, input and output share one 4,096×256 table (about 1M parameters), so the vocabulary does not double the model's size.
-- **Costs.** Training wants a GPU for reasonable turnaround. The atlas becomes a map to zoom around (about 2,400×2,400 pixels) rather than something taken in at a glance. Pretrained TinyStories models from 1M to 33M parameters are published on Hugging Face and make a useful comparison, though they use a different architecture and GPT-Neo's 50k-token vocabulary.
+**Training.** AdamW (lr 6e-4, batch 128, 100 warm-up steps, weight decay 0.1, gradient clipping at 1.0). 20,000 steps take about 22 minutes on a desktop GPU. Thirty checkpoints on a log-spaced schedule give the replay slider detail where learning is fastest. Trained checkpoints are published on Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), and the server downloads them on first start, so using the app needs neither a GPU nor the corpus.
 
 ## Architecture
 
-One desktop app on one machine: a Python process owns the model on the CPU or GPU and does training, inference, autograd and trace capture, while a web front end in a native window shows it all live.
+One machine: a Python process owns the model on the CPU or GPU and does inference, training, autograd and trace capture, and serves a web front end that shows it all live in a browser tab.
 
-&#91;embedded content: system architecture · Python side and browser side\]
+1. **Core (Python, PyTorch).** Owns weights, optimiser and data. Runs on CPU or CUDA; Apple MPS is accepted but untested.
+2. **Trainer.** One AdamW update at a time, so the UI can play, pause, single-step and reset, with learning rate, batch size and trace frequency adjustable live. Training is opt-in: only a server started with `--train` changes its weights, which suits a class where everyone should see the same model.
+3. **Tracer.** Records every stage's output, and with a backward pass every stage's gradient and every weight's gradient, for a prompt. It runs on demand, not on every training batch: a full 100-token trace holds about 5.7M values (23 MB as float32) before gradients.
+4. **Scheduler.** One model thread and one command queue. UI requests (run a prompt, intervene, sample) run between training steps, so there is no GPU contention and no half-updated weights in a trace.
+5. **Bridge.** A local WebSocket. Commands go to the core as JSON; traces and weights come back as binary frames: a JSON header listing stages, shapes and byte offsets, then the float32 data.
+6. **UI (TypeScript, Svelte 5).** Each view is a function of (trace, selection, settings), and the selection is shared: stage, layer, head, position, dimension.
 
-Training and visualisation become one loop: the learner can pause training, take one update at a time, and see activations, gradients and weight changes as they happen. Every UI request goes through one queue, so traces always reflect a single consistent set of weights.
+The trace is a flat, ordered list of named stages, each with its output and, when traced with a backward pass, its gradient. The pipeline map, the stepper and the atlas are generated from it rather than hand-coded. Each stage names its inputs and weights, so the inspector can answer "where did this number come from?" for any cell: the input row, the weight column and the dot product that produced it, and for gradients, the chain-rule terms. The message types are defined in `ui/src/types.ts`; the main commands are `run` (a prompt, optionally with gradients, interventions or the KV cache), `train`, `set`, `sample`, `loadCheckpoint`, `lens`, `manualBackward`, and the concept explorer's `capture`, `generateWith`, `occlude` and `neuronTop`.
 
-1. **Core (Python, PyTorch).** Owns weights, optimiser and data. The model is written with explicit matmuls, masking, softmax and layer norm rather than `nn.MultiheadAttention`, so the code reads like the maths and doubles as a teaching artifact. Runs on CPU, CUDA or Apple MPS.
-2. **Trainer.** A worker thread with play, pause, single-step and reset; learning rate, batch size and trace frequency adjustable live. Saves checkpoints for later replay.
-3. **Tracer.** Forward hooks and gradient hooks record every stage's output and gradient for a probe prompt. It runs on demand: every N training steps, after a single step, or on any UI request. Not on every batch, since a full trace is about 3 MB and capturing it each step would slow training many times over.
-4. **Scheduler.** One command queue serialises access to the model. UI requests (run a prompt, ablate a head, sample) run between training steps, so there is no GPU contention and no half-updated weights in a trace.
-5. **Bridge.** A local WebSocket. Commands go to the core as JSON; traces come back as binary frames: a JSON header listing stages, shapes and byte offsets, then the float32 data.
-6. **UI (TypeScript).** The views in this doc, in a pywebview or Tauri window. Each view is a pure function of (trace, selection, settings), and the selection is shared: stage, layer, head, position, dimension.
-7. **Static demo mode** (removed 2026-10-26). A hand-written TypeScript forward pass that loaded exported weights in any browser with no Python; inference only. It tokenized characters, so it went with the character profiles.
+## The stages
 
-The trace is a flat, ordered list of named stages, now with a gradient beside each output, so the pipeline map, the stepper and the atlas are generated from it rather than hand-coded:
-
-```typescript
-interface Tensor { shape: number[]; data: Float32Array; }
-
-interface Stage {
-  id: string;            // "L2.attn.H3.weights"
-  kind: "embed" | "norm" | "linear" | "attn_scores" | "mask" | "softmax"
-      | "attn_mix" | "concat" | "add" | "activation" | "logits" | "probs" | "loss";
-  layer?: number; head?: number;
-  output: Tensor;        // e.g. [100, 64] or [100, 100]
-  grad?: Tensor;         // dLoss/dOutput, same shape; present when traced with a backward pass
-  inputs: string[];      // ids of stages it reads from
-  weights?: string[];    // names of weight tensors used
-  formula: string;       // TeX shown in the inspector
-  explain: string;       // one-paragraph lesson text
-}
-
-interface Trace {
-  step: number;          // training step of the weights traced
-  loss?: number;
-  tokens: number[];      // up to 100 ids
-  text: string[];
-  stages: Stage[];       // in execution order
-  weightGrads?: Record<string, Tensor>;   // per weight matrix
-  sampled?: { probs: Float32Array; chosen: number; temperature: number; topK: number };
-}
-
-// UI → core
-type Command =
-  | { type: "run"; prompt: string; withGrad?: boolean }
-  | { type: "train"; action: "play" | "pause" | "step" | "reset" }
-  | { type: "set"; lr?: number; batchSize?: number; traceEvery?: number }
-  | { type: "ablate"; target: string; mode: "zero" | "mean" | "off" }
-  | { type: "sample"; temperature: number; topK?: number; topP?: number; n: number }
-  | { type: "loadCheckpoint"; step: number };
-// core → UI: "trace" (binary), "metrics" {step, loss, valLoss, tokensPerSec}, "sample" {text, probs}
-```
-
-Because each stage names its inputs and weights, the inspector can answer "where did this number come from?" for any cell: the input row, the weight column, and the dot product that produced it, and for gradients, the chain-rule terms that produced them.
-
-## The stages to visualize
-
-One forward pass is 21 stages: 3 at the input, 14 repeated in each block, 4 at the output. Shapes below use the default model (T = up to 100 positions, d = 64, 4 heads of 16, vocab 65). Each is a step in the stepper and a stage in the trace.
+One forward pass is 21 kinds of stage: 3 at the input, 14 repeated in each of the 6 blocks, 4 at the output, 415 stages in all once heads are counted separately. Each is a step in the stepper. Shapes: T = up to 100 positions, d = 256, 8 heads of 32, vocabulary 4,096.
 
 **Input**
 
-1. **Tokenise.** Text → up to 100 ids. If the text is longer, keep the last 100; the window visibly slides during generation.
-2. **Token embedding.** Look up one row of the 65×64 table per token → \[T, 64\].
-3. **Position embedding + add.** Add row t of the 100×64 position table to position t → residual stream x₀ \[T, 64\].
+1. **Tokenise.** Text → up to 100 ids. Longer text keeps its last 100; the window visibly slides during generation.
+2. **Token embedding.** One row of the 4,096×256 table per token → \[T, 256\].
+3. **Position embedding + add.** Add row t of the 100×256 position table to position t → residual stream x₀ \[T, 256\].
 
-**Each block (×4)**
+**Each block (×6)**
 
 4. **LayerNorm 1.** Each row: subtract its mean, divide by its standard deviation, then scale and shift by learned γ, β.
-5. **Q, K, V projections.** Three \[T, 64\] × \[64, 64\] multiplies.
-6. **Split into heads.** Reshape each into 4 × \[T, 16\]. Show this as cutting the 64 columns into four coloured bands.
-7. **Scores.** Q·Kᵀ / √16 per head → 4 × \[T, T\].
-8. **Causal mask.** Set the upper triangle to −∞, so a position cannot see later positions.
-9. **Softmax.** Each row becomes weights that sum to 1 → the attention pattern.
-10. **Mix values.** Weights × V → 4 × \[T, 16\]: each position's output is a weighted average of earlier positions' value vectors.
-11. **Concat + output projection.** Rejoin to \[T, 64\], multiply by W\_O \[64, 64\].
-12. **Residual add.** x ← x + attention output. Show the before, the delta, and the after.
+5. **Q, K, V projections.** Three \[T, 256\] × \[256, 256\] multiplies.
+6. **Split into heads.** Each into 8 × \[T, 32\], shown as the 256 columns cut into eight coloured bands.
+7. **Scores.** Q·Kᵀ / √32 per head → 8 × \[T, T\].
+8. **Causal mask.** The upper triangle set to −∞, so a position cannot see later positions.
+9. **Softmax.** Each row becomes weights that sum to 1: the attention pattern.
+10. **Mix values.** Weights × V → 8 × \[T, 32\]: each position's output is a weighted average of earlier positions' value vectors.
+11. **Concat + output projection.** Rejoin to \[T, 256\], multiply by W\_O \[256, 256\].
+12. **Residual add.** x ← x + attention output.
 13. **LayerNorm 2.**
-14. **MLP up.** \[T, 64\] × \[64, 256\] + bias.
-15. **GELU.** Element-wise; show the curve with each value as a dot on it.
-16. **MLP down.** \[T, 256\] × \[256, 64\] + bias.
+14. **MLP up.** \[T, 256\] × \[256, 1,024\] + bias.
+15. **GELU.** Element-wise.
+16. **MLP down.** \[T, 1,024\] × \[1,024, 256\] + bias.
 17. **Residual add.** x ← x + MLP output.
 
 **Output**
 
 18. **Final LayerNorm.**
-19. **Unembedding.** \[T, 64\] × \[64, 65\] → logits \[T, 65\]. Every row is a prediction of the next character at that position, which is how the model trains on 100 targets at once.
-20. **Softmax with temperature** on the last row → a distribution over 65 characters.
+19. **Unembedding.** \[T, 256\] × `wte`ᵀ → logits \[T, 4,096\]. Every row predicts the next token at that position, which is how the model trains on 100 targets at once.
+20. **Softmax with temperature** on the last row → a distribution over 4,096 tokens.
 21. **Sample** (greedy, temperature, top-k or top-p) → append the token and start again.
 
-The core formula, shown live in the inspector at stages 7–10 with the selected head's numbers:
+The core formula, shown in the inspector at stages 7–10 with the selected head's numbers:
 
 ```latex
 \mathrm{head}_h = \mathrm{softmax}\!\left(\frac{Q_h K_h^{\top}}{\sqrt{d_{\text{head}}}} + M\right) V_h
 ```
 
-An optional **incremental mode** shows generation as a real chat model does it, with a KV cache: after the first pass only the new last row is computed, and the view greys out every cell that was reused. This makes it obvious why generation is cheap per token and why context length is a hard limit.
+**KV-cache mode** shows generation as a real chat model does it: after the first pass only the new last row is computed, and every view greys out the rows that came from the cache, with a count of the multiply-adds saved. Once the window slides, every position shifts, every cached key and value goes stale, and the cache is rebuilt each step: the reason context windows are fixed.
 
-## Backward pass and live training
+## Backward pass and training
 
-Every forward stage has a matching gradient: PyTorch autograd runs the 21 stages in reverse, each producing a tensor the same shape as the stage's output, so every view can show gradients as well as activations. The stepper simply keeps going past the loss and walks back up the network.
+Every forward stage has a matching gradient, the same shape as its output, so every view can show gradients as well as activations. The stepper keeps going past the loss and walks back up the network.
 
-**The backward stages, in order:**
-
-1. **Loss.** Cross-entropy of each position's prediction against the actual next character, averaged over the 100 positions. Lessons can instead pick one target character so a single gradient is easy to follow.
-2. **Logit gradient.** For softmax followed by cross-entropy this is simply the predicted probability minus 1 at the correct character, and the probability itself everywhere else. It is the cleanest place to show where learning starts.
-3. **Unembedding and final layer norm.** Gradients for the 64×65 weight matrix and for the residual stream.
+1. **Loss.** Cross-entropy of each position's prediction against the actual next token, averaged over the positions. Lessons can pick one target position so a single gradient is easy to follow.
+2. **Logit gradient.** For softmax followed by cross-entropy this is the predicted probability minus 1 at the correct token, and the probability itself everywhere else: the cleanest place to show where learning starts.
+3. **Unembedding and final layer norm.** Because the embeddings are tied, the unembedding's gradient lands on `wte`.
 4. **Each block in reverse.** MLP down, GELU derivative, MLP up, layer norm 2; then the output projection, value mix, softmax backward, scores, and Q, K, V. At each residual add the gradient passes straight through and also branches into the sublayer.
-5. **Embeddings.** Gradients land only on the rows of the token table for characters that appear in the batch, which the atlas shows as a few lit rows.
+5. **Embeddings.** The input side's gradients land only on the rows of the tokens in the prompt.
 
 ```latex
 \frac{\partial L}{\partial z_i} = p_i - y_i
 ```
 
-**What to show:**
-
-- **The residual "gradient highway":** the gradient's size at each residual snapshot, layer by layer. Because each add passes the gradient through unchanged, it reaches early layers intact, which is why deep residual networks train at all.
-- **Weight, gradient and update side by side** for any weight matrix: the current weights, their gradient, and the actual change the optimiser (Adam) applied, which often looks quite different from the raw gradient.
-- **One training step, start to finish:** forward, loss, backward, update, then re-run the same prompt and show that the probability of the correct character rose slightly. This loop is the single most important idea in training.
-- **Live training dashboard:** train and validation loss, tokens per second, a fresh sample every N steps, and the head gallery and embedding projection updating as the model learns.
-
-**Optional manual-backward mode.** For learners building their own GPT, the core can include hand-written backward functions for each operation (about ten, from matmul to cross-entropy) and compare them with autograd's gradients stage by stage. This doubles as a test that the trace's gradient values are what the learner thinks they are.
-
-Speed: one training step costs roughly three forward passes. The Tiny and Default configs train comfortably on a laptop CPU; a GPU matters for the Larger config or for training fast while watching.
+- **The gradient highway:** at each residual add, how much gradient passes straight through and how much comes back through the sublayer. Because each add passes the gradient through unchanged, it reaches early layers intact, which is why deep residual networks train at all.
+- **One training step, start to finish:** forward, loss, backward, an AdamW update on the prompt itself, then the probability of the correct token before and after, with any weight matrix's weights, gradient and actual update side by side. The update often looks quite different from the raw gradient, because Adam divides each entry by its own running gradient size.
+- **Live training and replay:** with `--train`, play, pause, single-step and reset, with train and validation loss and a sample every 500 steps; a replay slider over the saved checkpoints shows heads, embeddings and text forming from random initialisation.
+- **Manual-backward mode:** one hand-written backward function per operation (`core/manual_backward.py`), compared with autograd for every stage and weight, and shown with each stage's backward rule in the inspector's gradient view.
 
 ## Views
 
-Eight linked views share one selection (stage, layer, head, position, dimension); clicking in any view updates all the others. The pipeline map and the output panel are always on screen; the rest open in the main area.
+The views share one selection (stage, layer, head, position, dimension); clicking in any view updates the others. The pipeline map, the next-token panel and the training panel are always on screen; the rest are tabs in the main area.
 
 | View | Answers the question | Core visual |
 | --- | --- | --- |
-| Pipeline map | Where am I in the computation? | Residual "spine" with attention and MLP branches; thumbnail per stage |
-| Tensor inspector | What exactly is this number and where did it come from? | Heatmap of any tensor; cell drill-down to the dot product |
-| Attention views | Which earlier characters does each position look at, and why? | Masked T×T matrix, arcs over text, head gallery, Q·K explorer |
-| Residual stream | How does a token's vector change through the network? | Stacked \[T×64\] snapshots; per-sublayer "write size" bars |
-| Logit lens | When does the model figure out the next character? | Layers × positions grid of top predictions |
-| Output and generation | What comes next, and how does sampling choose? | 65-bar distribution, sampling sliders, probability-coloured text |
+| Pipeline map and stepper | Where am I in the computation? | Residual spine with attention and MLP branches; a live thumbnail per stage |
+| Tensor inspector | What exactly is this number and where did it come from? | Heatmap of any tensor; cell drill-down to the dot product or gradient terms |
+| Attention | Which earlier tokens does each position look at, and why? | Arcs over text, masked T×T matrix, Q·K explorer, head gallery |
+| Residual stream | How does a token's vector change through the network? | The vector at each of the 13 snapshots; write size per sublayer; the gradient highway |
+| Logit lens | When does the model settle on the next token? | Snapshots × positions grid of top predictions |
 | Network atlas | What does the whole network look like at once? | Every weight and activation as one zoomable bitmap |
-| Embedding space | What has the model learned about characters and positions? | 2D projections of embeddings and residual trajectories |
+| Interventions | What does this part of the model do? | Ablations and edits, compared with the original run |
+| Concept explorer | How does the model represent words? | Similarity, maps, probes, steering, attribution, neurons |
+| Training step | How does one update change the model? | p(correct) before and after; weight, gradient and update side by side |
+| Next token and generation | What comes next, and how does sampling choose? | Top 40 of the distribution, sampling sliders, probability-coloured text |
 
-### Pipeline map and stepper
+**Pipeline map and stepper.** The residual stream is a vertical spine; each block's attention and MLP branch off it and rejoin at an add node, and each stage carries a live thumbnail (one per head where the stage splits into heads). The stepper walks forward one stage at a time, past the loss, and back up through the gradients.
 
-The residual stream is drawn as a vertical spine; each block's attention and MLP branch off it and rejoin at an add node. Each stage node carries a tiny live thumbnail of its output tensor. Controls: step forward/back one stage, play at adjustable speed, jump to a layer. Stepping animates the data moving: rows flowing out of the spine, through the branch, and back.
+**Tensor inspector.** Any tensor as a heatmap: rows are positions, labelled with their token, and columns are dimensions (or key positions, or vocabulary entries). Zoom defaults to 3×, which keeps rows tall enough for their labels; the labels stay pinned while a wide tensor scrolls. Clicking a cell opens its provenance: for a linear stage, the input row and weight column as bar strips, their element-wise products, the sum and the bias; for layer norm, the row's mean and standard deviation; for softmax, the exponentials and their total; for a gradient, the backward rule and its terms. The stored value is checked against the recomputed one.
 
-### Tensor inspector
+**Attention.** Arcs over the prompt from the selected position to the tokens it attends to (or tinted tokens); the masked weights matrix per head; a Q·K explorer showing one query against every earlier key, with the products, dot product, scaled score and weight; and a 6 layers × 8 heads gallery with pattern badges (local, previous, sharp…) and names the learner can give each head.
 
-Any tensor renders as a heatmap: rows are positions (labelled with the actual character), columns are dimensions. Hovering shows the value; clicking a cell opens its provenance. For a linear stage that is the input row and weight column as two bar strips, their element-wise products, and the sum, with the bias added. For layer norm it is the row's mean and standard deviation; for softmax, the exponentials and their total. This makes every matrix multiply concrete without asking the learner to trust an animation.
+**Residual stream.** For the selected position, its 256-dimensional vector at each snapshot (after the embedding, then after each attention and each MLP) or what each sublayer wrote; the write size per sublayer, at that position and across all positions; and the gradient highway.
 
-### Attention views
+**Logit lens.** The final layer norm and unembedding applied to every residual snapshot, not just the last: a grid of snapshots × positions, each cell the top guess shaded by confidence (or by p(actual next token)). Reading down a column shows the guess forming layer by layer. The server decodes the snapshots, since decoding 13 × 100 rows against 4,096 tokens is GPU work.
 
-- **Matrix:** the 100×100 weights per head, upper triangle greyed as masked. Diagonal and column stripes are visible at a glance.
-- **Arcs over text:** the prompt laid out as characters; selecting one draws arcs (or tints backgrounds) to the earlier characters it attends to, thickness by weight.
-- **Head gallery:** a 4 layers × 4 heads grid of thumbnails for the current prompt, so learners can spot recognisable patterns, such as a head that attends to the previous character or to the start of the line, and name them.
-- **Q·K explorer:** for one query position, its query vector next to every key vector, the raw dot products, scaled scores, and final softmax weights. This is the "search" metaphor of attention made literal.
+**Network atlas.** The whole model as one image in execution order, one pixel per number: about 5.8M weight pixels plus this prompt's activations, rendered with WebGL2 so pan and zoom are instant. Zoomed out it shows structure; zooming in adds tile labels and then the numbers. Modes: values, gradients, weight × input for the selected position, difference from a pinned snapshot, and the most recent weight change during training. Clicking any pixel opens it in the inspector. Pixel position has no meaning of its own, so the atlas works as a map paired with the other views.
 
-### Residual stream
-
-Nine snapshots per pass in the default model (after embedding, then after each attention and each MLP). For the selected position, show its 64-dim vector at each snapshot as a strip, plus a bar per sublayer showing how large a change it wrote (the norm of its delta). Learners see that the stream is a shared workspace that each sublayer reads from and adds to.
-
-### Logit lens
-
-Apply the final layer norm and unembedding to every residual snapshot, not just the last. The result is a grid: rows are snapshots, columns are positions, each cell shows the top predicted next character, shaded by confidence. Reading down a column shows the guess forming layer by layer, often wrong early and right late.
-
-### Output and generation
-
-A bar per vocabulary character for the next-character distribution, sortable by probability. Temperature, top-k and top-p sliders reshape the bars live, with the excluded tail greyed. A Sample button appends one character; Auto runs continuously. Generated text is coloured by the probability of each chosen character, so surprising choices stand out. Clicking any generated character reloads the trace that produced it (time travel through the generation).
-
-### Network atlas (the bitmap)
-
-The whole model as one image, laid out left to right in execution order: one column per block, each weight matrix as a tile at one pixel per weight (W\_Q, W\_K, W\_V, W\_O as 64×64 tiles, MLP matrices as 64×256 and 256×64), with the current trace's activations as \[T × d\] tiles beneath. About 215k weight pixels plus 800k activation pixels, rendered as a single WebGL texture so pan and zoom are instant.
-
-- **Modes:** weights; activations for the current prompt; weight × input (what is actually flowing through each connection for the selected position); difference between two traces (before and after an edit); and, live during training, gradients and the most recent update (or change since an earlier checkpoint).
-- **Level of detail:** zoomed out it is a texture showing structure (dead MLP neurons as dark columns, attention stripes); mid-zoom adds tile labels; fully zoomed shows numbers in cells.
-- **Linked:** hovering any pixel names its tensor and index; clicking jumps the inspector to that stage and cell.
-
-The atlas is striking and good for "it's really just these numbers", but pixel position has no inherent meaning, so it works as a map paired with the other views rather than on its own.
-
-### Embedding space and other ideas
-
-- **Embedding projections:** a 2D PCA of the 65 token embeddings (vowels, digits and punctuation tend to cluster; upper and lower case often pair) and of the 100 position embeddings (often a smooth curve).
-- **Residual trajectories:** each position's vector projected to 2D at each snapshot, drawn as a path through the network.
-- **Neuron pages:** pick one of the 1,024 MLP neurons; see where it fires in the current text and the training snippets that activate it most (precomputed).
-- **Dimension tracking:** pick one of the 64 residual dimensions and highlight its column through every stage.
-- **3D stacked view:** layers as stacked planes in 3D. Visually impressive but harder to read than 2D; a later nice-to-have.
+**Next token and generation.** The top 40 of the next-token distribution, reshaped live by temperature, top-k and top-p, with excluded tokens greyed. Sample one token or run continuously; generated text is coloured by how likely each choice was, the 100-token window is boxed as it slides, and clicking a generated token reloads the trace that produced it.
 
 ## Interactivity
 
-The tool earns its keep when learners change things and watch the effect; because a forward pass takes milliseconds, every change re-runs the model and every view updates.
+**Interventions**, each shown in every view as the changed model, and compared with the original run in the interventions tab (loss, next-token distribution, p(actual) per position, and where the change spreads stage by stage):
 
-**Interventions** (each shown as a before/after diff across all views):
+- Ablate a head (zero or mean), an MLP neuron, or a whole attention or MLP sublayer.
+- Force a head to attend to one position.
+- Set any activation cell and propagate the change forward.
+- Shuffle the position embeddings and watch the model lose track of order.
 
-- **Edit the prompt** character by character and watch attention patterns and predictions shift.
-- **Ablate a head:** zero its output (or replace it with its average) and see which predictions break. This is how learners discover what a head does.
-- **Ablate an MLP neuron or a whole block.**
-- **Override attention:** force a head to attend only to one position.
-- **Edit a value:** set one cell of any activation and propagate the change forward.
-- **Swap position embeddings:** shuffle them and watch the model lose track of order.
+Interventions never affect training.
 
-**Live training and replay.** Training runs inside the app: play, pause, single-step, reset, with learning rate and batch size adjustable while it runs. The probe prompt is re-traced every N steps, so learners watch attention heads organise, embedding clusters form, the loss fall, and the generated text go from noise to almost-English. Saved checkpoints (say 30, from random initialisation to final) give a replay slider for jumping back to any point without retraining.
+**Guided lessons.** A lesson is a script over the same views: a sequence of steps, each setting the selection, display mode, prompt and interventions, with narration and optionally a question checked against what the learner clicks ("click the key with the largest weight"). Answers that depend on what the model learned, such as which head is sharpest, are computed from the live trace, so lessons work at any checkpoint. Lessons are plain JSON in `ui/src/lessons/`, so new ones need no code. The starter set:
 
-**Guided lessons.** A lesson is a script over the same views: a sequence of steps, each setting the selection, display mode and prompt, with a paragraph of narration and optionally a question ("Which head attends to the previous character? Click it."). Lessons are plain JSON, so new ones need no code. A starter set:
-
-1. Text to numbers: tokens and embeddings.
+1. Text to numbers: tokens, the embedding table, and tokens the model never saw.
 2. Where am I? Position embeddings.
-3. Attention as search: one head, one query, Q·K by hand.
+3. Attention as search: one head, one query.
 4. Many heads: the head gallery and ablation.
 5. The MLP: neurons that fire on specific patterns.
 6. The residual stream and the logit lens.
 7. From logits to text: temperature and sampling.
-8. Why only 100 characters: the context window and the KV cache.
-9. How it learns: one training step by hand, then live training.
+8. Why only 100 positions: the context window and the KV cache.
+9. How it learns: one training step, then replaying a whole run (needs `--train`).
+10. Where concepts live: clusters, a probe and a steering test.
 
 ## Concept explorer
 
-A toolset for finding conceptual associations: run sets of prompts, capture the representation of chosen words at every layer, compare them, then test findings by intervening. It works with any profile but is designed for the Concepts profile, where one word is usually one token.
+A toolset for finding conceptual associations: run sets of prompts, capture the representation of chosen words at every layer, compare them, then test findings by intervening.
 
-1. **Build a prompt set.** Type or import prompts, or fill templates such as "The {animal} ran to the {place}.", with target words tagged by category (animal, colour, emotion).
-2. **Capture.** The core runs the set in batches and stores, for each occurrence of a target word, its residual vector at every snapshot, optionally with MLP activations. A thousand occurrences at 13 snapshots of 256 dimensions is about 13 MB.
-3. **Compare.** Use the tools below; every point in every plot links back to its prompt and opens the full trace in the mechanics views.
-4. **Test.** Turn a finding into an intervention, such as steering or ablation, and see whether generation changes as predicted.
+1. **Build a prompt set.** Templates such as "Lily saw a {animal} in the garden." and word lists by category (animal, colour, emotion…), editable in the app.
+2. **Capture.** The core runs the set and returns, for each target word, its residual vector at each of the 13 snapshots, from the trained model and, as a baseline, the untrained step-0 model.
+3. **Compare.** The analyses run in the browser on the captured vectors; points link back to their prompts and open the full trace.
+4. **Test.** Turn a finding into an intervention, such as steering, and see whether generation changes as predicted.
 
 | Tool | Question it answers | How |
 | --- | --- | --- |
-| Similarity matrix | Which words does the model treat as alike, and at which layer? | Cosine similarity between captured vectors, with a layer slider and sorting by category |
-| Projection map | Do categories form clusters, and from which layer? | PCA (fast, linear) or UMAP of captured vectors, coloured by tag |
-| Nearest neighbours | What sits near this word? | Nearest neighbours in the embedding table and in each layer's residual space |
-| Context drift | Does a word's meaning shift with context? | One word across many prompts: spread and pairwise similarity per layer (river bank vs money bank) |
-| Linear probes | Where does a concept become readable? | A logistic regression per layer on tagged vectors; accuracy by layer, tested on held-out words |
-| Concept directions | Is there an axis for emotion, size, or tense? | Mean difference between two groups of contexts; project any word onto it |
-| Steering | Does that direction actually change behaviour? | Add a scaled direction to the residual stream during generation; compare outputs side by side |
-| Attribution | Which prompt words drove this response word? | Attention rollout, per-token ablation, and gradient × input, shown together because they often disagree |
-| Neuron and feature search | What do individual units respond to? | Top-activating contexts per MLP neuron; stretch goal: a small sparse autoencoder on the residual stream to find features without choosing concepts in advance |
+| Similarity | Which words does the model treat as alike, and at which layer? | Cosine similarity between centred vectors, by snapshot, sorted by category |
+| Projection map | Do categories form clusters, and from which layer? | PCA of captured vectors, coloured by category |
+| Neighbours | What sits near this word? | Nearest rows in the embedding table, and nearest captured words in context |
+| Context drift | Does a word's representation shift with context? | One word across many prompts: spread per snapshot |
+| Probes | Where does a concept become readable? | Logistic regression per snapshot, tested on held-out words, against shuffled-label and untrained baselines |
+| Directions and steering | Is there an axis for a category, and does it change behaviour? | Mean difference between groups; add it, scaled, to the residual stream during generation and compare outputs |
+| Attribution | Which prompt words drove the prediction? | Attention rollout, gradient × input and occlusion, shown together because they often disagree |
+| Neurons | What does one MLP neuron respond to? | Its top-activating contexts in the validation text |
 
 **Guarding against false findings:**
 
-- **Centre before comparing.** Raw residual vectors share a large common component and a few dominant dimensions, which makes everything look similar. Subtract each layer's mean (and optionally normalise per dimension) before computing similarity.
-- **Always show a baseline:** random words, shuffled category labels, and the same analysis on the untrained model at step 0. Structure that also appears in the untrained model is not something it learned.
-- **Probes show correlation; steering and ablation test cause.** The explorer pairs them, so a concept found by a probe can be checked by an intervention in two clicks.
-
-The explorer adds three commands to the protocol:
-
-```typescript
-  | { type: "capture"; promptSet: string; targets: "tagged" | "all"; pool: "last" | "mean" }
-  | { type: "probe"; captureId: string; label: string; heldOut: string[] }
-  | { type: "steer"; direction: string; layer: number; scale: number; prompt: string }
-```
-
-A tenth starter lesson fits here: where concepts live, covering clusters, a probe, and a steering demo on the Concepts profile.
+- **Centre before comparing.** Raw residual vectors share a large common component, which makes everything look similar; each snapshot's mean is subtracted first.
+- **Always show a baseline.** Structure that also appears in the untrained model, or with shuffled labels, is not something the model learned.
+- **Probes show correlation; steering and ablation test cause.** The explorer pairs them, so a concept found by a probe can be checked by an intervention.
+- **Templates must not give the category away.** If animals only ever appear in animal sentences, a probe can read the template instead of the word; the untrained baseline exposes this.
 
 ## Visual encoding rules
 
-One consistent colour language across every view: signed values use a diverging blue–white–red map centred on zero; probabilities and attention weights use a single-hue sequential map from white to dark; masked cells are a neutral hatch, never a colour.
+One colour language across every view: signed values use a diverging blue–white–red map centred on zero; probabilities and attention weights use a single-hue sequential map from white to dark; masked cells are a neutral hatch, never a colour.
 
-- **Scale choice is a visible toggle:** per-tensor (best contrast, the default), per-stage-type across layers (so layer 1 and layer 4 are comparable), or global. The current scale and its range are always printed beside the heatmap. Silent rescaling is the commonest way such tools mislead.
-- **Clip outliers** at a percentile (for example the 99th) with the clipped cells marked, since a few large values otherwise wash out everything else. Offer a symmetric log mode for residual streams, whose magnitudes grow with depth.
-- **Rows are always positions, labelled with the character**, in every \[T × something\] view, so the eye can run along a token's row from stage to stage. Columns are dimensions.
-- **Head identity is a hue**, used consistently for the four column bands of Q, K, V, the head gallery borders, and the arcs over text.
+- **Scale choice is a visible toggle:** per tensor (best contrast, the default), per stage type across layers (so layers are comparable), or global. The scale and its range are always printed beside the heatmap: silent rescaling is the commonest way such tools mislead.
+- **Clip outliers** at a percentile (the 99th by default), with clipped cells marked, since a few large values otherwise wash out everything else. A symmetric log mode suits the residual stream, whose magnitudes grow with depth.
+- **Rows are always positions, labelled with their token**, in every \[T × something\] view, so the eye can run along a token's row from stage to stage.
+- **Head identity is a hue**, used for the column bands of Q, K and V, the head gallery borders, the pipeline thumbnails and the arcs over text.
 - **Selection is an outline, not a fill**, so it never competes with the data colours.
-- **Accessible:** colour maps chosen to survive colour-blindness (blue–red and viridis-like sequential), and every value available as a number on hover.
+- **Accessible:** colour maps that survive colour-blindness, and every value available as a number on hover.
 
 ## Tech stack and repo layout
 
-A desktop app: a Python core with PyTorch, a TypeScript front end in a native window, and a local WebSocket between them; it runs on macOS, Windows or Linux, with a GPU optional.
-
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Core | Python 3 + PyTorch (CPU, CUDA or Apple MPS), model code adapted from [nanoGPT](https://github.com/karpathy/nanoGPT) | Autograd and GPU support for free; nanoGPT's CPU recipe (4 layers, 4 heads, width 128, context 64) trains in about 3 minutes |
-| Concurrency | Trainer in a worker thread; one command queue serialises model access | PyTorch releases the GIL inside operations; one queue keeps traces consistent and the code simple |
-| Bridge | FastAPI (or plain `websockets`) on localhost; binary frames | A 3 MB trace crosses in milliseconds locally |
-| App shell | pywebview (all-Python, simplest) or Tauri (smaller and more polished, launches the Python core as a sidecar) | A dedicated window rather than a browser tab |
-| UI framework | TypeScript + Vite; Svelte or React | Views are pure functions of trace + selection |
-| Heatmaps | Canvas 2D `ImageData` | A 100×256 tensor is 25,600 pixels: no GPU needed |
-| Atlas | WebGL (raw or regl), tensors as textures | Instant pan and zoom over \~1M pixels |
-| Diagrams, arcs, charts | SVG with d3-scale and d3-scale-chromatic | Crisp, easy hit-testing, standard colour maps |
+| Core | Python 3.13 + PyTorch (CPU or CUDA), model code adapted from [nanoGPT](https://github.com/karpathy/nanoGPT) | Autograd and GPU support for free |
+| Concurrency | One model thread; one command queue serialises model access | Traces always reflect one consistent set of weights |
+| Server and bridge | FastAPI + uvicorn on localhost; a WebSocket with binary frames | Raw float32 frames: no encoding cost for traces of tens of MB |
+| App shell | A browser tab; the Python server also serves the built UI | Nothing to install beyond Python and Node |
+| UI | Svelte 5, TypeScript, Vite | Views are functions of trace + selection |
+| Heatmaps | Canvas 2D | A 100×1,024 tensor is about 100k cells: no GPU needed |
+| Atlas | WebGL2 (raw), tensors as textures, with a Canvas 2D fallback | Instant pan and zoom over about 6M pixels |
+| Diagrams and charts | SVG with d3-scale and d3-scale-chromatic | Crisp, easy hit-testing, standard colour maps |
 | Formulas | KaTeX | Fast TeX rendering in the inspector |
-| Tests | pytest (core, tracer, manual-vs-autograd gradients); Vitest (frame decoding, lessons, view maths) | The trace is the contract every view relies on |
-| Packaging | uv-managed environment for development; PyInstaller or a Tauri sidecar for installers | PyTorch makes installers large: hundreds of MB, more with CUDA |
-| Tokenizer | Hugging Face tokenizers (byte-level BPE) | Trains a 4k vocabulary on TinyStories quickly |
-| Analysis | scikit-learn (PCA, logistic-regression probes), umap-learn | Standard, and fast at this scale |
+| Tokenizer | Hugging Face `tokenizers` (byte-level BPE) | Trains a 4k vocabulary on TinyStories quickly |
+| Concept analyses | TypeScript in the browser (PCA, logistic-regression probes) | The captured vectors are small; no round trip per slider move |
+| Checkpoints | Hugging Face Hub (`core/hub.py`) | Users run the trained model without a GPU or the corpus |
+| Tests | pytest (model, tracer against autograd, manual backward, trace format, server protocol); Vitest (frame decoding, provenance, lessons, view maths) | The trace is the contract every view relies on; pytest writes the fixtures Vitest reads |
+| Packaging | uv for Python, npm for the UI | PyTorch makes installers large, so there are none |
 
 ```text
 tinygpt-viz/
-  core/             # model.py, train.py, tracer.py, scheduler.py, server.py, hub.py, manual_backward.py, tokenizers.py, analysis/ (capture, probes, steering, attribution, sae)
-  data/             # corpus + tokenizer vocab
-  runs/             # checkpoints per config (bpe-small/)
-  ui/src/bridge.ts  # WebSocket client, binary trace decoding
-  ui/src/views/     # pipeline/, inspector/, attention/, residual/, lens/, output/, training/, atlas/, embed/, concepts/
-  ui/src/state/     # shared selection, trace store, settings
-  ui/src/lessons/   # lesson JSON files + player
-  app/              # pywebview or Tauri launcher
-  tests/            # pytest + Vitest, reference traces
+  core/             # model.py, stages.py, tracer.py, trace_io.py, scheduler.py, server.py, train.py,
+                    # data.py, tokenizers.py, sampling.py, kvcache.py, lens.py, interventions.py,
+                    # concepts.py, manual_backward.py, hub.py, preflight.py, config.py
+  data/bpe4096/     # tokenizer.json (tracked); train.bin and val.bin (built or downloaded)
+  runs/bpe-small/   # checkpoints
+  ui/src/           # bridge.ts, types.ts, state/, lib/ (maths and drawing), views/, lessons/, concepts/, help/
+  tests/            # pytest suites; ui/src/fixtures/ holds the frames they write for Vitest
+  docs/             # the user guide, instructor guides, screenshots
+  scripts/          # screenshots.mjs: regenerates docs/images/ with headless Chrome
 ```
 
 The app is desktop-first: a 100×100 attention matrix and the atlas need a wide screen.
 
-## Milestones
+## Not built
 
-Twelve milestones, each ending in something usable; milestones 1–5 already give a working live tool, and later ones can be built in any order (12 needs only 1–3).
+Ideas from the design that remain open:
 
-1. **Instrumented core.** Explicit-ops model and trainer with play, pause, single-step and reset; Tiny and Default configs train from the command line. Done when samples look recognisably Shakespeare-shaped.
-2. **Tracer with gradients.** Forward and gradient hooks emit a full trace for a probe prompt. Tests: traced activations match an un-hooked run, and traced gradients match autograd's `.grad` values.
-3. **Bridge and app shell.** WebSocket protocol, binary trace frames, scheduler; a pywebview or Tauri window showing a live loss curve and samples.
-4. **Skeleton UI.** Prompt box, pipeline map, stepper running forward and backward, and the tensor inspector for every stage's activation and gradient.
-5. **Training controls and the one-step view.** Play, pause, step, learning-rate and batch-size controls; the before-and-after view of a single update.
-6. **Attention views.** Matrix, arcs over text, head gallery, Q·K explorer.
-7. **Generation.** Output panel, sampling sliders, probability-coloured text, time travel, visible 100-character sliding window.
-8. **Residual stream and logit lens,** including the gradient highway.
-9. **Network atlas.** WebGL bitmap with weight, activation, gradient and update modes, live during training.
-10. **Interventions and diff mode.** Head, neuron and block ablation; value editing; before-and-after views.
-11. **Lessons, replay and sharing.** Lesson player and starter lessons; checkpoint replay slider; manual-backward mode; static browser demo with parity test; installers.
+- **Embedding projections:** a 2D projection of the position embeddings (often a smooth curve) and of the token table.
+- **Residual trajectories:** each position's vector projected to 2D at each snapshot, drawn as a path through the network.
+- **Dimension tracking:** one residual dimension highlighted through every stage.
+- **A sparse autoencoder** on the residual stream, to find features without choosing concepts in advance.
+- **A static, browser-only demo** with a TypeScript forward pass and BPE encoder; `bpe-small`'s weights are about 23 MB as float32.
+- **A native window and installers** (pywebview or Tauri).
+- **A 3D stacked view** of the layers.
 
-12) **Concepts profile and explorer.** Train the BPE TinyStories model; then prompt sets, capture, similarity matrix, projection map, neighbours and probes; then steering, attribution and feature search.
+## Prior art
 
-## Prior art and open decisions
+Existing tools either show a large model at a high level of abstraction or a real-numbers model on a toy task; this tool's niche is a real text generator small enough to show every number, trained live in the same app with every gradient visible, plus interventions and concept analyses.
 
-Existing tools either show a large model at a high level of abstraction or a real-numbers model on a toy task; this design's niche is a real text generator small enough to show every number, trained live in the same app with every gradient visible, plus interventions.
-
-| Tool | Model shown | Strength | Gap this design fills |
+| Tool | Model shown | Strength | Gap this tool fills |
 | --- | --- | --- | --- |
 | [Transformer Explainer](https://github.com/poloclub/transformer-explainer) (Georgia Tech) | GPT-2 small, live in the browser | Smooth moves between overview and maths; your own prompt | Model too large to show every value; no training view |
 | [LLM Visualization](https://github.com/bbycroft/llm-viz) (Brendan Bycroft) | minGPT sorting model, about 85k parameters, in 3D | Every block and value present, guided walkthrough | Sorts the letters A, B, C rather than writing text |
 | [nanoGPT](https://github.com/karpathy/nanoGPT) (Karpathy) | Character-level Shakespeare GPT | Shortest path to training one; source of our model code | Code only, no visualisation (now superseded by nanochat) |
-
-Decisions made before milestone 1:
-
-- [x] **Tokenizer:** characters for the mechanics profiles; for Concepts, a byte-level BPE with **4,096** tokens, trained with Hugging Face `tokenizers` on the TinyStories slice. Every concept word tried (animals, colours, emotions, family roles, actions) is a single token.
-- [x] **Default width:** **64**: the 4-layer, 4-head, 215k-parameter model is the default, so everything stays visible; width 128 remains available as a config.
-- [x] **Corpus:** a **TinyStories slice for the mechanics profiles too** (10 MB, character-level), so both profiles share a domain. The character vocabulary is built from the slice after normalising typographic punctuation, which gives 64 characters rather than 65. Concepts uses a larger slice (250 MB, about 62M tokens).
-- [x] **UI framework:** **Svelte 5** with TypeScript and Vite.
-- [x] **App shell:** **a browser tab first**. The Python server serves the built UI and the WebSocket on localhost; a pywebview or Tauri window, and installers, were not built.
-- [x] **Target hardware:** **CPU and CUDA**. Apple MPS is accepted as a device but untested. The 215k model trains in about 7 minutes on a GPU and about 30 on a CPU; Concepts in about 22 minutes on a GPU.
-- [x] **Manual-backward mode:** **an advanced extra** (milestone 11): one hand-written backward function per operation, compared with autograd for every stage and weight, and shown with each stage's backward rule in the inspector's gradient view.
-
-Later decisions that change how this document reads:
-
-- **Config names** follow how the model reads text, then its size: `bpe-small` is the Concepts row of the table above. (The Tiny, Default and Larger rows were `char-tiny`, `char-small` and `char-large`.)
-- **Character profiles and the static demo removed (2026-10-26).** `bpe-small` is now the default and only profile. Supporting two tokenizers had spread character-vs-BPE branches through the core, the views, the lessons (per-model step variants and `{{unit}}` wording) and the docs, and the static demo only ever worked with characters. Dropping them simplifies all of that; the old profile aliases and their run-directory migration went too. The tests now use small stand-in configs and a corpus built from the tracked BPE tokenizer, so they need no download. The demo could return with a TypeScript BPE encoder and exported `bpe-small` weights (about 23 MB as float32).
-- **Training is opt-in**: the server only trains with `--train`. Without it the weights stay as loaded and the training panel, the training step and checkpoint replay are hidden, which suits a class where everyone should see the same model.
-- **The KV-cache incremental mode** described under the stages was built, with a lesson on why a sliding window invalidates the cache.
-
-Status: milestones 1–12 are implemented. The README covers setup, and `docs/` is the user guide for learners and lesson authors.
-
-Sources: [nanoGPT README](https://github.com/karpathy/nanoGPT) · [Transformer Explainer repo](https://github.com/poloclub/transformer-explainer)

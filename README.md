@@ -6,11 +6,10 @@ vocabulary (100-token context), seeing every number at every stage, and train it
 **[The guide](docs/README.md)** explains every view and how to use it, for learners and for
 instructors writing lessons. In the app, the **help** button explains the open tab, and each panel's **?** explains that panel.
 
-Implemented: milestones 1–12 (instrumented core, tracer with gradients, WebSocket
-bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
-attention views, generation, residual stream and logit lens, network atlas,
-interventions, lessons, checkpoint replay, manual backward mode, and the concept explorer).
-The character-level models and the static browser demo were removed on 2026-10-26; see PROJECT.md.
+Features: an instrumented core with a tracer that records every stage and its gradient, a
+pipeline map with a stepper and tensor inspector, attention views, generation with a KV cache,
+the residual stream and logit lens, a network atlas, interventions, guided lessons, live
+training with checkpoint replay, a manual backward mode, and a concept explorer.
 
 ## Setup
 
