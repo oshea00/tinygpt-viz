@@ -31,7 +31,9 @@
   let scale = $state(1);
   const W = 560, H = 24 + 16 * 6;
   const pmin = $derived(dir ? Math.min(...dir.proj) : 0), pmax = $derived(dir ? Math.max(...dir.proj) : 1);
-  const px = (v: number) => 20 + ((v - pmin) / (pmax - pmin || 1)) * (W - 40);
+  // Dots start right of the category labels (9px monospace, about 5.6px a character).
+  const left = $derived(12 + 5.6 * Math.max(0, ...cats.map((cat) => cat.length)));
+  const px = (v: number) => left + ((v - pmin) / (pmax - pmin || 1)) * (W - left - 10);
 
   function steerSpec() {
     return { kind: "steer" as const, stage, vector: Array.from(dir!.v), scale, label: `${a} − ${b}` };
