@@ -10,7 +10,7 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 
 | Page | What it covers |
 | --- | --- |
-| [Getting started](guide/01-getting-started.md) | Installing, training a model, running the app, the screen layout |
+| [Getting started](guide/01-getting-started.md) | Installing, running the app with the published models, the screen layout |
 | [Pipeline map and stepper](guide/02-pipeline-and-stepper.md) | Finding your way through the network, stage by stage |
 | [Inspector](guide/03-inspector.md) | Any stage's numbers, how each was computed, and its gradient |
 | [Attention](guide/04-attention.md) | Which tokens each position looks at, and why |
@@ -28,6 +28,10 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | --- | --- |
 | [Writing lessons](instructors/writing-lessons.md) | The lesson file format, answer checks, and lessons that adapt to the model |
 | [Prompt sets for the concept explorer](instructors/prompt-sets.md) | Defining categories and templates, and avoiding misleading results |
+
+## For the brave: training and publishing your own models
+
+If you want to retrain the models from scratch, modify them, or share your own checkpoints, see [Training and publishing your own models](training-your-own-models.md). Nobody needs this just to use the app.
 
 ## Regenerating the screenshots
 

@@ -18,49 +18,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Node 20+.
 
 ```sh
 uv sync                          # Python deps (PyTorch with CUDA 12.8 wheels on Linux/Windows)
-uv run python -m core.data       # fetch a 10 MB TinyStories slice, build the character vocab
 cd ui && npm install && npm run build && cd ..
-```
-
-## Train
-
-```sh
-uv run python -m core.train --config char-small --steps 20000
-```
-
-Configs are named by how the model reads text, then by size:
-
-| Config | Reads | Params | Shape | Notes |
-| --- | --- | --- | --- | --- |
-| `char-tiny` | characters (64) | 32k | 2 layers × 2 heads, d=32 | every number readable |
-| `char-small` | characters (64) | 215k | 4 × 4, d=64 | the default; val loss ≈ 0.95 in ~7 min on a GPU (~30 on CPU) |
-| `char-large` | characters (64) | 1.2M | 6 × 8, d=128 | better text; the atlas needs zooming |
-| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 × 8, d=256, tied embeddings | most words are one token; for the concept explorer |
-
-The earlier names `tiny`, `default`, `larger` and `concepts` still work; their checkpoint
-directories are renamed to the new names the first time they are used. Checkpoints land in `runs/<config>/` on a log-spaced schedule for later replay.
-
-Every run begins by timing a few real steps on the device it found and printing an estimate,
-so a run that is going to take all night says so in the first minute. `--dry-run` stops after
-that report; `--log-every N` sets how often the progress line appears (default every 10 steps).
-The quoted timings below are for a desktop GPU: a power-capped laptop GPU can be far slower,
-and the report flags one when it sees it.
-
-```sh
-uv run python -m core.train --config bpe-small --steps 20000 --batch-size 128 --dry-run
-```
-```
-bpe-small: 6L 8H d256 vocab 4,096 ctx 100, batch 128
-device: cuda - NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6.4 GB VRAM
-  ! memory clock 810 of 5501 MHz at 10 W - this GPU is power-capped, so bandwidth-bound work runs several times slower than its rating
-measured: 4,011 ms/step, 3,192 tok/s, peak 4.2 GB VRAM
-estimate: 22.9h for 20,000 steps (22.3h training + 34m eval + 2m sampling), ~2.2 GB of checkpoints
-```
-
-```sh
-uv run python -m core.data --bpe     # Concepts corpus: 250 MB slice, BPE tokenizer, ~62M tokens
-uv run python -m core.train --config bpe-small --steps 20000 --lr 6e-4 --batch-size 128   # ~22 min on a 4090
-uv run python -m core.server --config bpe-small
 ```
 
 ## Run the app
@@ -69,6 +27,19 @@ uv run python -m core.server --config bpe-small
 uv run python -m core.server --config char-small # loads the latest checkpoint; --fresh for random weights
 uv run python -m core.server --config char-small --train   # also enables training, replay and the training step tab
 ```
+
+No training is needed first: if `runs/<config>/` is empty, the server downloads that model's
+trained checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)).
+A model that only runs never downloads or tokenizes TinyStories.
+
+Configs are named by how the model reads text, then by size:
+
+| Config | Reads | Params | Shape | Notes |
+| --- | --- | --- | --- | --- |
+| `char-tiny` | characters (64) | 32k | 2 layers × 2 heads, d=32 | every number readable |
+| `char-small` | characters (64) | 215k | 4 × 4, d=64 | the default; val loss ≈ 0.95 |
+| `char-large` | characters (64) | 1.2M | 6 × 8, d=128 | better text; the atlas needs zooming |
+| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 × 8, d=256, tied embeddings | most words are one token; for the concept explorer |
 
 Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
 `npm run dev` in `ui/` alongside the server; Vite proxies `/ws` to port 8765.
@@ -117,6 +88,11 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.
 - **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
   checks autograd against a hand-written backward pass (`core/manual_backward.py`).
+
+## Training and publishing your own models
+
+Only for those who want to retrain, modify or share the models: see
+[Training and publishing your own models](docs/training-your-own-models.md).
 
 ## Static demo
 
