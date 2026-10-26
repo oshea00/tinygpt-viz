@@ -51,8 +51,9 @@
 </script>
 
 <div>
-  <h2>Next token after position {pos} {#if trace && pos >= 0}<span class="mono tokname">“{trace.text[pos]}”</span>{/if}
-    <HelpButton topic="generation" label="next token and generation" /></h2>
+  <h2>Next token after position {pos} <HelpButton topic="generation" label="next token and generation" /></h2>
+  <!-- One line whatever the token: a wrapping heading would move the stop button while it generates. -->
+  <div class="mono tokname" title={trace && pos >= 0 ? trace.text[pos] : undefined}>{trace && pos >= 0 ? `“${trace.text[pos].replace(/\n/g, "↵")}”` : "\u00a0"}</div>
 
   <div class="controls">
     <label>temperature <input type="range" min="0" max="2" step="0.05" bind:value={app.sampling.temperature} disabled={travelling} />
@@ -142,7 +143,7 @@
 </div>
 
 <style>
-  .tokname { text-transform: none; color: var(--ink); }
+  .tokname { font-size: 12px; margin: -4px 0 6px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
   .controls { display: grid; gap: 2px; font-size: 12px; margin-bottom: 6px; }
   .controls label { display: grid; grid-template-columns: 80px 1fr 52px; align-items: center; gap: 6px; }
   .dist-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
