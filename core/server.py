@@ -7,6 +7,7 @@
 import argparse
 import asyncio
 import json
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,10 +21,12 @@ from .scheduler import Message, ModelWorker
 from .train import Trainer
 
 UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
 MAX_QUEUE = 64     # a client this far behind gets traces dropped, never metrics
 
 
 def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
+    """worker_kw go to ModelWorker, e.g. training=False for a model that only runs."""
     clients: set[asyncio.Queue[Message]] = set()
     state: dict = {}
 
@@ -73,6 +76,11 @@ def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
             clients.discard(q)
             task.cancel()
 
+    # The guide, for the in-app help's links. Sent as plain text so browsers show the Markdown
+    # instead of downloading it.
+    mimetypes.add_type("text/plain; charset=utf-8", ".md")
+    if DOCS.exists():
+        app.mount("/docs", StaticFiles(directory=DOCS), name="docs")
     if UI_DIST.exists():
         app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")
     else:
@@ -91,15 +99,18 @@ def main() -> None:
     p.add_argument("--device", default=None)
     p.add_argument("--fresh", action="store_true", help="start from random weights, not the latest checkpoint")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--train", action="store_true",
+                   help="enable training: the training panel, the training step tab, and checkpoint replay")
     args = p.parse_args()
 
     cfg = profile(args.config)
     trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer), pick_device(args.device))
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
-    print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}: http://localhost:{args.port}")
+    print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}, training {'on' if args.train else 'off'}: "
+          f"http://localhost:{args.port}")
     # No per-message compression: deflating megabytes of float32 costs more than sending them locally.
-    uvicorn.run(create_app(trainer), host="127.0.0.1", port=args.port, log_level="warning",
+    uvicorn.run(create_app(trainer, training=args.train), host="127.0.0.1", port=args.port, log_level="warning",
                 ws_per_message_deflate=False)
 
 

@@ -46,7 +46,7 @@ export async function startDemo(onMessage: (m: JsonMsg | BinaryMsg) => void): Pr
 
   const hello: Hello = {
     type: "hello", config: meta.config, vocab: meta.vocab, params: meta.params, paramGroups: meta.paramGroups,
-    probe: meta.probe, step: meta.step, playing: false, lr: 0, batchSize: 0, traceEvery: 0, device: "browser", checkpoints: [],
+    probe: meta.probe, step: meta.step, playing: false, lr: 0, batchSize: 0, traceEvery: 0, device: "browser", checkpoints: [], training: false,
   };
   onMessage(hello);
   onMessage({ type: "weights", weights });

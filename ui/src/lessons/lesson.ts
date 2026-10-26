@@ -50,6 +50,7 @@ export interface Lesson {
   title: string;
   summary: string;
   requires?: Reads;             // only works with this kind of model (shown, disabled, otherwise)
+  requiresTraining?: boolean;   // trains the model: needs a server started with --train
   steps: LessonStep[];
 }
 
@@ -95,7 +96,16 @@ export function lessonVars(cfg: { tokenizer: string; d_model: number; vocab_size
 
 export const readsOf = (tokenizer: string | undefined): Reads => (tokenizer === "bpe" ? "bpe" : "char");
 
-export const available = (lesson: Lesson, reads: Reads) => !lesson.requires || lesson.requires === reads;
+/** Why a lesson cannot run here (and what to start the server with), or null if it can. */
+export function unavailable(lesson: Lesson, reads: Reads, training: boolean): string | null {
+  if (lesson.requires && lesson.requires !== reads) {
+    return `needs a ${lesson.requires === "bpe" ? "BPE" : "character"} model: start the server with --config ${CONFIG_FOR[lesson.requires]}`;
+  }
+  if (lesson.requiresTraining && !training) return "trains the model: start the server with --train";
+  return null;
+}
+
+export const available = (lesson: Lesson, reads: Reads, training = true) => unavailable(lesson, reads, training) === null;
 
 /** The lesson's steps as they apply to this kind of model: variants merged in, and steps a
  * variant leaves out (null) dropped. */

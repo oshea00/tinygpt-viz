@@ -1,0 +1,34 @@
+# TinyGPT Visualizer guide
+
+TinyGPT Visualizer shows one real, trained GPT doing its work, every number of it. You type a prompt and see what happens at each stage of the forward pass. You can generate text one token at a time, train the model one step at a time, and change parts of it to see what breaks.
+
+![The app: pipeline map, prompt, inspector, next-token panel and training controls](images/overview.png)
+
+## For learners
+
+Start with [Getting started](guide/01-getting-started.md), then open **lessons → 1. Text to numbers** in the app. In the app, the **help** button explains whichever tab is open, and the **?** beside the pipeline map, the next-token panel and the training panel explains that panel.
+
+| Page | What it covers |
+| --- | --- |
+| [Getting started](guide/01-getting-started.md) | Installing, training a model, running the app, the screen layout |
+| [Pipeline map and stepper](guide/02-pipeline-and-stepper.md) | Finding your way through the network, stage by stage |
+| [Inspector](guide/03-inspector.md) | Any stage's numbers, how each was computed, and its gradient |
+| [Attention](guide/04-attention.md) | Which tokens each position looks at, and why |
+| [Residual stream and logit lens](guide/05-residual-and-lens.md) | How one position's vector is built up, and when the prediction forms |
+| [Network atlas](guide/06-atlas.md) | The whole model as one zoomable image |
+| [Generation](guide/07-generation.md) | Sampling, temperature, top-k and top-p, time travel, the KV cache |
+| [Training](guide/08-training.md) | Live training, checkpoint replay, and one training step up close |
+| [Interventions](guide/09-interventions.md) | Ablating heads and neurons, editing values, before and after |
+| [Concept explorer](guide/10-concepts.md) | How the model represents words: similarity, probes, steering |
+| [Lessons](guide/11-lessons.md) | The ten guided lessons |
+
+## For instructors and lesson authors
+
+| Page | What it covers |
+| --- | --- |
+| [Writing lessons](instructors/writing-lessons.md) | The lesson file format, answer checks, and lessons that adapt to the model |
+| [Prompt sets for the concept explorer](instructors/prompt-sets.md) | Defining categories and templates, and avoiding misleading results |
+
+## Regenerating the screenshots
+
+The images in `docs/images/` come from `scripts/screenshots.mjs`, which drives headless Chrome against a running server. See the top of that file for how to run it. Use servers started just for this, because some of the shots train the model.

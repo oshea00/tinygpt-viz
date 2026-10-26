@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app, settings } from "./state/app.svelte";
+  import HelpPanel from "./help/HelpPanel.svelte";
   import LessonMenu from "./lessons/LessonMenu.svelte";
   import LessonPlayer from "./lessons/LessonPlayer.svelte";
   import ConceptsView from "./views/concepts/ConceptsView.svelte";
@@ -23,6 +24,7 @@
   <header>
     <strong>TinyGPT Visualizer</strong>
     <LessonMenu />
+    <button class="helpbtn" class:on={settings.help} onclick={() => (settings.help ? (settings.help = false) : settings.openHelp(null))} title="help for the open tab">help</button>
     {#if cfg}
       <span class="muted mono">
         {cfg.name} · {cfg.n_layer} layers × {cfg.n_head} heads · d={cfg.d_model} · vocab {cfg.vocab_size} ·
@@ -46,6 +48,7 @@
 
   <main>
     <LessonPlayer />
+    <HelpPanel />
     <section class="panel pad"><PromptBox /></section>
     <section class="panel pad">
       <Stepper />
@@ -60,7 +63,9 @@
         {#if !app.demo}
           <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
           <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
-          <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
+          {#if app.hello?.training}
+            <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
+          {/if}
         {/if}
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
@@ -75,7 +80,8 @@
 
   <aside class="right">
     <section class="panel pad"><OutputPanel /></section>
-    {#if !app.demo}<section class="panel pad"><TrainingPanel /></section>{/if}
+    <!-- Training is opt-in: the server is started with --train. -->
+    {#if app.hello?.training}<section class="panel pad"><TrainingPanel /></section>{/if}
   </aside>
 </div>
 
@@ -88,6 +94,7 @@
   }
   header { grid-area: head; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
   header strong { font-size: 15px; }
+  .helpbtn.on { background: var(--accent-soft); border-color: var(--accent); }
   .ivbadge { margin-left: auto; background: #fde68a; border-color: #d97706; color: #78350f; font-size: 12px; }
   .ivbadge + .conn { margin-left: 0; }
   .conn { margin-left: auto; font-size: 12px; color: var(--bad); }

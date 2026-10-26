@@ -4,6 +4,7 @@
   import type { Tensor } from "../../types";
   import { app, selection } from "../../state/app.svelte";
   import { headColor } from "../../lib/colormap";
+  import HelpButton from "../../help/HelpButton.svelte";
   import { drawThumb } from "../../lib/heatmap";
   import { comparable, stageChanges } from "../../lib/interventions";
   import { pipelineRows } from "../../lib/pipeline";
@@ -37,6 +38,7 @@
 </script>
 
 <div class="map" bind:this={mapEl}>
+  <div class="maphead">pipeline <HelpButton topic="pipeline" label="pipeline map and stepper" /></div>
   {#each rows as row, i (row.key)}
     {#if i === 0 || rows[i - 1].group !== row.group}
       <div class="group">{row.group}</div>
@@ -90,6 +92,7 @@
 
 <style>
   .map { font-size: 12px; }
+  .maphead { display: flex; justify-content: flex-end; align-items: center; font-size: 11px; color: var(--muted); padding: 4px 2px 0; gap: 2px; }
   .group { font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0 2px 2px; }
   .row { display: flex; align-items: center; height: 26px; }
   .gutter { flex: none; overflow: visible; }

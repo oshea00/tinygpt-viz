@@ -32,5 +32,6 @@
    "text": "Now watch a whole run: the **replay** slider in the training panel jumps between saved checkpoints, from random weights at step 0 to the end. Press **play through** and watch the attention gallery and the samples.",
    "tab": "attention"
   }
- ]
+ ],
+ "requiresTraining": true
 }

@@ -4,6 +4,7 @@
   import { app, rawText, selection } from "../../state/app.svelte";
   import { describeSettings, shape } from "../../lib/sampling";
   import { row } from "../../lib/tensor";
+  import HelpButton from "../../help/HelpButton.svelte";
 
   const trace = $derived(app.trace);
   const V = $derived(app.hello?.config.vocab_size ?? 0);
@@ -50,7 +51,8 @@
 </script>
 
 <div>
-  <h2>Next token after position {pos} {#if trace && pos >= 0}<span class="mono tokname">“{trace.text[pos]}”</span>{/if}</h2>
+  <h2>Next token after position {pos} {#if trace && pos >= 0}<span class="mono tokname">“{trace.text[pos]}”</span>{/if}
+    <HelpButton topic="generation" label="next token and generation" /></h2>
 
   <div class="controls">
     <label>temperature <input type="range" min="0" max="2" step="0.05" bind:value={app.sampling.temperature} disabled={travelling} />

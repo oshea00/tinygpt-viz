@@ -171,3 +171,24 @@ def test_incremental_runs_reuse_the_cache(client):
             h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == prompt)
         assert h["incremental"]["reused"] == 15 and h["incremental"]["computed"] == 1
         assert decode_trace(raw).stage("logits").output.shape[0] == 16
+
+
+def test_guide_is_served_as_text(client):
+    r = client.get("/docs/guide/01-getting-started.md")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    assert "# Getting started" in r.text
+
+
+def test_training_can_be_switched_off(tmp_path):
+    trainer = Trainer(PROFILES["char-tiny"], TrainConfig(batch_size=8), CharData(), "cpu", run_dir=tmp_path)
+    with TestClient(create_app(trainer, training=False)) as c, c.websocket_connect("/ws") as ws:
+        hello, _ = _until(ws, lambda h: h["type"] == "hello")
+        assert hello["training"] is False
+        for cmd in ({"type": "train", "action": "step"}, {"type": "stepExplain", "prompt": "Hi there"},
+                    {"type": "loadCheckpoint", "step": 0}, {"type": "set", "lr": 0.1}):
+            ws.send_text(json.dumps(cmd))
+            e, _ = _until(ws, lambda h: h["type"] == "error")
+            assert "--train" in e["message"]
+        ws.send_text(json.dumps({"type": "run", "prompt": "Once"}))     # running the model still works
+        h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == "Once")
+        assert h["step"] == 0

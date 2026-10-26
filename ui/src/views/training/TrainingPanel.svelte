@@ -2,13 +2,14 @@
   import { app } from "../../state/app.svelte";
   import LossChart from "./LossChart.svelte";
   import Replay from "./Replay.svelte";
+  import HelpButton from "../../help/HelpButton.svelte";
 
   const s = $derived(app.status);
   const train = (action: "play" | "pause" | "step" | "reset") => app.send({ type: "train", action });
 </script>
 
 <div>
-  <h2>Training</h2>
+  <h2>Training <HelpButton topic="training" label="training" /></h2>
   <div class="row">
     {#if s?.playing}
       <button class="primary" onclick={() => train("pause")}>pause</button>

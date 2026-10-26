@@ -15,6 +15,11 @@ class Player {
     return readsOf(app.hello?.config.tokenizer);
   }
 
+  /** Whether the server allows training (started with --train). */
+  get training(): boolean {
+    return app.hello?.training ?? false;
+  }
+
   /** The current lesson's steps for the running model. */
   get steps(): LessonStep[] {
     return this.lesson ? stepsFor(this.lesson, this.reads) : [];
@@ -39,7 +44,7 @@ class Player {
   }
 
   start(lesson: Lesson): void {
-    if (!available(lesson, this.reads)) return;
+    if (!available(lesson, this.reads, this.training)) return;
     this.lesson = lesson;
     this.menuOpen = false;
     app.stopAuto();

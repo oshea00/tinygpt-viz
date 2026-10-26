@@ -31,9 +31,10 @@ METRICS_INTERVAL = 0.1      # seconds between metrics messages while playing
 
 class ModelWorker(threading.Thread):
     def __init__(self, trainer: Trainer, emit: Callable[[Message], None], probe: str = DEFAULT_PROBE,
-                 sample_every: int = 500):
+                 sample_every: int = 500, training: bool = True):
         super().__init__(daemon=True, name="model-worker")
         self.trainer = trainer
+        self.training = training   # False: the weights stay as loaded (no training, replay or saving)
         self.emit = emit
         self.probe = probe
         self.sample_every = sample_every
@@ -60,7 +61,7 @@ class ModelWorker(threading.Thread):
         tok = t.data.tokenizer
         return {"type": "hello", "config": t.model_cfg.__dict__, "vocab": [tok.token_text(i) for i in range(tok.vocab_size)],
                 "params": t.model.num_params(), "paramGroups": t.model.param_groups_count(),
-                "checkpoints": t.checkpoints(), "probe": self.probe, **self.status()}
+                "checkpoints": t.checkpoints(), "probe": self.probe, "training": self.training, **self.status()}
 
     def status(self) -> dict:
         t = self.trainer
@@ -99,9 +100,14 @@ class ModelWorker(threading.Thread):
                 out.append(c)
         return [c for c in out if c["type"] != "_wake"]
 
+    # Commands that change the weights or the saved checkpoints: only with training on.
+    TRAINING_COMMANDS = {"train", "set", "loadCheckpoint", "stepExplain", "save"}
+
     def _dispatch(self, cmd: dict) -> None:
         kind = cmd["type"]
         t = self.trainer
+        if kind in self.TRAINING_COMMANDS and not self.training:
+            raise ValueError("training is off: start the server with --train to train, replay or save")
         if kind == "run" and cmd.get("incremental") and not cmd.get("interventions") and not cmd.get("tag"):
             self.send_cached_trace(cmd["prompt"])
         elif kind == "run":

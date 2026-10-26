@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
 import type { Trace } from "../types";
-import { available, formatText, isCorrect, lessonVars, stepsFor, type Lesson } from "./lesson";
+import { available, unavailable, formatText, isCorrect, lessonVars, stepsFor, type Lesson } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
@@ -70,6 +70,14 @@ describe("answer checks", () => {
     const lesson = { id: "x", order: 0, title: "", summary: "", steps: [st, { ...st, variants: { char: null } }] };
     expect(stepsFor(lesson, "char").map((x) => x.prompt)).toEqual(["a"]);
     expect(stepsFor(lesson, "bpe").map((x) => x.prompt)).toEqual(["b", "a"]);   // the second step has no bpe variant
+  });
+
+  it("marks the lesson that trains as needing --train", () => {
+    const training = lessons.find((l) => l.id === "training")!;
+    expect(available(training, "char", true)).toBe(true);
+    expect(available(training, "char", false)).toBe(false);
+    expect(unavailable(training, "char", false)).toContain("--train");
+    expect(lessons.filter((l) => !available(l, "char", false)).map((l) => l.id).sort()).toEqual(["concepts", "training"]);
   });
 
   it("marks lessons that need the other kind of model", () => {

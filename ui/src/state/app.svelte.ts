@@ -300,6 +300,13 @@ class Selection {
 export const selection = new Selection();
 
 class Settings {
+  help = $state(false);                    // the help panel
+  helpTopic = $state<string | null>(null);   // a panel's help (see help/help.ts PANELS); null: the open tab
+
+  openHelp(topic: string | null): void {
+    this.helpTopic = topic;
+    this.help = true;
+  }
   scaleMode = $state<ScaleMode>("tensor");
   clip = $state(99);
   symlog = $state(false);

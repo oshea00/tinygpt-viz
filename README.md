@@ -3,6 +3,9 @@
 Step through one forward and backward pass of a real, trained, character-level GPT
 (100-token context), seeing every number at every stage, and train it live. Design: [PROJECT.md](PROJECT.md).
 
+**[The guide](docs/README.md)** explains every view and how to use it, for learners and for
+instructors writing lessons. In the app, the **help** button explains the open tab, and each panel's **?** explains that panel.
+
 Implemented: milestones 1–12 (instrumented core, tracer with gradients, WebSocket
 bridge, pipeline map + stepper + tensor inspector, training controls and the one-step view,
 attention views, generation, residual stream and logit lens, network atlas,
@@ -47,6 +50,7 @@ uv run python -m core.server --config bpe-small
 
 ```sh
 uv run python -m core.server --config char-small # loads the latest checkpoint; --fresh for random weights
+uv run python -m core.server --config char-small --train   # also enables training, replay and the training step tab
 ```
 
 Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
@@ -90,7 +94,7 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   every earlier position's keys and values and computes only the new one: reused rows are greyed in
   every view, and the panel counts the multiply-adds saved, until the window slides and every
   cached key and value goes stale.
-- **Training panel**: play, pause, single-step, reset, learning rate, batch size, and a replay
+- **Training panel** (with `--train`): play, pause, single-step, reset, learning rate, batch size, and a replay
   slider over saved checkpoints (with "play through") to watch the model learn.
 - **Lessons** (header menu): nine guided lessons that drive the views, with questions checked
   against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.

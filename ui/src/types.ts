@@ -108,6 +108,7 @@ export interface Hello extends Status {
   params: number;
   paramGroups: Record<string, number>;
   probe: string;
+  training: boolean;      // the server was started with --train
 }
 
 export type Command =
