@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app, settings } from "./state/app.svelte";
+  import { theme } from "./state/theme.svelte";
   import HelpPanel from "./help/HelpPanel.svelte";
   import LessonMenu from "./lessons/LessonMenu.svelte";
   import LessonPlayer from "./lessons/LessonPlayer.svelte";
@@ -25,6 +26,8 @@
     <strong>TinyGPT Visualizer</strong>
     <LessonMenu />
     <button class="helpbtn" class:on={settings.help} onclick={() => (settings.help ? (settings.help = false) : settings.openHelp(null))} title="help for the open tab">help</button>
+    <button class="themebtn" onclick={() => theme.toggle()} title="switch to {theme.current === 'dark' ? 'light' : 'dark'} theme"
+            aria-label="switch to {theme.current === 'dark' ? 'light' : 'dark'} theme">{theme.current === "dark" ? "☀" : "☾"}</button>
     {#if cfg}
       <span class="muted mono">
         {cfg.name} · {cfg.n_layer} layers × {cfg.n_head} heads · d={cfg.d_model} · vocab {cfg.vocab_size} ·
@@ -89,6 +92,7 @@
   header { grid-area: head; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
   header strong { font-size: 15px; }
   .helpbtn.on { background: var(--accent-soft); border-color: var(--accent); }
+  .themebtn { padding: 3px 7px; line-height: 1; }
   .ivbadge { margin-left: auto; background: #fde68a; border-color: #d97706; color: #78350f; font-size: 12px; }
   .ivbadge + .conn { margin-left: 0; }
   .conn { margin-left: auto; font-size: 12px; color: var(--bad); }

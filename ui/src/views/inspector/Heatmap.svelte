@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Tensor } from "../../types";
   import { drawHeatmap } from "../../lib/heatmap";
+  import { theme } from "../../state/theme.svelte";
   import type { Range } from "../../lib/scale";
   import { at, dims2, fmt } from "../../lib/tensor";
 
@@ -42,6 +43,7 @@
   const showRowText = $derived(cellH >= 9);
 
   $effect(() => {
+    void theme.current;   // labels and outlines are drawn in theme colours: repaint on a switch
     const [rows, cols] = dims;
     const dpr = window.devicePixelRatio || 1;
     const w = labelW + cols * cellW;

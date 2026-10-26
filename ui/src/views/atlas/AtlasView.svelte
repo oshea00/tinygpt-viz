@@ -3,6 +3,7 @@
   // tile labels and then the numbers themselves appear. Click a tile to select its stage
   // (the pipeline map follows); double-click to open it in the inspector.
   import { app, selection, settings } from "../../state/app.svelte";
+  import { theme } from "../../state/theme.svelte";
   import { buildLayout, hitTest, LABEL, renderAtlas, SECTION_GAP, tilesForStage, TITLE, type AtlasMode, type Layout, type Rendered, type Tile } from "../../lib/atlas";
   import { createRenderer, type AtlasRenderer, type View } from "../../lib/glAtlas";
   import { REUSED } from "../../lib/heatmap";
@@ -73,7 +74,7 @@
   });
 
   $effect(() => {
-    void view; void w; void h; void hover; void selection.position; void selection.stageId;
+    void view; void w; void h; void hover; void selection.position; void selection.stageId; void theme.current;
     redraw();
   });
 

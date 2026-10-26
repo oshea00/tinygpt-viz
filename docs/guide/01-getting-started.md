@@ -44,6 +44,7 @@ To train the model from the command line, change it, or publish your own checkpo
 - **Next token** (top right): what the model predicts next, and [generation](07-generation.md).
 - **Training** (bottom right, with `--train`): live training and [checkpoint replay](08-training.md).
 - **lessons** and **help** (header): [guided lessons](11-lessons.md), and a short explanation of the open tab. The **?** beside the pipeline map, **Next token** and **Training** opens help on that panel; the buttons at the top of the help switch between topics.
+- **☾ / ☀** (header): switches between the dark and light themes. The app follows your system's setting until you choose, then remembers your choice.
 
 ![Help on the training panel](../images/help-training.png)
 
