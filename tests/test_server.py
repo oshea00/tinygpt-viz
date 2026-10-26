@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.config import TrainConfig
-from core.server import create_app
+from core.server import UI_DIST, create_app
 from core.trace_io import decode_frame, decode_trace
 from core.train import Trainer
 
@@ -178,6 +178,11 @@ def test_guide_is_served_as_text(client):
     r = client.get("/docs/guide/01-getting-started.md")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
     assert "# Getting started" in r.text
+
+
+@pytest.mark.skipif(not UI_DIST.exists(), reason="UI not built")
+def test_ui_page_is_revalidated(client):
+    assert client.get("/").headers["cache-control"] == "no-cache"
 
 
 def test_training_can_be_switched_off(tmp_path, data):

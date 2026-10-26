@@ -26,6 +26,17 @@ DOCS = Path(__file__).resolve().parent.parent / "docs"
 MAX_QUEUE = 64     # a client this far behind gets traces dropped, never metrics
 
 
+class UIFiles(StaticFiles):
+    """The built UI. index.html is revalidated on every load so a rebuild shows on a plain refresh;
+    the assets it names are content-hashed, so they can stay cached."""
+
+    def file_response(self, full_path, *args, **kwargs):
+        response = super().file_response(full_path, *args, **kwargs)
+        if str(full_path).endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
     """worker_kw go to ModelWorker, e.g. training=False for a model that only runs."""
     clients: set[asyncio.Queue[Message]] = set()
@@ -83,7 +94,7 @@ def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
     if DOCS.exists():
         app.mount("/docs", StaticFiles(directory=DOCS), name="docs")
     if UI_DIST.exists():
-        app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")
+        app.mount("/", UIFiles(directory=UI_DIST, html=True), name="ui")
     else:
         @app.get("/")
         def no_ui():
