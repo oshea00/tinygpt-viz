@@ -29,7 +29,7 @@
   <Heatmap
     {tensor} {range} rowLabels={trace.text} colLabels={trace.text}
     selRow={q} selCol={selection.dim < trace.tokens.length ? selection.dim : -1}
-    maskUpper maxHeight={480} maxCell={14}
+    maskUpper maxHeight={480} maxCell={14} reusedRows={backward ? 0 : trace.incremental?.reused ?? 0}
     onpick={(r, c) => { selection.position = r; selection.dim = c; }}
   />
 {/if}

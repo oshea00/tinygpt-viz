@@ -19,8 +19,8 @@
   });
   const backward = $derived(selection.phase === "backward");
 
-  function thumb(canvas: HTMLCanvasElement, p: { t: Tensor; seq: boolean; mask: boolean }) {
-    const draw = (q: typeof p) => drawThumb(canvas, q.t, tensorRange([q.t.data], q.seq ? "sequential" : "diverging", 99, false, "", THUMB_SAMPLE), q.mask);
+  function thumb(canvas: HTMLCanvasElement, p: { t: Tensor; seq: boolean; mask: boolean; reused: number }) {
+    const draw = (q: typeof p) => drawThumb(canvas, q.t, tensorRange([q.t.data], q.seq ? "sequential" : "diverging", 99, false, "", THUMB_SAMPLE), q.mask, q.reused);
     draw(p);
     return { update: draw };
   }
@@ -78,7 +78,8 @@
             {:else if s.kind === "loss"}
               <span class="mono val">{fmt(t.data[0], 3)}</span>
             {:else}
-              <canvas use:thumb={{ t, seq: isSequential(s, backward), mask: s.kind === "mask" || s.kind === "softmax" }}></canvas>
+              <canvas use:thumb={{ t, seq: isSequential(s, backward), mask: s.kind === "mask" || s.kind === "softmax",
+                                   reused: !backward && t.shape[0] === app.trace!.tokens.length ? app.trace!.incremental?.reused ?? 0 : 0 }}></canvas>
             {/if}
           </button>
         {/each}

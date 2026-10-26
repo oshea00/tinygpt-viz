@@ -36,7 +36,17 @@ export interface Trace {
   reason?: string;
   weightsVersion?: number;
   tag?: string;                     // "baseline": the unmodified run compared against
+  incremental?: Incremental;        // set when the trace came from the KV cache
   interventions?: Intervention[];   // what was changed in this trace
+}
+
+/** How a KV-cache trace was made (core/kvcache.py): rows before `reused` came from the cache. */
+export interface Incremental {
+  reused: number;
+  computed: number;
+  reason: string | null;          // why the cache could not be used, if it was not
+  multiplyAdds: number;
+  multiplyAddsFull: number;       // what a full pass over the same positions would cost
 }
 
 /** Changes to the forward pass (core/interventions.py). */
@@ -101,7 +111,7 @@ export interface Hello extends Status {
 }
 
 export type Command =
-  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number; interventions?: Intervention[]; tag?: string }
+  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number; interventions?: Intervention[]; tag?: string; incremental?: boolean }
   | { type: "train"; action: "play" | "pause" | "step" | "reset" }
   | { type: "set"; lr?: number; batchSize?: number; traceEvery?: number; probe?: string }
   | { type: "sample"; prompt?: string; temperature: number; topK?: number; topP?: number; n: number }

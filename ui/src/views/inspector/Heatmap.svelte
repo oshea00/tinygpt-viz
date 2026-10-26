@@ -15,10 +15,11 @@
     maxHeight?: number;
     maxCell?: number;
     maskUpper?: boolean;
+    reusedRows?: number;
     colBands?: { start: number; end: number; color: string }[];   // e.g. each head's columns
     onpick?: (r: number, c: number) => void;
   }
-  let { tensor, range, rowLabels, colLabels, selRow = -1, selCol = -1, zoom = 1, maxHeight = 620, maxCell = 28, maskUpper = false, colBands, onpick }: Props = $props();
+  let { tensor, range, rowLabels, colLabels, selRow = -1, selCol = -1, zoom = 1, maxHeight = 620, maxCell = 28, maskUpper = false, reusedRows = 0, colBands, onpick }: Props = $props();
 
   let width = $state(600);
   let canvas: HTMLCanvasElement;
@@ -46,7 +47,7 @@
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    drawHeatmap(ctx, tensor, labelW, topH, { range, cellW, cellH, markClipped: true, maskUpper });
+    drawHeatmap(ctx, tensor, labelW, topH, { range, cellW, cellH, markClipped: true, maskUpper, reusedRows });
 
     const css = getComputedStyle(canvas);
     const ink = css.getPropertyValue("--ink") || "#000";

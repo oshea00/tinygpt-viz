@@ -2,7 +2,7 @@
  "id": "context",
  "order": 8,
  "title": "Why only 100 positions?",
- "summary": "The context window, and why it is a hard limit.",
+ "summary": "The context window, and how a KV cache makes generation cheap until the window slides.",
  "steps": [
   {
    "text": "The position table has exactly 100 rows, so the model can only ever see 100 positions. Longer text is cut to its last 100 {{units}}: the window **slides**.",
@@ -22,6 +22,17 @@
   {
    "text": "Generation repeats this for every new {{unit}}: run the whole window, read the last row, sample, append, slide. The attention matrix is T×T, so cost grows with the square of the window: one reason context is limited.",
    "tab": "attention"
+  },
+  {
+   "text": "Generation recomputes the whole window for every new {{unit}}, yet nothing at the earlier positions changes: a position never sees later ones. So a real model keeps each layer's keys and values, the **KV cache**, and computes only the new position. Turn it on: press **sample one** a few times and watch the panel on the right count the work saved; in the inspector, the rows that came from the cache are greyed.",
+   "tab": "inspector",
+   "stage": "L1.attn.H0.weights",
+   "kvCache": true,
+   "prompt": "Once upon a time, there was a little girl named Lily. She"
+  },
+  {
+   "text": "The cache only works while the window grows. Once the text passes 100 {{units}}, the oldest drops out and every position shifts by one; position embeddings are added at the very first layer, so every cached key and value is now wrong, and everything must be recomputed for every new {{unit}}. Keep sampling past 100 positions and the panel reports the cache being rebuilt each time. Fixed context windows (and ways to avoid this, such as relative position encodings) come from exactly this.",
+   "kvCache": true
   }
  ]
 }

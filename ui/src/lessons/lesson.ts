@@ -38,6 +38,7 @@ export interface LessonStep {
   conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons";
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
+  kvCache?: boolean;            // switch KV cache mode on or off
   ask?: { question: string; check: Check; hint?: string; correct?: string };
   /** Per kind of model: fields that replace the step's own, or null to leave the step out. */
   variants?: Partial<Record<Reads, Partial<Omit<LessonStep, "variants">> | null>>;

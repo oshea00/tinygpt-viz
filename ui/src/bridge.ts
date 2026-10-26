@@ -58,6 +58,7 @@ export function decodeTrace(f: Frame): Trace {
     reason: h.reason,
     weightsVersion: h.weightsVersion,
     tag: h.tag,
+    incremental: h.incremental,
     interventions: h.interventions ?? [],
   };
 }

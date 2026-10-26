@@ -161,3 +161,13 @@ def test_concept_commands(client):
         ws.send_text(json.dumps({"type": "lens", "prompt": "The cat"}))
         l, _ = _until(ws, lambda h: h["type"] == "lens")
         assert len(l["topIds"]) == 5 and len(l["topIds"][0]) == 7
+
+
+def test_incremental_runs_reuse_the_cache(client):
+    with client.websocket_connect("/ws") as ws:
+        _until(ws, lambda h: h["type"] == "trace")
+        for prompt in ("Once upon a ti", "Once upon a tim", "Once upon a time"):
+            ws.send_text(json.dumps({"type": "run", "prompt": prompt, "withGrad": False, "incremental": True}))
+            h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == prompt)
+        assert h["incremental"]["reused"] == 15 and h["incremental"]["computed"] == 1
+        assert decode_trace(raw).stage("logits").output.shape[0] == 16

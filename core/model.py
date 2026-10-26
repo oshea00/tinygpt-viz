@@ -18,6 +18,7 @@ import torch.nn as nn
 from .config import ModelConfig
 
 TapFn = Callable[[str, torch.Tensor], torch.Tensor]
+KV = tuple[torch.Tensor, torch.Tensor]   # one layer's keys and values, [B, positions, d]
 
 
 def layer_norm(x: torch.Tensor, g: torch.Tensor, b: torch.Tensor, eps: float = 1e-5) -> torch.Tensor:
@@ -70,6 +71,7 @@ class GPT(nn.Module):
         self.mask: torch.Tensor
         self.register_buffer("mask", torch.tril(torch.ones(T, T, dtype=torch.bool)), persistent=False)
         self._tap: TapFn | None = None
+        self.kv: list[KV] | None = None
 
     # -- taps ---------------------------------------------------------------
 
@@ -86,19 +88,31 @@ class GPT(nn.Module):
 
     # -- forward ------------------------------------------------------------
 
-    def attention(self, l: int, blk: Block, x: torch.Tensor) -> torch.Tensor:
+    def attention(self, l: int, blk: Block, x: torch.Tensor, past: KV | None = None) -> torch.Tensor:
+        """Attention for the positions in x. With `past` (the KV cache), x holds only the new
+        positions: their keys and values are appended to the cached ones, and each new query
+        attends to every key up to its own position."""
         T, H, dh = x.shape[1], self.cfg.n_head, self.cfg.d_head
+        t0 = past[0].shape[1] if past is not None else 0
         q = self.tap(f"L{l}.q", x @ blk.W_q + blk.b_q)
-        k = self.tap(f"L{l}.k", x @ blk.W_k + blk.b_k)
-        v = self.tap(f"L{l}.v", x @ blk.W_v + blk.b_v)
-        mask = self.mask[:T, :T]
+        k_new = self.tap(f"L{l}.k", x @ blk.W_k + blk.b_k)
+        v_new = self.tap(f"L{l}.v", x @ blk.W_v + blk.b_v)
+        k = torch.cat([past[0], k_new], dim=1) if past is not None else k_new
+        v = torch.cat([past[1], v_new], dim=1) if past is not None else v_new
+        if self.kv is not None:
+            self.kv.append((k.detach(), v.detach()))
+        mask = self.mask[t0:t0 + T, :t0 + T]        # query rows t0.., key columns 0..
         heads = []
         for h in range(H):
             cols = slice(h * dh, (h + 1) * dh)       # head h owns this band of columns
             p = f"L{l}.attn.H{h}"
             qh = self.tap(f"{p}.q", q[..., cols])
-            kh = self.tap(f"{p}.k", k[..., cols])
-            vh = self.tap(f"{p}.v", v[..., cols])
+            # The split stages hold the new rows; cached rows (if any) are put in front of them.
+            kh = self.tap(f"{p}.k", k_new[..., cols])
+            vh = self.tap(f"{p}.v", v_new[..., cols])
+            if past is not None:
+                kh = torch.cat([past[0][..., cols], kh], dim=1)
+                vh = torch.cat([past[1][..., cols], vh], dim=1)
             scores = self.tap(f"{p}.scores", qh @ kh.transpose(-2, -1) / math.sqrt(dh))
             masked = self.tap(f"{p}.masked", scores.masked_fill(~mask, float("-inf")))
             weights = self.tap(f"{p}.weights", softmax(masked))
@@ -114,18 +128,25 @@ class GPT(nn.Module):
     def unembed_matrix(self) -> torch.Tensor:
         return self.wte.T if self.W_unembed is None else self.W_unembed
 
-    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None):
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None,
+                past: list[KV] | None = None, keep_kv: bool = False):
         """idx [B, T] token ids → logits [B, T, V]; loss is mean cross-entropy if targets given.
 
         targets may contain -1 to ignore a position (used to train on one character).
+        past: the KV cache, cached keys and values per layer for the positions before idx; idx
+        then continues from there. keep_kv: leave every layer's keys and values (cached plus
+        new) in self.kv, to cache for the next step.
         """
         B, T = idx.shape
-        assert T <= self.cfg.block_size
+        t0 = past[0][0].shape[1] if past else 0
+        assert t0 + T <= self.cfg.block_size
+        self.kv = [] if keep_kv else None
         tok = self.tap("embed.tok", self.wte[idx])
-        pos = self.tap("embed.pos", self.wpe[:T].expand(B, T, -1))
+        pos = self.tap("embed.pos", self.wpe[t0:t0 + T].expand(B, T, -1))
         x = self.tap("embed.sum", tok + pos)
         for l, blk in enumerate(cast(list[Block], self.blocks)):
-            x = self.tap(f"L{l}.resid_attn", x + self.attention(l, blk, self.tap(f"L{l}.ln1", layer_norm(x, blk.ln1_g, blk.ln1_b))))
+            x = self.tap(f"L{l}.resid_attn", x + self.attention(l, blk, self.tap(f"L{l}.ln1", layer_norm(x, blk.ln1_g, blk.ln1_b)),
+                                                                 past[l] if past else None))
             x = self.tap(f"L{l}.resid_mlp", x + self.mlp(l, blk, self.tap(f"L{l}.ln2", layer_norm(x, blk.ln2_g, blk.ln2_b))))
         x = self.tap("ln_f", layer_norm(x, self.ln_f_g, self.ln_f_b))
         logits = self.tap("logits", x @ self.unembed_matrix())

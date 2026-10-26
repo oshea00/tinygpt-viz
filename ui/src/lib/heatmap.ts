@@ -12,6 +12,7 @@ export interface DrawOpts {
   cellH: number;
   markClipped?: boolean;
   maskUpper?: boolean;   // causal attention: cells right of the diagonal are masked
+  reusedRows?: number;   // KV cache: rows before this came from the cache, drawn dimmed
 }
 
 let scratch: HTMLCanvasElement | null = null;
@@ -47,7 +48,8 @@ export function drawHeatmap(ctx: CanvasRenderingContext2D, t: Tensor, x0: number
   const clipped: number[] = [];
   for (let i = 0; i < rows * cols; i++) {
     const v = t.data[i];
-    if (v === -Infinity || (o.maskUpper && i % cols > Math.floor(i / cols))) {
+    // −∞: masked. NaN: never computed (KV cache: old queries against new keys).
+    if (v === -Infinity || Number.isNaN(v) || (o.maskUpper && i % cols > Math.floor(i / cols))) {
       masked.push(i);
       continue;
     }
@@ -82,14 +84,21 @@ export function drawHeatmap(ctx: CanvasRenderingContext2D, t: Tensor, x0: number
       ctx.fillRect(x0 + (i % cols) * o.cellW + o.cellW - 3, y0 + Math.floor(i / cols) * o.cellH + 1, 2, 2);
     }
   }
+  if (o.reusedRows && o.reusedRows > 0) {
+    ctx.fillStyle = REUSED;
+    ctx.fillRect(x0, y0, w, Math.min(rows, o.reusedRows) * o.cellH);
+  }
   return { w, h };
 }
 
+/** Grey veil over rows that came from the KV cache rather than being computed. */
+export const REUSED = "rgba(150, 150, 150, 0.62)";
+
 /** A small preview fitted to w×h, for pipeline thumbnails. */
-export function drawThumb(canvas: HTMLCanvasElement, t: Tensor, range: Range, maskUpper = false): void {
+export function drawThumb(canvas: HTMLCanvasElement, t: Tensor, range: Range, maskUpper = false, reusedRows = 0): void {
   const [rows, cols] = dims2(t);
   canvas.width = cols;
   canvas.height = rows;
   const ctx = canvas.getContext("2d")!;
-  drawHeatmap(ctx, t, 0, 0, { range, cellW: 1, cellH: 1, maskUpper });
+  drawHeatmap(ctx, t, 0, 0, { range, cellW: 1, cellH: 1, maskUpper, reusedRows });
 }

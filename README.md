@@ -86,7 +86,10 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
 - **Next token and generation** (right): the full next-token distribution, reshaped live by
   temperature, top-k and top-p (excluded tokens greyed). Sample one character or run auto; generated
   text is coloured by how likely each choice was, the 100-character window is boxed as it slides,
-  and clicking a generated character reloads the trace that produced it.
+  and clicking a generated character reloads the trace that produced it. **KV cache** mode reuses
+  every earlier position's keys and values and computes only the new one: reused rows are greyed in
+  every view, and the panel counts the multiply-adds saved, until the window slides and every
+  cached key and value goes stale.
 - **Training panel**: play, pause, single-step, reset, learning rate, batch size, and a replay
   slider over saved checkpoints (with "play through") to watch the model learn.
 - **Lessons** (header menu): nine guided lessons that drive the views, with questions checked

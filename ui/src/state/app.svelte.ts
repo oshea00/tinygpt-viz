@@ -53,6 +53,11 @@ class AppState {
   // Interventions apply to every trace requested; with any active, an unmodified baseline
   // of the same prompt is fetched too, so every effect can be shown as before / after.
   interventions = $state.raw<Intervention[]>([]);
+
+  // KV cache mode: traces for generation reuse every earlier position and compute only the
+  // new one (no gradients). Totals compare its cost with re-running the whole window.
+  kvCache = $state(false);
+  kvTotals = $state({ withCache: 0, without: 0, steps: 0, resets: 0 });
   baseline = $state.raw<Trace | null>(null);
 
   serverLens = $state.raw<LensMsg | null>(null);   // logit lens computed on the server
@@ -110,7 +115,8 @@ class AppState {
 
   run(prompt = this.viewPrompt()): void {
     const interventions = this.interventions;
-    this.send({ type: "run", prompt, withGrad: !this.auto, interventions });
+    const incremental = this.kvCache && !interventions.length && this.travel === null;
+    this.send({ type: "run", prompt, withGrad: !this.auto && !incremental, interventions, incremental });
     if (interventions.length) this.send({ type: "run", prompt, withGrad: !this.auto, tag: "baseline" });
     else this.baseline = null;
   }
@@ -133,6 +139,7 @@ class AppState {
 
   /** The learner edited the prompt: generation so far no longer applies. */
   promptEdited(): void {
+    this.kvTotals = { withCache: 0, without: 0, steps: 0, resets: 0 };
     this.stopAuto();
     this.generated = [];
     this.travel = null;
@@ -205,6 +212,12 @@ class AppState {
           break;
         }
         this.trace = m.trace;
+        const inc = m.trace.incremental;
+        if (inc) {
+          const k = this.kvTotals;
+          this.kvTotals = { withCache: k.withCache + inc.multiplyAdds, without: k.without + inc.multiplyAddsFull,
+                            steps: k.steps + 1, resets: k.resets + (inc.reason && k.steps ? 1 : 0) };
+        }
         if (m.trace.reason === "probe" && this.prompt && m.trace.prompt !== this.viewPrompt()) this.run();
         if (this.status) this.status.step = m.trace.step;
         if (this.auto && m.trace.prompt === this.prompt) {

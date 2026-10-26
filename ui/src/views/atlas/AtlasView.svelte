@@ -5,6 +5,7 @@
   import { app, selection, settings } from "../../state/app.svelte";
   import { buildLayout, hitTest, LABEL, renderAtlas, SECTION_GAP, tilesForStage, TITLE, type AtlasMode, type Layout, type Rendered, type Tile } from "../../lib/atlas";
   import { createRenderer, type AtlasRenderer, type View } from "../../lib/glAtlas";
+  import { REUSED } from "../../lib/heatmap";
   import { at, fmt } from "../../lib/tensor";
 
   const SELECTED = "#fbbf24";   // light gold: the selected stage's outline
@@ -165,6 +166,15 @@
     for (const t of selected.main) outline(t, 3, []);
     for (const t of selected.weights) outline(t, 2, [5, 3]);
     ctx.setLineDash([]);
+
+    // KV cache: rows that came from the cache are veiled in every activation tile.
+    const reused = settings.atlasMode === "values" || settings.atlasMode === "flow" ? trace.incremental?.reused ?? 0 : 0;
+    if (reused > 0) {
+      ctx.fillStyle = REUSED;
+      for (const t of layout.tiles) {
+        if (t.kind === "act" && t.rows === trace.tokens.length && visible(t)) ctx.fillRect(sx(t.x), sy(t.y), t.cols * scale, reused * scale);
+      }
+    }
 
     // One token, one path: the selected position's row in every activation tile.
     const p = selection.query(trace);

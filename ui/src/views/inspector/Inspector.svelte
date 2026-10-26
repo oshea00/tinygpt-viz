@@ -49,6 +49,10 @@
       ? app.manual.stages[stage.id] : null,
   );
 
+  // KV cache traces: rows before `reused` came from the cache.
+  const inc = $derived(trace?.incremental);
+  const reusedRows = $derived(inc && !backward && !diff && tensor && tensor.shape.length >= 2 && tensor.shape[0] === trace!.tokens.length ? inc.reused : 0);
+
   const pickedR = $derived(selection.position >= 0 && selection.position < dims[0] ? selection.position : -1);
   const pickedC = $derived(selection.dim >= 0 && selection.dim < dims[1] ? selection.dim : -1);
 </script>
@@ -102,10 +106,21 @@
       {tensor} {range} {rowLabels} {colLabels}
       selRow={pickedR} selCol={pickedC} zoom={settings.cell || 1}
       maskUpper={stage.kind === "mask" || stage.kind === "softmax"}
+      {reusedRows}
       {colBands}
       onpick={(r, c) => { selection.position = r; selection.dim = c; }}
     />
     <p class="axes muted">rows: positions (token) · columns: {colWord}</p>
+    {#if inc && !backward && !diff}
+      <p class="kv">
+        {#if inc.reused}
+          <b>KV cache:</b> rows 0–{inc.reused - 1} came from the cache (greyed); only {inc.computed === 1 ? `row ${inc.reused} was` : `${inc.computed} rows were`} computed.
+          {#if stage.kind === "attn_scores"}Hatched: old queries against the new key, never computed (they are masked anyway).{/if}
+        {:else}
+          <b>KV cache rebuilt:</b> {inc.reason}.
+        {/if}
+      </p>
+    {/if}
   {/if}
 
   <div class="lesson">
@@ -158,6 +173,7 @@
   .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 8px; font-size: 12px; }
   .range { font-size: 11px; }
   .axes { font-size: 11px; margin: 4px 0 0; }
+  .kv { font-size: 12px; margin: 6px 0 0; padding: 4px 8px; border-radius: 6px; background: var(--accent-soft); }
   .loss { font-size: 28px; margin: 12px 0; }
   .lesson { margin-top: 10px; max-width: 760px; }
   .small { font-size: 11px; }

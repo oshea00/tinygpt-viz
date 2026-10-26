@@ -253,7 +253,7 @@ export function renderAtlas(layout: Layout, s: AtlasSources): Rendered {
       for (let x = 0; x < W; x++) {
         const v = at(t, r, x);
         const o = (y * W + x) * 4;
-        if (v === -Infinity || (isMaskedAttn && x > r)) {
+        if (v === -Infinity || Number.isNaN(v) || (isMaskedAttn && x > r)) {
           rgba[o] = MASKED_RGB[0]; rgba[o + 1] = MASKED_RGB[1]; rgba[o + 2] = MASKED_RGB[2];
         } else {
           const k = lutIndex(range.kind, Math.max(-1, Math.min(1, normalise(v, range)))) * 3;

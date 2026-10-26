@@ -69,6 +69,10 @@ class Player {
       rerun = true;
     }
     if (s.sampling) app.sampling = { temperature: s.sampling.temperature, topK: s.sampling.topK ?? null, topP: s.sampling.topP ?? null };
+    if (s.kvCache !== undefined && s.kvCache !== app.kvCache) {
+      app.kvCache = s.kvCache;
+      rerun = true;
+    }
     if (s.tab) settings.tab = s.tab;
     if (s.head) selection.selectHead(s.head[0], s.head[1]);
     if (s.stage) selection.select(s.stage, s.phase ?? "forward");

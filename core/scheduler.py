@@ -15,6 +15,7 @@ from typing import Callable
 import torch
 
 from . import concepts
+from .kvcache import KVCache, trace_cached
 from .lens import logit_lens
 from .model import GPT
 from .manual_backward import compare as manual_compare
@@ -101,7 +102,9 @@ class ModelWorker(threading.Thread):
     def _dispatch(self, cmd: dict) -> None:
         kind = cmd["type"]
         t = self.trainer
-        if kind == "run":
+        if kind == "run" and cmd.get("incremental") and not cmd.get("interventions") and not cmd.get("tag"):
+            self.send_cached_trace(cmd["prompt"])
+        elif kind == "run":
             self.send_trace(cmd["prompt"], with_grad=cmd.get("withGrad", True), reason="run",
                             target_index=cmd.get("targetIndex"), interventions=cmd.get("interventions"),
                             tag=cmd.get("tag"))
@@ -288,6 +291,18 @@ class ModelWorker(threading.Thread):
         ids = tok.encode(prompt) or [0]
         return trace(self.trainer.model, ids, [tok.token_text(i) for i in ids], step=self.trainer.step_num,
                      with_grad=with_grad, target_index=target_index, interventions=interventions)
+
+    def send_cached_trace(self, prompt: str) -> None:
+        """Generation with the KV cache: only positions not already cached are computed."""
+        self.send_weights_if_changed()
+        t = self.trainer
+        tok = t.data.tokenizer
+        ids = tok.encode(prompt) or [0]
+        if not hasattr(self, "kv_cache"):
+            self.kv_cache = KVCache()
+        tr, info = trace_cached(t.model, self.kv_cache, ids, [tok.token_text(i) for i in ids], t.step_num, self.weights_version)
+        self.emit(encode_trace(tr, {"prompt": prompt, "reason": "run", "weightsVersion": self.weights_version,
+                                    "interventions": [], "incremental": info}))
 
     def send_trace(self, prompt: str, with_grad: bool = True, reason: str = "run",
                    target_index: int | None = None, interventions: list[dict] | None = None,

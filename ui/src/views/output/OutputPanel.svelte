@@ -45,6 +45,7 @@
     return out;
   });
   const shown = (t: string) => t.replace(/\x04/g, "␄\n");
+  const fmtMacs = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${(n / 1e3).toFixed(0)}k`);
   const meanP = $derived(app.generated.length ? app.generated.reduce((s, g) => s + g.p, 0) / app.generated.length : 0);
 </script>
 
@@ -87,7 +88,27 @@
     <label class="muted">speed <input type="range" min="0" max="600" step="20" value={600 - app.autoDelay}
                                       oninput={(e) => (app.autoDelay = 600 - +(e.target as HTMLInputElement).value)} /></label>
     <label class="muted"><input type="checkbox" bind:checked={app.stopAtEnd} /> stop at ␄</label>
+    <label class="muted" title="reuse earlier positions' keys and values; compute only the new position (no gradients)">
+      <input type="checkbox" bind:checked={app.kvCache} onchange={() => app.run()} /> KV cache</label>
   </div>
+  {#if app.kvCache}
+    {@const inc = trace?.incremental}
+    {@const k = app.kvTotals}
+    <div class="kvstats">
+      {#if inc}
+        {#if inc.reused}
+          last step: computed {inc.computed} of {inc.reused + inc.computed} positions,
+          <b>{fmtMacs(inc.multiplyAdds)}</b> multiply-adds instead of {fmtMacs(inc.multiplyAddsFull)}
+        {:else}
+          <span class="reset">cache rebuilt: {inc.reason}</span>
+        {/if}
+        {#if k.steps > 1}<br />so far: {fmtMacs(k.withCache)} vs {fmtMacs(k.without)} without the cache
+          ({(k.without / Math.max(1, k.withCache)).toFixed(1)}× less work){k.resets ? `, ${k.resets} rebuild${k.resets > 1 ? "s" : ""}` : ""}{/if}
+      {:else}
+        <span class="muted">Gradients are off while the cache is on. Generate to see it work.</span>
+      {/if}
+    </div>
+  {/if}
 
   {#if app.generated.length}
     <div class="gen-meta muted">
@@ -136,6 +157,8 @@
   .gen-controls label { display: flex; gap: 4px; align-items: center; }
   .gen-controls input[type="range"] { width: 70px; }
   .gen-meta { font-size: 11px; margin-top: 8px; }
+  .kvstats { font-size: 11px; margin-top: 6px; padding: 4px 6px; border-radius: 6px; background: var(--accent-soft); line-height: 1.5; }
+  .kvstats .reset { color: var(--bad); }
   .gen { white-space: pre-wrap; font-size: 12px; margin: 4px 0 0; max-height: 220px; overflow: auto; line-height: 1.7; }
   .ch { opacity: 0.4; }
   .ch.inwin { opacity: 1; box-shadow: inset 0 1px var(--accent), inset 0 -1px var(--accent); }
