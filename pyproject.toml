@@ -14,17 +14,18 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.3", "httpx>=0.28"]
-# PyTorch builds, one at a time. cuda is the default: CUDA 12.8 on Linux and Windows, and the
-# standard build (with Metal/MPS) on macOS. For AMD GPUs on Linux: export UV_NO_GROUP=cuda,
+# PyTorch builds, one at a time. cuda is the default: CUDA 12.8 on x86 Linux and Windows, CUDA 13.0
+# on ARM Linux (DGX Spark's GB10 needs CUDA 13), and the standard build (with Metal/MPS) on macOS. For AMD GPUs on Linux: export UV_NO_GROUP=cuda,
 # then uv sync --group rocm. For a smaller CPU-only install: the same with cpu.
 cuda = ["torch>=2.7"]
-rocm = ["torch>=2.7", "triton-rocm; sys_platform == 'linux'"]   # triton-rocm is only on the ROCm index
+rocm = ["torch>=2.7", "triton-rocm; sys_platform == 'linux' and platform_machine == 'x86_64'"]   # triton-rocm is only on the ROCm index
 cpu = ["torch>=2.7"]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu128", group = "cuda", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { index = "pytorch-rocm", group = "rocm", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu128", group = "cuda", marker = "(sys_platform == 'linux' and platform_machine == 'x86_64') or sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "cuda", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { index = "pytorch-rocm", group = "rocm", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
     { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 triton-rocm = [{ index = "pytorch-rocm", group = "rocm" }]
@@ -41,6 +42,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]

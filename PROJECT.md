@@ -45,7 +45,7 @@ The MLPs hold over half the weights, and the embedding table almost a fifth. One
 
 One machine: a Python process owns the model on the CPU or GPU and does inference, training, autograd and trace capture, and serves a web front end that shows it all live in a browser tab.
 
-1. **Core (Python, PyTorch).** Owns weights, optimiser and data. Runs on CPU, CUDA, or Apple Silicon through MPS (tested on macOS Tahoe with an M5 Pro, including training). AMD GPUs on Linux use PyTorch's ROCm build, which presents the GPU through the same `torch.cuda` API (not yet tested on hardware).
+1. **Core (Python, PyTorch).** Owns weights, optimiser and data. Runs on CPU, CUDA, or Apple Silicon through MPS (tested on macOS Tahoe with an M5 Pro, including training). ARM Linux (such as DGX Spark's GB10) uses PyTorch's CUDA 13.0 build, which the GB10 needs. AMD GPUs on x86 Linux use PyTorch's ROCm build, which presents the GPU through the same `torch.cuda` API (not yet tested on hardware).
 2. **Trainer.** One AdamW update at a time, so the UI can play, pause, single-step and reset, with learning rate, batch size and trace frequency adjustable live. Training is opt-in: only a server started with `--train` changes its weights, which suits a class where everyone should see the same model.
 3. **Tracer.** Records every stage's output, and with a backward pass every stage's gradient and every weight's gradient, for a prompt. It runs on demand, not on every training batch: a full 100-token trace holds about 5.7M values (23 MB as float32) before gradients.
 4. **Scheduler.** One model thread and one command queue. UI requests (run a prompt, intervene, sample) run between training steps, so there is no GPU contention and no half-updated weights in a trace.
