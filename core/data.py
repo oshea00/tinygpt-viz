@@ -1,12 +1,11 @@
-"""TinyStories character corpus: download a slice, normalise, build the charset.
+"""TinyStories BPE corpus: download a slice, normalise, train a tokenizer, pack token streams.
 
-Only the first few MB of the 1.9 GB train file are fetched, using an HTTP range request.
+Only the first part of the 1.9 GB train file is fetched, using an HTTP range request.
 
-    uv run python -m core.data            # prepares data/ if missing
+    uv run python -m core.data            # prepares data/bpe4096/ if missing
 """
 
 import argparse
-import collections
 import unicodedata
 import urllib.request
 from pathlib import Path
@@ -14,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .tokenizers import EOS, BPETokenizer, CharTokenizer
+from .tokenizers import BPETokenizer
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 BASE_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/"
@@ -25,7 +24,6 @@ REPLACEMENTS = {
     "‘": "'", "’": "'", "“": '"', "”": '"',
     "–": "-", "—": "-", "…": "...", " ": " ",
 }
-MIN_CHAR_COUNT = 50   # characters rarer than this in the slice are dropped with their story
 
 
 def fetch_head(name: str, n_bytes: int) -> str:
@@ -51,36 +49,12 @@ def split_stories(text: str) -> list[str]:
     return [s for s in (normalise(p) for p in parts) if s]
 
 
-def build(train_mb: float = 10, val_mb: float = 1) -> None:
-    train = split_stories(fetch_head("TinyStories-train.txt", int(train_mb * 1.6e6)))
-    val = split_stories(fetch_head("TinyStories-valid.txt", int(val_mb * 1.6e6)))
-
-    counts = collections.Counter("".join(train))
-    keep = {c for c, n in counts.items() if n >= MIN_CHAR_COUNT and (c.isascii() or c == "\n")}
-    chars = sorted(keep | {EOS})
-    tok = CharTokenizer(chars)
-
-    def pack(stories: list[str], limit: int) -> np.ndarray:
-        clean = [s for s in stories if all(c in keep for c in s)]
-        text = "".join(s + EOS for s in clean)[:limit]
-        return np.array(tok.encode(text), dtype=np.uint8)
-
-    train_ids = pack(train, int(train_mb * 1e6))
-    val_ids = pack(val, int(val_mb * 1e6))
-    DATA_DIR.mkdir(exist_ok=True)
-    tok.save(DATA_DIR / "char_vocab.json")
-    train_ids.tofile(DATA_DIR / "train.bin")
-    val_ids.tofile(DATA_DIR / "val.bin")
-    print(f"vocab {tok.vocab_size}: {''.join(tok.token_text(i) for i in range(tok.vocab_size))}")
-    print(f"train {len(train_ids):,} chars, val {len(val_ids):,} chars")
-
-
 BPE_VOCAB = 4096
 BPE_DIR = DATA_DIR / f"bpe{BPE_VOCAB}"
 
 
 def build_bpe(train_mb: float = 250, val_mb: float = 5, tokenizer_mb: float = 60) -> None:
-    """A larger TinyStories slice, a 4,096-token BPE trained on part of it, and uint16 streams."""
+    """A TinyStories slice, a 4,096-token BPE trained on part of it, and uint16 streams."""
     train = split_stories(fetch_head("TinyStories-train.txt", int(train_mb * 1e6)))
     val = split_stories(fetch_head("TinyStories-valid.txt", int(val_mb * 1e6)))
     sample, size = [], 0
@@ -107,25 +81,20 @@ def build_bpe(train_mb: float = 250, val_mb: float = 5, tokenizer_mb: float = 60
     print(f"train {len(train_ids):,} tokens ({len(train):,} stories), val {len(val_ids):,} tokens")
 
 
-class CharData:
+class Data:
     """Memory-mapped train/val token streams with random-window batching."""
 
-    dtype = np.uint8
-
-    def __init__(self, data_dir: Path = DATA_DIR, need_train: bool = True):
+    def __init__(self, data_dir: Path = BPE_DIR, need_train: bool = True):
         if self._missing(data_dir, need_train):
-            build()
-        self.tokenizer = CharTokenizer.load(data_dir / "char_vocab.json")
-        self.splits = self._open(data_dir)
+            build_bpe()
+        self.tokenizer = BPETokenizer.load(data_dir / "tokenizer.json")
+        self.splits = {s: np.memmap(data_dir / f"{s}.bin", dtype=np.uint16, mode="r")
+                       for s in ("train", "val") if (data_dir / f"{s}.bin").exists()}
 
     @staticmethod
     def _missing(data_dir: Path, need_train: bool) -> bool:
         """Only val.bin is needed to run a model (neuron examples); train.bin only to train it."""
         return not (data_dir / "val.bin").exists() or (need_train and not (data_dir / "train.bin").exists())
-
-    def _open(self, data_dir: Path) -> dict[str, np.memmap]:
-        return {s: np.memmap(data_dir / f"{s}.bin", dtype=self.dtype, mode="r")
-                for s in ("train", "val") if (data_dir / f"{s}.bin").exists()}
 
     def get_batch(self, split: str, batch_size: int, block_size: int, device: str,
                   generator: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
@@ -136,34 +105,18 @@ class CharData:
         return x.to(device), y.to(device)
 
 
-class BPEData(CharData):
-    """The bpe-* profiles' corpus: the same batching over BPE token ids."""
-
-    dtype = np.uint16
-
-    def __init__(self, data_dir: Path = BPE_DIR, need_train: bool = True):
-        if self._missing(data_dir, need_train):
-            build_bpe()
-        self.tokenizer = BPETokenizer.load(data_dir / "tokenizer.json")
-        self.splits = self._open(data_dir)
+def data_dir() -> Path:
+    return BPE_DIR
 
 
-def data_dir(tokenizer: str) -> Path:
-    return BPE_DIR if tokenizer == "bpe" else DATA_DIR
-
-
-def load_data(tokenizer: str, need_train: bool = True) -> CharData:
+def load_data(need_train: bool = True) -> Data:
     """need_train=False: a model that only runs, so a corpus is built only if val.bin is missing."""
-    return (BPEData if tokenizer == "bpe" else CharData)(data_dir(tokenizer), need_train)
+    return Data(BPE_DIR, need_train)
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--bpe", action="store_true", help="build the BPE corpus for the bpe-* profiles")
     p.add_argument("--train-mb", type=float, default=None)
     p.add_argument("--val-mb", type=float, default=None)
     args = p.parse_args()
-    if args.bpe:
-        build_bpe(args.train_mb or 250, args.val_mb or 5)
-    else:
-        build(args.train_mb or 10, args.val_mb or 1)
+    build_bpe(args.train_mb or 250, args.val_mb or 5)

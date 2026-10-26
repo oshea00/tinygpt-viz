@@ -1,6 +1,5 @@
-"""Tokenizers behind one interface, so profiles differ only in config."""
+"""The byte-level BPE tokenizer, behind a small interface the rest of the core uses."""
 
-import json
 from pathlib import Path
 from typing import Protocol
 
@@ -15,37 +14,6 @@ class Tokenizer(Protocol):
     def decode(self, ids: list[int]) -> str: ...
     def token_text(self, id: int) -> str: ...
     def encode_with_offsets(self, text: str) -> tuple[list[int], list[tuple[int, int]]]: ...
-
-
-class CharTokenizer:
-    def __init__(self, chars: list[str]):
-        self.chars = chars
-        self.vocab_size = len(chars)
-        self.stoi = {c: i for i, c in enumerate(chars)}
-
-    @classmethod
-    def load(cls, path: Path) -> "CharTokenizer":
-        return cls(json.loads(Path(path).read_text())["chars"])
-
-    def save(self, path: Path) -> None:
-        Path(path).write_text(json.dumps({"chars": self.chars}, ensure_ascii=False, indent=0))
-
-    def encode(self, text: str) -> list[int]:
-        # Unknown characters are dropped rather than mapped, so prompts can't smuggle
-        # in a token the model never saw.
-        return [self.stoi[c] for c in text.replace(EOS_DISPLAY, EOS) if c in self.stoi]
-
-    def decode(self, ids: list[int]) -> str:
-        return "".join(self.chars[i] for i in ids)
-
-    def encode_with_offsets(self, text: str) -> tuple[list[int], list[tuple[int, int]]]:
-        """Token ids and the [start, end) character span each came from."""
-        pairs = [(self.stoi[c], (i, i + 1)) for i, c in enumerate(text) if c in self.stoi]
-        return [p[0] for p in pairs], [p[1] for p in pairs]
-
-    def token_text(self, id: int) -> str:
-        c = self.chars[id]
-        return {EOS: EOS_DISPLAY, "\n": "⏎", " ": "␣"}.get(c, c)
 
 
 class BPETokenizer:

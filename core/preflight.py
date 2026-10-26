@@ -15,8 +15,7 @@ from dataclasses import dataclass
 
 import torch
 
-from .config import (DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, ModelConfig, TrainConfig,
-                     pick_device, profile)
+from .config import DEFAULT_PROFILE, PROFILES, DeviceError, ModelConfig, TrainConfig, pick_device, profile
 
 WARMUP_STEPS = 3          # CUDA context, cuBLAS handles and allocator warm up on the first steps
 TIMED_STEPS = 5
@@ -41,7 +40,7 @@ def device_info(device: str) -> DeviceInfo:
     if kind == "mps":
         return DeviceInfo(device, "Apple MPS")
     return DeviceInfo(device, f"CPU ({torch.get_num_threads()} threads)",
-                      note="no GPU found — expect a long run; try --config char-tiny first")
+                      note="no GPU found — expect a long run; try fewer --steps first")
 
 
 def _cuda_throttle_note() -> str:
@@ -194,7 +193,7 @@ def main() -> None:
     from .train import Trainer
 
     p = argparse.ArgumentParser(description="Report the device and estimate a run's duration, then exit.")
-    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=list(PROFILES))
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
     p.add_argument("--device", default=None)
@@ -206,7 +205,7 @@ def main() -> None:
         raise SystemExit(f"error: {e}")
     cfg = profile(args.config)
     train_cfg = TrainConfig(batch_size=args.batch_size)
-    trainer = Trainer(cfg, train_cfg, load_data(cfg.tokenizer), device)
+    trainer = Trainer(cfg, train_cfg, load_data(), device)
     est = measure(trainer, args.steps)
     print(report(trainer.model_cfg, train_cfg, device_info(device), est, args.steps))
 

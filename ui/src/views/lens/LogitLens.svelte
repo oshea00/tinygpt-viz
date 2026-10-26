@@ -3,7 +3,7 @@
   // layer norm and unembedding early. Reading down a column shows the guess forming.
   import { app, selection, settings } from "../../state/app.svelte";
   import { cssColor } from "../../lib/colormap";
-  import { lensRow, logitLens, snapshots } from "../../lib/residual";
+  import { snapshots } from "../../lib/residual";
 
   const trace = $derived(app.trace!);
   const weights = $derived(app.weights);
@@ -11,14 +11,11 @@
   const vocab = $derived(app.hello?.vocab ?? []);
   const pos = $derived(selection.query(trace));
 
-  // Small vocabularies: decode every snapshot here. Large ones (BPE): ask the server for a
-  // compact summary, since decoding 13 × 100 rows against 4,096 tokens is GPU work.
-  const big = $derived((app.hello?.config.vocab_size ?? 0) > 256 && !app.demo);
+  // The server decodes the snapshots and sends a compact summary: decoding 13 × 100 rows
+  // against 4,096 tokens is GPU work.
   $effect(() => {
-    if (big) app.requestLens();
+    app.requestLens();
   });
-  const topk = (p: ArrayLike<number>, k: number) =>
-    Array.from(p, (v, i) => ({ i, v })).sort((a, b) => b.v - a.v).slice(0, k);
 
   interface LensView {
     snaps: { label: string }[];
@@ -27,16 +24,8 @@
     actual(s: number, t: number): number | null;   // p(actual next token), null where there is none
   }
   const lens = $derived.by((): LensView | null => {
-    if (!big && weights) {
-      const l = logitLens(trace, weights);
-      return {
-        snaps: l.snaps, T: l.T,
-        top: (s, t, k) => topk(lensRow(l, s, t), k),
-        actual: (s, t) => (trace.targets[t] >= 0 ? lensRow(l, s, t)[trace.targets[t]] : null),
-      };
-    }
     const r = app.serverLens;
-    if (big && r && r.prompt === trace.prompt && r.step === trace.step) {
+    if (r && r.prompt === trace.prompt && r.step === trace.step) {
       return {
         snaps: snapshots(trace), T: trace.tokens.length,
         top: (s, t, k) => r.topIds[s][t].slice(0, k).map((i, j) => ({ i, v: r.topP[s][t][j] })),
@@ -76,7 +65,7 @@
 </script>
 
 {#if !lens}
-  <p class="muted">{big ? "Decoding every snapshot on the server…" : "Waiting for the weights…"}</p>
+  <p class="muted">Decoding every snapshot on the server…</p>
 {:else}
   <div class="bar">
     <span class="opts">
@@ -88,7 +77,7 @@
   </div>
 
   <div class="grid-wrap">
-    <table class="grid mono" class:words={big}>
+    <table class="grid mono words">
       <thead>
         <tr><th class="rl">input</th>{#each trace.text as t, i}<th class:sel={i === pos}>{t}</th>{/each}<th class="acc">top-1</th></tr>
       </thead>

@@ -1,6 +1,6 @@
 """Local server: a WebSocket bridge to the model worker, plus the built UI.
 
-    uv run python -m core.server --config char-small
+    uv run python -m core.server --config bpe-small
     then open http://localhost:8765
 """
 
@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, TrainConfig, pick_device, profile
+from .config import DEFAULT_PROFILE, PROFILES, DeviceError, TrainConfig, pick_device, profile
 from . import hub
 from .data import load_data
 from .scheduler import Message, ModelWorker
@@ -96,7 +96,7 @@ def main() -> None:
     import uvicorn
 
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=list(PROFILES))
     p.add_argument("--device", default=None)
     p.add_argument("--fresh", action="store_true", help="start from random weights, not the latest checkpoint")
     p.add_argument("--port", type=int, default=8765)
@@ -111,7 +111,7 @@ def main() -> None:
         raise SystemExit(f"error: {e}")
     if not args.fresh and not hub.has_checkpoints(cfg):
         hub.pull(cfg)
-    trainer = Trainer(cfg, TrainConfig(), load_data(cfg.tokenizer, need_train=args.train), device)
+    trainer = Trainer(cfg, TrainConfig(), load_data(need_train=args.train), device)
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()
     print(f"{cfg.name} at step {trainer.step_num} on {trainer.device}, training {'on' if args.train else 'off'}: "

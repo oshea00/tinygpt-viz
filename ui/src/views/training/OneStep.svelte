@@ -105,7 +105,7 @@
   .after { background: var(--ok); }
   .after.down { background: var(--bad); }
   .lab { font-size: 9px; }
-  /* Multi-character (BPE) tokens would overlap at this column width: run them downwards. */
+  /* Multi-character tokens would overlap at this column width: run them downwards. */
   .lab.word { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; line-height: 11px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .triple { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
   .triple.wide { grid-template-columns: 1fr; }

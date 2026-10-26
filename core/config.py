@@ -1,7 +1,7 @@
 """Model and training configurations.
 
-The four profiles match the table in PROJECT.md. vocab_size is filled in from the
-tokenizer at load time, so character profiles adapt to whatever charset the corpus has.
+The profile matches the table in PROJECT.md. vocab_size is filled in from the tokenizer at
+load time.
 """
 
 from dataclasses import dataclass, replace
@@ -16,7 +16,6 @@ class ModelConfig:
     d_mlp: int
     block_size: int = 100
     vocab_size: int = 0          # set from the tokenizer
-    tokenizer: str = "char"      # "char" | "bpe"
     tied: bool = False           # share embedding and unembedding
 
     @property
@@ -29,8 +28,8 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    lr: float = 1e-3
-    batch_size: int = 64
+    lr: float = 6e-4
+    batch_size: int = 128
     warmup_steps: int = 100
     weight_decay: float = 0.1
     grad_clip: float = 1.0
@@ -40,24 +39,15 @@ class TrainConfig:
     seed: int = 1337
 
 
-# Named by how they read text, then by size: the character models differ only in size; the
-# BPE model reads a 4,096-token vocabulary, so most words are one token.
+# The BPE model reads a 4,096-token vocabulary, so most words are one token.
 PROFILES: dict[str, ModelConfig] = {
-    "char-tiny": ModelConfig("char-tiny", n_layer=2, n_head=2, d_model=32, d_mlp=128),
-    "char-small": ModelConfig("char-small", n_layer=4, n_head=4, d_model=64, d_mlp=256),
-    "char-large": ModelConfig("char-large", n_layer=6, n_head=8, d_model=128, d_mlp=512),
-    "bpe-small": ModelConfig("bpe-small", n_layer=6, n_head=8, d_model=256, d_mlp=1024,
-                             tokenizer="bpe", tied=True),
+    "bpe-small": ModelConfig("bpe-small", n_layer=6, n_head=8, d_model=256, d_mlp=1024, tied=True),
 }
-DEFAULT_PROFILE = "char-small"
-
-# Earlier names, still accepted on the command line (and their run directories migrated).
-ALIASES = {"tiny": "char-tiny", "default": "char-small", "larger": "char-large", "concepts": "bpe-small"}
-PROFILE_CHOICES = [*PROFILES, *ALIASES]
+DEFAULT_PROFILE = "bpe-small"
 
 
 def profile(name: str) -> ModelConfig:
-    return PROFILES[ALIASES.get(name, name)]
+    return PROFILES[name]
 
 
 class DeviceError(RuntimeError):

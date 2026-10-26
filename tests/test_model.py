@@ -93,19 +93,7 @@ def test_sampling_filters():
     assert p[0] == 1.0
 
 
-def test_profile_names_and_aliases(tmp_path, monkeypatch):
-    from core import train
-    from core.config import ALIASES, PROFILES, profile
-    assert profile("concepts") is PROFILES["bpe-small"] and profile("char-small").tokenizer == "char"
-    assert all(new in PROFILES for new in ALIASES.values())
-    # A run directory under an earlier name is moved to the new one the first time it is used.
-    monkeypatch.setattr(train, "RUNS_DIR", tmp_path)
-    (tmp_path / "default").mkdir()
-    (tmp_path / "default" / "ckpt_000005.pt").write_bytes(b"x")
-
-    class Stub(train.Trainer):
-        def __init__(self):
-            self.model_cfg = PROFILES["char-small"]
-
-    assert Stub()._default_run_dir() == tmp_path / "char-small"
-    assert (tmp_path / "char-small" / "ckpt_000005.pt").exists() and not (tmp_path / "default").exists()
+def test_the_default_profile_reads_bpe():
+    from core.config import DEFAULT_PROFILE, PROFILES, profile
+    assert list(PROFILES) == [DEFAULT_PROFILE] == ["bpe-small"]
+    assert profile("bpe-small").tied

@@ -2,7 +2,7 @@
 
 The trainer owns no thread; the scheduler decides when step() runs.
 
-    uv run python -m core.train --config char-small --steps 5000
+    uv run python -m core.train --config bpe-small --steps 5000
 """
 
 import argparse
@@ -12,9 +12,8 @@ from pathlib import Path
 
 import torch
 
-from .config import (ALIASES, DEFAULT_PROFILE, PROFILE_CHOICES, DeviceError, ModelConfig,
-                     TrainConfig, pick_device, profile)
-from .data import CharData, load_data
+from .config import DEFAULT_PROFILE, PROFILES, DeviceError, ModelConfig, TrainConfig, pick_device, profile
+from .data import Data, load_data
 from .model import GPT
 from .preflight import device_info, fmt_duration, measure, report
 from .sampling import SampleSettings, generate
@@ -32,7 +31,7 @@ def checkpoint_schedule(max_step: int = 20000, n: int = 30) -> set[int]:
 
 
 class Trainer:
-    def __init__(self, model_cfg: ModelConfig, train_cfg: TrainConfig, data: CharData,
+    def __init__(self, model_cfg: ModelConfig, train_cfg: TrainConfig, data: Data,
                  device: str, run_dir: Path | None = None):
         self.data = data
         self.cfg = train_cfg
@@ -43,14 +42,7 @@ class Trainer:
         self.reset(train_cfg.seed)
 
     def _default_run_dir(self) -> Path:
-        """runs/<profile>; checkpoints saved under a profile's earlier name are moved here once."""
-        path = RUNS_DIR / self.model_cfg.name
-        for old, new in ALIASES.items():
-            legacy = RUNS_DIR / old
-            if new == self.model_cfg.name and legacy.exists() and not path.exists():
-                legacy.rename(path)
-                print(f"moved checkpoints from {legacy} to {path}")
-        return path
+        return RUNS_DIR / self.model_cfg.name
 
     def reset(self, seed: int | None = None) -> None:
         seed = self.cfg.seed if seed is None else seed
@@ -139,7 +131,7 @@ class Trainer:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config", default=DEFAULT_PROFILE, choices=PROFILE_CHOICES)
+    p.add_argument("--config", default=DEFAULT_PROFILE, choices=list(PROFILES))
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--lr", type=float, default=TrainConfig.lr)
     p.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
@@ -158,8 +150,8 @@ def main() -> None:
         raise SystemExit(f"error: {e}")
     cfg = profile(args.config)
     train_cfg = TrainConfig(lr=args.lr, batch_size=args.batch_size)
-    print(f"loading the {cfg.tokenizer} corpus (downloads and builds it on first use)", flush=True)
-    trainer = Trainer(cfg, train_cfg, load_data(cfg.tokenizer), device)
+    print("loading the corpus (downloads and builds it on first use)", flush=True)
+    trainer = Trainer(cfg, train_cfg, load_data(), device)
     if args.resume:
         trainer.load_checkpoint()
         print(f"resumed at step {trainer.step_num}", flush=True)

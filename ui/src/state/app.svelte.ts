@@ -12,12 +12,11 @@ const MAX_POINTS = 50_000;
 const MAX_GENERATED = 600;
 
 /** Display forms of whitespace and the end-of-story marker, back to the raw character. */
-/** A token's display text back to raw text: "␣dog" → " dog". Tokens may be one character
- * (character profiles) or a whole word (BPE). */
+/** A token's display text back to raw text: "␣dog" → " dog". */
 export const rawText = (display: string) => display.replace(/␣/g, " ").replace(/⏎/g, "\n").replace(/␄/g, "\x04");
 
 export interface GenToken {
-  pos: number;               // index in the prompt string where this character was appended
+  pos: number;               // index in the prompt string where this token was appended
   token: number;
   p: number;                 // its probability in the distribution it was sampled from
   rank: number;              // 1 = the most likely token
@@ -42,11 +41,11 @@ class AppState {
   prompt = $state("");
 
   // Generation: sampling happens here, from the logits in the trace, so what the output
-  // panel shows is exactly what gets sampled. Each character appended re-runs the model.
+  // panel shows is exactly what gets sampled. Each token appended re-runs the model.
   sampling = $state<SampleSettings>({ temperature: 0.8, topK: null, topP: null });
   generated = $state.raw<GenToken[]>([]);
   auto = $state(false);
-  autoDelay = $state(120);         // ms between characters in auto mode
+  autoDelay = $state(120);         // ms between tokens in auto mode
   stopAtEnd = $state(true);        // stop auto at the end-of-story marker
   travel = $state<number | null>(null);   // index into `generated` being revisited
 
@@ -88,29 +87,14 @@ class AppState {
 
   private bridge: Bridge | null = null;
 
-  /** Static demo build: no server; a TypeScript forward pass answers "run" in the browser. */
-  readonly demo = import.meta.env.MODE === "demo";
-  private local: ((cmd: Command) => void) | null = null;
-
   start(): void {
-    if (this.demo) {
-      import("../demo/demo").then(({ startDemo }) => startDemo((m) => this.onMessage(m)))
-        .then((send) => {
-          this.local = send;
-          this.connected = true;
-          this.run();
-        })
-        .catch((e) => (this.error = `demo: ${e.message}`));
-      return;
-    }
     const proto = location.protocol === "https:" ? "wss" : "ws";
     this.bridge = new Bridge(`${proto}://${location.host}/ws`, (m) => this.onMessage(m), (c) => (this.connected = c));
     this.bridge.connect();
   }
 
   send(cmd: Command): void {
-    if (this.local) this.local(cmd);
-    else this.bridge?.send(cmd);
+    this.bridge?.send(cmd);
   }
 
   run(prompt = this.viewPrompt()): void {
@@ -310,7 +294,7 @@ class Settings {
   scaleMode = $state<ScaleMode>("tensor");
   clip = $state(99);
   symlog = $state(false);
-  cell = $state(0);   // 0: fit to width
+  cell = $state(3);   // cell size multiplier; 0: fit to width
   tab = $state<"inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");

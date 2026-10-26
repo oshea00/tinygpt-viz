@@ -36,11 +36,7 @@
         {app.interventions.length} intervention{app.interventions.length > 1 ? "s" : ""} active
       </button>
     {/if}
-    {#if app.demo}
-      <span class="conn on">static demo · inference only</span>
-    {:else}
-      <span class="conn" class:on={app.connected}>{app.connected ? "connected" : "connecting…"}</span>
-    {/if}
+    <span class="conn" class:on={app.connected}>{app.connected ? "connected" : "connecting…"}</span>
     {#if app.error}<span class="error">{app.error}</span>{/if}
   </header>
 
@@ -60,12 +56,10 @@
         <button class:on={settings.tab === "residual"} onclick={() => (settings.tab = "residual")}>residual stream</button>
         <button class:on={settings.tab === "lens"} onclick={() => (settings.tab = "lens")}>logit lens</button>
         <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
-        {#if !app.demo}
-          <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
-          <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
-          {#if app.hello?.training}
-            <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
-          {/if}
+        <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
+        <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
+        {#if app.hello?.training}
+          <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
         {/if}
       </nav>
       {#if settings.tab === "inspector"}<Inspector />{:else if settings.tab === "attention"}<AttentionView />
@@ -88,7 +82,7 @@
 <style>
   .app {
     display: grid; height: 100%; gap: 10px; padding: 10px;
-    grid-template-columns: 300px minmax(0, 1fr) 320px;
+    grid-template-columns: 375px minmax(0, 1fr) 320px;
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas: "head head head" "left main right";
   }

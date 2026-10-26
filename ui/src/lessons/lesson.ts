@@ -8,12 +8,6 @@ import { row } from "../lib/tensor";
 
 export type Tab = "inspector" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
 
-/** How the running model reads text; lessons adapt to it. */
-export type Reads = "char" | "bpe";
-
-/** A config to suggest when a lesson needs the other kind of model (see core/config.py). */
-export const CONFIG_FOR: Record<Reads, string> = { char: "char-small", bpe: "bpe-small" };
-
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
 export type Check =
@@ -40,8 +34,6 @@ export interface LessonStep {
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   kvCache?: boolean;            // switch KV cache mode on or off
   ask?: { question: string; check: Check; hint?: string; correct?: string };
-  /** Per kind of model: fields that replace the step's own, or null to leave the step out. */
-  variants?: Partial<Record<Reads, Partial<Omit<LessonStep, "variants">> | null>>;
 }
 
 export interface Lesson {
@@ -49,7 +41,6 @@ export interface Lesson {
   order: number;
   title: string;
   summary: string;
-  requires?: Reads;             // only works with this kind of model (shown, disabled, otherwise)
   requiresTraining?: boolean;   // trains the model: needs a server started with --train
   steps: LessonStep[];
 }
@@ -89,32 +80,17 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
 }
 
 /** Words and numbers that depend on the running model, for {{name}} in narration. */
-export function lessonVars(cfg: { tokenizer: string; d_model: number; vocab_size: number }): Record<string, string> {
-  const bpe = cfg.tokenizer === "bpe";
-  return { unit: bpe ? "token" : "character", units: bpe ? "tokens" : "characters", d: String(cfg.d_model), V: cfg.vocab_size.toLocaleString() };
+export function lessonVars(cfg: { d_model: number; vocab_size: number }): Record<string, string> {
+  return { d: String(cfg.d_model), V: cfg.vocab_size.toLocaleString() };
 }
 
-export const readsOf = (tokenizer: string | undefined): Reads => (tokenizer === "bpe" ? "bpe" : "char");
-
 /** Why a lesson cannot run here (and what to start the server with), or null if it can. */
-export function unavailable(lesson: Lesson, reads: Reads, training: boolean): string | null {
-  if (lesson.requires && lesson.requires !== reads) {
-    return `needs a ${lesson.requires === "bpe" ? "BPE" : "character"} model: start the server with --config ${CONFIG_FOR[lesson.requires]}`;
-  }
+export function unavailable(lesson: Lesson, training: boolean): string | null {
   if (lesson.requiresTraining && !training) return "trains the model: start the server with --train";
   return null;
 }
 
-export const available = (lesson: Lesson, reads: Reads, training = true) => unavailable(lesson, reads, training) === null;
-
-/** The lesson's steps as they apply to this kind of model: variants merged in, and steps a
- * variant leaves out (null) dropped. */
-export function stepsFor(lesson: Lesson, reads: Reads): LessonStep[] {
-  return lesson.steps.flatMap((st) => {
-    const v = st.variants?.[reads];
-    return v === null ? [] : [v ? { ...st, ...v } : st];
-  });
-}
+export const available = (lesson: Lesson, training = true) => unavailable(lesson, training) === null;
 
 /** Minimal inline formatting for narration: **bold**, `code` and {{vars}}, everything else escaped. */
 export function formatText(text: string, vars: Record<string, string> = {}): string {

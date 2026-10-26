@@ -60,7 +60,7 @@
           <circle cx="26" cy={ROW_H / 2} r="2.5" class="node" />
         {/if}
       </svg>
-      <div class="label" title={row.stages.map((s) => s.id).join(", ")}>{row.label}</div>
+      <div class="label" title="{row.label}: {row.stages.map((s) => s.id).join(', ')}">{row.label}</div>
       <div class="thumbs">
         {#each row.stages as s (s.id)}
           {@const t = backward ? s.grad : s.output}
@@ -72,7 +72,7 @@
             class:selected
             class:changed={changed.has(s.id)}
             style:border-color={s.head !== undefined && !selected ? headColor(s.head) : undefined}
-            title={s.id}
+            title="{row.label}: {s.id}"
             onclick={() => selection.select(s.id)}
           >
             {#if !t}
@@ -101,7 +101,7 @@
   .add { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
   .plus { stroke: var(--ink); stroke-width: 1.5; }
   .node { fill: var(--ink); opacity: 0.6; }
-  .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
+  .label { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
   .spine .label { font-weight: 600; }
   .thumbs { display: flex; gap: 3px; flex: none; }
   .thumb { padding: 0; width: 30px; height: 22px; border: 1.5px solid var(--line); border-radius: 3px; overflow: hidden; display: grid; place-items: center; background: var(--panel); }

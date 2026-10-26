@@ -132,7 +132,7 @@ class GPT(nn.Module):
                 past: list[KV] | None = None, keep_kv: bool = False):
         """idx [B, T] token ids → logits [B, T, V]; loss is mean cross-entropy if targets given.
 
-        targets may contain -1 to ignore a position (used to train on one character).
+        targets may contain -1 to ignore a position (used to train on one token).
         past: the KV cache, cached keys and values per layer for the positions before idx; idx
         then continues from there. keep_kv: leave every layer's keys and values (cached plus
         new) in self.kv, to cache for the next step.

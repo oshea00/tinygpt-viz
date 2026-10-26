@@ -3,17 +3,18 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from core.config import PROFILES, TrainConfig
-from core.data import CharData
+from core.config import TrainConfig
 from core.server import create_app
 from core.trace_io import decode_frame, decode_trace
 from core.train import Trainer
 
+from .conftest import TINY
+
 
 @pytest.fixture
-def client(tmp_path):
-    trainer = Trainer(PROFILES["char-tiny"], TrainConfig(batch_size=8, trace_every=5, eval_every=1000),
-                      CharData(), "cpu", run_dir=tmp_path)
+def client(tmp_path, data):
+    trainer = Trainer(TINY, TrainConfig(batch_size=8, trace_every=5, eval_every=1000),
+                      data, "cpu", run_dir=tmp_path / "run")
     with TestClient(create_app(trainer, sample_every=10_000)) as c:
         yield c
 
@@ -154,23 +155,23 @@ def test_concept_commands(client):
         assert e["type"] == "error" and "step-0" in e["message"]     # this test run saved no checkpoint 0
         ws.send_text(json.dumps({"type": "generateWith", "prompt": "Once", "n": 5, "tag": "plain"}))
         g, _ = _until(ws, lambda h: h["type"] == "generated")
-        assert g["tag"] == "plain" and len(g["text"]) == 5
-        ws.send_text(json.dumps({"type": "occlude", "prompt": "The cat sat.", "position": 6}))
+        assert g["tag"] == "plain" and g["text"]
+        ws.send_text(json.dumps({"type": "occlude", "prompt": "The cat sat.", "position": 2}))   # The ␣cat ␣sat .
         o, _ = _until(ws, lambda h: h["type"] == "occlusion")
-        assert len(o["drops"]) == 7
+        assert len(o["drops"]) == 3
         ws.send_text(json.dumps({"type": "lens", "prompt": "The cat"}))
         l, _ = _until(ws, lambda h: h["type"] == "lens")
-        assert len(l["topIds"]) == 5 and len(l["topIds"][0]) == 7
+        assert len(l["topIds"]) == 5 and len(l["topIds"][0]) == 2
 
 
 def test_incremental_runs_reuse_the_cache(client):
     with client.websocket_connect("/ws") as ws:
         _until(ws, lambda h: h["type"] == "trace")
-        for prompt in ("Once upon a ti", "Once upon a tim", "Once upon a time"):
+        for prompt in ("Once upon", "Once upon a", "Once upon a time"):     # one more token each time
             ws.send_text(json.dumps({"type": "run", "prompt": prompt, "withGrad": False, "incremental": True}))
             h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == prompt)
-        assert h["incremental"]["reused"] == 15 and h["incremental"]["computed"] == 1
-        assert decode_trace(raw).stage("logits").output.shape[0] == 16
+        assert h["incremental"]["reused"] == 3 and h["incremental"]["computed"] == 1
+        assert decode_trace(raw).stage("logits").output.shape[0] == 4
 
 
 def test_guide_is_served_as_text(client):
@@ -179,8 +180,8 @@ def test_guide_is_served_as_text(client):
     assert "# Getting started" in r.text
 
 
-def test_training_can_be_switched_off(tmp_path):
-    trainer = Trainer(PROFILES["char-tiny"], TrainConfig(batch_size=8), CharData(), "cpu", run_dir=tmp_path)
+def test_training_can_be_switched_off(tmp_path, data):
+    trainer = Trainer(TINY, TrainConfig(batch_size=8), data, "cpu", run_dir=tmp_path / "run")
     with TestClient(create_app(trainer, training=False)) as c, c.websocket_connect("/ws") as ws:
         hello, _ = _until(ws, lambda h: h["type"] == "hello")
         assert hello["training"] is False

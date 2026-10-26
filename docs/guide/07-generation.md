@@ -6,7 +6,7 @@ The panel at the top right shows what the model predicts next, and generates tex
 
 ## The next-token distribution
 
-The bars are the probability of each possible next token after the selected position: the last one, unless you clicked a token chip. The token that actually comes next in the prompt is outlined. With a 64-character vocabulary you see every bar; the BPE model shows the top 40 of its 4,096.
+The bars are the probability of each possible next token after the selected position: the last one, unless you clicked a token chip. The token that actually comes next in the prompt is outlined. The panel shows the top 40 of the 4,096.
 
 Three settings reshape the bars live:
 

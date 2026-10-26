@@ -5,18 +5,19 @@ from pathlib import Path
 
 import torch
 
-from core.config import PROFILES
 from core.model import GPT
 from core.sampling import SampleSettings, shape_distribution
 from core.trace_io import decode_trace, encode_trace, encode_weights
 from core.tracer import trace
+
+from .conftest import TINY
 
 FIXTURES = Path(__file__).resolve().parent.parent / "ui" / "src" / "fixtures"
 
 
 def test_write_ui_fixtures():
     torch.manual_seed(0)
-    model = GPT(PROFILES["char-tiny"].with_vocab(16))
+    model = GPT(TINY.with_vocab(16))
     ids = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]
     t = trace(model, ids, [chr(97 + i) for i in ids], step=42, next_token=9)
     FIXTURES.mkdir(parents=True, exist_ok=True)

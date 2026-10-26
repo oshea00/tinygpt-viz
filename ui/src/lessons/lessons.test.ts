@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
 import type { Trace } from "../types";
-import { available, unavailable, formatText, isCorrect, lessonVars, stepsFor, type Lesson } from "./lesson";
+import { available, unavailable, formatText, isCorrect, lessonVars, type Lesson } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
@@ -20,12 +20,9 @@ describe("starter lessons", () => {
   for (const l of lessons) {
     it(`${l.order}. ${l.title} refers only to things that exist`, () => {
       expect(l.steps.length).toBeGreaterThan(2);
-      // Check every step as both kinds of model see it.
-      const kinds = (["char", "bpe"] as const).filter((k) => available(l, k));
-      expect(kinds.length).toBeGreaterThan(0);
-      for (const s of kinds.flatMap((k) => stepsFor(l, k))) {
+      for (const s of l.steps) {
         expect(s.text.length).toBeGreaterThan(20);
-        const known = Object.keys(lessonVars({ tokenizer: "bpe", d_model: 1, vocab_size: 1 }));
+        const known = Object.keys(lessonVars({ d_model: 1, vocab_size: 1 }));
         for (const t of [s.text, s.ask?.question ?? "", s.ask?.hint ?? "", s.ask?.correct ?? ""]) {
           for (const m of t.matchAll(/\{\{(\w+)\}\}/g)) expect(known, `unknown {{${m[1]}}}`).toContain(m[1]);
         }
@@ -54,35 +51,15 @@ describe("answer checks", () => {
 
   it("escapes narration and renders bold, code and model-specific words", () => {
     expect(formatText("**a** `b` <i>")).toBe("<b>a</b> <code>b</code> &lt;i&gt;");
-    const bpe = lessonVars({ tokenizer: "bpe", d_model: 256, vocab_size: 4096 });
-    expect(formatText("one {{unit}} of {{d}} dims, {{V}} {{units}}", bpe)).toBe("one token of 256 dims, 4,096 tokens");
-    expect(formatText("{{unit}}", lessonVars({ tokenizer: "char", d_model: 64, vocab_size: 64 }))).toBe("character");
-  });
-
-  it("shows model-specific steps only to that kind of model", () => {
-    const tokens = lessons.find((l) => l.id === "tokens")!;
-    expect(stepsFor(tokens, "bpe").length).toBe(stepsFor(tokens, "char").length + 1);
-    expect(stepsFor(tokens, "bpe").at(-1)!.tab).toBe("atlas");
-  });
-
-  it("merges a step's variant for this kind of model, and drops steps it nulls", () => {
-    const st = { text: "x".repeat(30), prompt: "a", variants: { bpe: { prompt: "b" } } };
-    const lesson = { id: "x", order: 0, title: "", summary: "", steps: [st, { ...st, variants: { char: null } }] };
-    expect(stepsFor(lesson, "char").map((x) => x.prompt)).toEqual(["a"]);
-    expect(stepsFor(lesson, "bpe").map((x) => x.prompt)).toEqual(["b", "a"]);   // the second step has no bpe variant
+    const vars = lessonVars({ d_model: 256, vocab_size: 4096 });
+    expect(formatText("one token of {{d}} dims, {{V}} tokens", vars)).toBe("one token of 256 dims, 4,096 tokens");
   });
 
   it("marks the lesson that trains as needing --train", () => {
     const training = lessons.find((l) => l.id === "training")!;
-    expect(available(training, "char", true)).toBe(true);
-    expect(available(training, "char", false)).toBe(false);
-    expect(unavailable(training, "char", false)).toContain("--train");
-    expect(lessons.filter((l) => !available(l, "char", false)).map((l) => l.id).sort()).toEqual(["concepts", "training"]);
-  });
-
-  it("marks lessons that need the other kind of model", () => {
-    const concepts = lessons.find((l) => l.id === "concepts")!;
-    expect(available(concepts, "bpe")).toBe(true);
-    expect(available(concepts, "char")).toBe(false);
+    expect(available(training, true)).toBe(true);
+    expect(available(training, false)).toBe(false);
+    expect(unavailable(training, false)).toContain("--train");
+    expect(lessons.filter((l) => !available(l, false)).map((l) => l.id)).toEqual(["training"]);
   });
 });

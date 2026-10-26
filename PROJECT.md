@@ -18,6 +18,8 @@ Design principles:
 
 ## The model
 
+> Since 2026-10-26 only the Concepts profile (`bpe-small`) remains; the character profiles below are kept as design history. See the last section.
+
 Recommended default: a character-level GPT with 100-token context, 4 layers, 4 heads, width 64, about 215k parameters. Every weight fits in a \~465×465 pixel image, and one full forward pass produces about 800k activation values (≈3 MB as float32), so the whole network really can be shown as a bitmap.
 
 | Config | Vocab | Context | Layers | Heads × head dim | Width d | MLP hidden | Params (approx) | Use |
@@ -49,7 +51,7 @@ A second model built for finding conceptual associations rather than for steppin
 
 ## Architecture
 
-One desktop app on one machine: a Python process owns the model on the CPU or GPU and does training, inference, autograd and trace capture, while a web front end in a native window shows it all live. A browser-only static demo, running a TypeScript engine on exported weights, stays as a secondary mode for sharing.
+One desktop app on one machine: a Python process owns the model on the CPU or GPU and does training, inference, autograd and trace capture, while a web front end in a native window shows it all live.
 
 &#91;embedded content: system architecture · Python side and browser side\]
 
@@ -61,7 +63,7 @@ Training and visualisation become one loop: the learner can pause training, take
 4. **Scheduler.** One command queue serialises access to the model. UI requests (run a prompt, ablate a head, sample) run between training steps, so there is no GPU contention and no half-updated weights in a trace.
 5. **Bridge.** A local WebSocket. Commands go to the core as JSON; traces come back as binary frames: a JSON header listing stages, shapes and byte offsets, then the float32 data.
 6. **UI (TypeScript).** The views in this doc, in a pywebview or Tauri window. Each view is a pure function of (trace, selection, settings), and the selection is shared: stage, layer, head, position, dimension.
-7. **Static demo mode.** A hand-written TypeScript forward pass that loads exported weights in any browser with no Python; inference only. A parity test against the core keeps it honest.
+7. **Static demo mode** (removed 2026-10-26). A hand-written TypeScript forward pass that loaded exported weights in any browser with no Python; inference only. It tokenized characters, so it went with the character profiles.
 
 The trace is a flat, ordered list of named stages, now with a gradient beside each output, so the pipeline map, the stepper and the atlas are generated from it rather than hand-coded:
 
@@ -323,27 +325,25 @@ A desktop app: a Python core with PyTorch, a TypeScript front end in a native wi
 | Atlas | WebGL (raw or regl), tensors as textures | Instant pan and zoom over \~1M pixels |
 | Diagrams, arcs, charts | SVG with d3-scale and d3-scale-chromatic | Crisp, easy hit-testing, standard colour maps |
 | Formulas | KaTeX | Fast TeX rendering in the inspector |
-| Static demo engine | Hand-written TypeScript forward pass in a Web Worker | Share a model with no install |
-| Tests | pytest (core, tracer, manual-vs-autograd gradients); Vitest (demo parity) | The trace is the contract every view relies on |
+| Tests | pytest (core, tracer, manual-vs-autograd gradients); Vitest (frame decoding, lessons, view maths) | The trace is the contract every view relies on |
 | Packaging | uv-managed environment for development; PyInstaller or a Tauri sidecar for installers | PyTorch makes installers large: hundreds of MB, more with CUDA |
-| Tokenizers | A 65-entry character map for mechanics; Hugging Face tokenizers (BPE) for Concepts | Trains a 4k vocabulary on TinyStories quickly; one interface for both |
+| Tokenizer | Hugging Face tokenizers (byte-level BPE) | Trains a 4k vocabulary on TinyStories quickly |
 | Analysis | scikit-learn (PCA, logistic-regression probes), umap-learn | Standard, and fast at this scale |
 
 ```text
 tinygpt-viz/
-  core/             # model.py, train.py, tracer.py, scheduler.py, server.py, export.py, manual_backward.py, tokenizers.py, analysis/ (capture, probes, steering, attribution, sae)
+  core/             # model.py, train.py, tracer.py, scheduler.py, server.py, hub.py, manual_backward.py, tokenizers.py, analysis/ (capture, probes, steering, attribution, sae)
   data/             # corpus + tokenizer vocab
-  runs/             # checkpoints and exported weights per config (tiny/, default/, larger/)
+  runs/             # checkpoints per config (bpe-small/)
   ui/src/bridge.ts  # WebSocket client, binary trace decoding
   ui/src/views/     # pipeline/, inspector/, attention/, residual/, lens/, output/, training/, atlas/, embed/, concepts/
   ui/src/state/     # shared selection, trace store, settings
   ui/src/lessons/   # lesson JSON files + player
-  ui/src/demo/      # static mode: forward.ts, worker.ts
   app/              # pywebview or Tauri launcher
   tests/            # pytest + Vitest, reference traces
 ```
 
-The app is desktop-first: a 100×100 attention matrix and the atlas need a wide screen. The static demo can offer a reduced phone layout.
+The app is desktop-first: a 100×100 attention matrix and the atlas need a wide screen.
 
 ## Milestones
 
@@ -385,7 +385,8 @@ Decisions made before milestone 1:
 
 Later decisions that change how this document reads:
 
-- **Config names** follow how the model reads text, then its size: `char-tiny`, `char-small` (the default), `char-large` and `bpe-small` stand for the Tiny, Default, Larger and Concepts rows of the table above. The old names still work as aliases.
+- **Config names** follow how the model reads text, then its size: `bpe-small` is the Concepts row of the table above. (The Tiny, Default and Larger rows were `char-tiny`, `char-small` and `char-large`.)
+- **Character profiles and the static demo removed (2026-10-26).** `bpe-small` is now the default and only profile. Supporting two tokenizers had spread character-vs-BPE branches through the core, the views, the lessons (per-model step variants and `{{unit}}` wording) and the docs, and the static demo only ever worked with characters. Dropping them simplifies all of that; the old profile aliases and their run-directory migration went too. The tests now use small stand-in configs and a corpus built from the tracked BPE tokenizer, so they need no download. The demo could return with a TypeScript BPE encoder and exported `bpe-small` weights (about 23 MB as float32).
 - **Training is opt-in**: the server only trains with `--train`. Without it the weights stay as loaded and the training panel, the training step and checkpoint replay are hidden, which suits a class where everyone should see the same model.
 - **The KV-cache incremental mode** described under the stages was built, with a lesson on why a sliding window invalidates the cache.
 

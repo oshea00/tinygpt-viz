@@ -88,7 +88,6 @@ export interface ModelConfig {
   block_size: number;
   vocab_size: number;
   tied: boolean;
-  tokenizer: "char" | "bpe";
 }
 
 export interface Status {

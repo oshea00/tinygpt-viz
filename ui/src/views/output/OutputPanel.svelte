@@ -25,11 +25,11 @@
   });
   const excluded = $derived(shaped ? shaped.probs.filter((p) => p === 0).length : 0);
   // Outline the token that actually came next: the chosen one when time travelling,
-  // otherwise the prompt's own next character.
+  // otherwise the prompt's own next token.
   const actual = $derived(travelling && pos === last ? app.generated[app.travel!].token : trace && pos >= 0 ? trace.targets[pos] : -1);
 
-  // The text as segments: the prompt, then one segment per generated token (a character or,
-  // with BPE, usually a word). The model sees only the text its trace covers: the window.
+  // The text as segments: the prompt, then one segment per generated token (usually a word).
+  // The model sees only the text its trace covers: the window.
   const viewEnd = $derived(travelling ? app.generated[app.travel!].pos : app.prompt.length);
   const windowStart = $derived(trace && trace.prompt === app.viewPrompt() ? Math.max(0, viewEnd - rawText(trace.text.join("")).length) : 0);
   const segments = $derived.by(() => {
@@ -114,13 +114,13 @@
 
   {#if app.generated.length}
     <div class="gen-meta muted">
-      {app.generated.length} generated · mean p {meanP.toFixed(2)} · model sees the last {block} characters (boxed)
+      {app.generated.length} generated · mean p {meanP.toFixed(2)} · model sees the last {block} tokens (boxed)
       {#if travelling}
-        <br />viewing character {app.travel! + 1}, sampled at step {app.generated[app.travel!].step}
+        <br />viewing token {app.travel! + 1}, sampled at step {app.generated[app.travel!].step}
         {#if trace && trace.step !== app.generated[app.travel!].step}<span class="warn">(weights have changed since)</span>{/if}
         · <button class="link" onclick={() => app.travelTo(null)}>back to latest</button>
       {:else}
-        · click a character to see the trace that produced it
+        · click a token to see the trace that produced it
       {/if}
     </div>
     <p class="gen mono">

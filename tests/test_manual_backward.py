@@ -1,12 +1,11 @@
 import numpy as np
 import torch
 
-from core.config import PROFILES
 from core.manual_backward import compare
 from core.model import GPT
 from core.tracer import trace
 
-from .conftest import VOCAB
+from .conftest import TINY, VOCAB
 
 
 def _check(model: GPT, n: int, next_token: int | None = None, target_index: int | None = None):
@@ -40,7 +39,7 @@ def test_single_target_and_short_prompt(tiny_model: GPT):
 
 def test_tied_embeddings():
     torch.manual_seed(0)
-    cfg = PROFILES["char-tiny"].with_vocab(VOCAB)
+    cfg = TINY.with_vocab(VOCAB)
     from dataclasses import replace
     model = _trained_like(GPT(replace(cfg, tied=True)))
     r = _check(model, 20)

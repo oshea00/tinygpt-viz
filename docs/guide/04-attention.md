@@ -11,7 +11,7 @@ The attention tab shows one layer and head at a time. Choose them at the top, or
 The prompt as a row of tokens. The selected position (outlined) draws arcs back to the tokens it attends to: thicker arcs mean more weight. Click a token to move the query.
 
 - **all heads in layer**: every head's arcs at once, in its colour.
-- **tint characters instead**: shades each earlier token by its weight, and wraps long prompts.
+- **tint tokens instead**: shades each earlier token by its weight, and wraps long prompts.
 
 ## The attention matrix
 

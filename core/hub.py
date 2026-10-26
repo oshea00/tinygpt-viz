@@ -14,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from .config import ALIASES, PROFILE_CHOICES, PROFILES, ModelConfig, profile
+from .config import PROFILES, ModelConfig, profile
 from .data import data_dir
 from .train import RUNS_DIR
 
@@ -27,15 +27,11 @@ def _rel(path: Path) -> str:
 
 
 def _val_path(cfg: ModelConfig) -> Path:
-    return data_dir(cfg.tokenizer) / "val.bin"
+    return data_dir() / "val.bin"
 
 
 def local_checkpoints(cfg: ModelConfig) -> list[Path]:
-    """Under the profile's name or an earlier one (the trainer moves those into place)."""
-    for name in [cfg.name, *(old for old, new in ALIASES.items() if new == cfg.name)]:
-        if ckpts := sorted((RUNS_DIR / name).glob("ckpt_*.pt")):
-            return ckpts
-    return []
+    return sorted((RUNS_DIR / cfg.name).glob("ckpt_*.pt"))
 
 
 def has_checkpoints(cfg: ModelConfig) -> bool:
@@ -88,7 +84,7 @@ def pull(cfg: ModelConfig, repo: str = HF_REPO) -> bool:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("action", choices=["push", "pull"])
-    p.add_argument("--config", required=True, choices=[*PROFILE_CHOICES, "all"],
+    p.add_argument("--config", required=True, choices=[*PROFILES, "all"],
                    help="a profile, or all: every profile with local checkpoints (push) or every profile (pull)")
     p.add_argument("--repo", default=HF_REPO)
     args = p.parse_args()

@@ -2,17 +2,19 @@ import numpy as np
 import torch
 
 from core import concepts
-from core.data import CharData
+from core.data import BPE_DIR
 from core.model import GPT
+from core.tokenizers import BPETokenizer
 from core.tracer import trace
 
-TOK = CharData().tokenizer
+from .conftest import SMALL
+
+TOK = BPETokenizer.load(BPE_DIR / "tokenizer.json")
 
 
 def _model() -> GPT:
-    from core.config import PROFILES
     torch.manual_seed(0)
-    return GPT(PROFILES["char-small"].with_vocab(TOK.vocab_size))
+    return GPT(SMALL.with_vocab(TOK.vocab_size))
 
 
 def test_capture_reads_the_target_word():
@@ -21,11 +23,25 @@ def test_capture_reads_the_target_word():
                {"text": "A big dog ran.", "targets": [{"start": 6, "end": 9, "word": "dog", "category": "animal"}]}]
     vec, items = concepts.capture(m, TOK, prompts, pool="last")
     assert vec.shape == (2, 9, 64) and [i["word"] for i in items] == ["cat", "dog"]
+    assert items[0]["tokens"] == ["␣cat"]
     ids = TOK.encode("The cat sat.")
     t = trace(m, ids, [TOK.token_text(i) for i in ids], with_grad=False)
-    np.testing.assert_allclose(vec[0, 4], t.stage("L1.resid_mlp").output[6], rtol=1e-5, atol=1e-6)   # 't' of cat
-    mean, _ = concepts.capture(m, TOK, prompts[:1], pool="mean")
-    np.testing.assert_allclose(mean[0, 0], t.stage("embed.sum").output[4:7].mean(0), rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(vec[0, 4], t.stage("L1.resid_mlp").output[1], rtol=1e-5, atol=1e-6)   # ␣cat
+
+
+def test_capture_pools_a_split_word():
+    m = _model()
+    text = "A big xylophone rang."
+    prompts = [{"text": text, "targets": [{"start": 6, "end": 15, "word": "xylophone", "category": "thing"}]}]
+    ids, offsets = TOK.encode_with_offsets(text)
+    toks = [i for i, (s, e) in enumerate(offsets) if s < 15 and e > 6]
+    assert len(toks) > 1   # a rare word: several tokens
+    t = trace(m, ids, [TOK.token_text(i) for i in ids], with_grad=False)
+    last, items = concepts.capture(m, TOK, prompts, pool="last")
+    assert items[0]["position"] == toks[-1]
+    np.testing.assert_allclose(last[0, 0], t.stage("embed.sum").output[toks[-1]], rtol=1e-5, atol=1e-6)
+    mean, _ = concepts.capture(m, TOK, prompts, pool="mean")
+    np.testing.assert_allclose(mean[0, 0], t.stage("embed.sum").output[toks].mean(0), rtol=1e-5, atol=1e-6)
 
 
 def test_steering_changes_generation():
@@ -42,11 +58,11 @@ def test_steering_changes_generation():
 def test_occlusion_covers_earlier_tokens_only():
     m = _model()
     ids = TOK.encode("The cat sat on the mat.")
-    drops = concepts.occlusion(m, ids, 10)
-    assert len(drops) == 11 and any(abs(d) > 0 for d in drops)
+    drops = concepts.occlusion(m, ids, len(ids) - 2)    # the last position has no next token to predict
+    assert len(drops) == len(ids) - 1 and any(abs(d) > 0 for d in drops)
 
 
-def test_neuron_top_is_sorted():
+def test_neuron_top_is_sorted(data):
     m = _model()
-    ex = concepts.neuron_top(m, TOK, CharData(), 1, 5, windows=64, k=5)
+    ex = concepts.neuron_top(m, TOK, data, 1, 5, windows=64, k=5)
     assert len(ex) == 5 and all(a["value"] >= b["value"] for a, b in zip(ex, ex[1:]))

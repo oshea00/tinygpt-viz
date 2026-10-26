@@ -16,7 +16,7 @@ Open **lessons** in the header and pick one. A lesson that can't run on this ser
 
 | # | Lesson | What it shows |
 | --- | --- | --- |
-| 1 | Text to numbers | Tokens, and the embedding table. On `bpe-small`, a step on tokens the model never saw |
+| 1 | Text to numbers | Tokens, the embedding table, and tokens the model never saw |
 | 2 | Where am I? Position embeddings | Why order needs its own table, and what happens without it |
 | 3 | Attention as search | One head, one query: the dot products behind an attention pattern |
 | 4 | Many heads | The head gallery, naming heads, and ablating one |
@@ -25,8 +25,8 @@ Open **lessons** in the header and pick one. A lesson that can't run on this ser
 | 7 | From logits to text | Temperature, top-k and top-p |
 | 8 | Why only 100 positions? | The context window, and the KV cache |
 | 9 | How it learns | The loss, gradients, one training step, and replaying a whole run (needs `--train`) |
-| 10 | Where concepts live | Clusters, a probe and a steering test (needs `bpe-small`) |
+| 10 | Where concepts live | Clusters, a probe and a steering test |
 
-Lessons adapt to the model you run: on `bpe-small` the questions are about whole-word tokens, the numbers match that model, and some steps differ. Lessons 1–9 work on any model (lesson 9 needs a server started with `--train`); lesson 10 needs the BPE model.
+Lesson 9 trains the model, so it needs a server started with `--train`; the others work on any server.
 
 Model-dependent answers, such as "click the sharpest head", are worked out from the live model, so lessons work at any training checkpoint, even partway through training.

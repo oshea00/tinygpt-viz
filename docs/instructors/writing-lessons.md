@@ -17,7 +17,7 @@ A lesson is a JSON file in `ui/src/lessons/`. It needs no code: the app picks up
       "tab": "attention"
     },
     {
-      "text": "Some heads look one {{unit}} back, whatever it is.",
+      "text": "Some heads look one token back, whatever it is.",
       "tab": "attention",
       "ask": {
         "question": "Click the head that puts most weight on the **previous** position.",
@@ -37,7 +37,6 @@ A lesson is a JSON file in `ui/src/lessons/`. It needs no code: the app picks up
 | `id` | Unique, short. |
 | `order` | Position in the lessons menu (1, 2, 3, …). |
 | `title`, `summary` | Shown in the menu. |
-| `requires` | Optional: `"char"` or `"bpe"`, for a lesson that only works with that kind of model. On the other kind it is listed but disabled, with the config to start. |
 | `requiresTraining` | Optional: `true` for a lesson that trains the model (the training step tab, replay). Without `--train` on the server it is listed but disabled. |
 | `steps` | The steps, in order. |
 
@@ -99,41 +98,15 @@ Lessons start by clearing interventions, so each one starts from the plain model
 Narration, questions, hints and answers are plain text with:
 
 - `**bold**` and `` `code` ``,
-- placeholders filled in from the running model: `{{unit}}` (*character* or *token*), `{{units}}`, `{{d}}` (the vector width: 64 on `char-small`, 256 on `bpe-small`) and `{{V}}` (the vocabulary size).
+- placeholders filled in from the running model: `{{d}}` (the vector width, 256 on `bpe-small`) and `{{V}}` (the vocabulary size).
 
-Use the placeholders rather than writing *character* or *64*, so a lesson reads correctly on every model.
+Use the placeholders rather than writing *256*, so a lesson stays correct if the model changes.
 
-## Lessons that adapt to the model
+## Positions and tokens
 
-Character models and the BPE model read text differently, so a step about positions or particular tokens often needs different content for each. `variants` holds the fields that change, by kind of model (`"char"` or `"bpe"`):
+To find positions for a `position` check, type the prompt into the app and count the chips under the prompt box, from 0. BPE tokens usually include their leading space: `␣upon`, not `upon`.
 
-```json
-{
-  "text": "Each id picks one row of the token embedding table.",
-  "prompt": "Once upon a time",
-  "ask": { "question": "Click the row for the first **e** (position 3).", "check": { "kind": "position", "positions": [3] } },
-  "variants": {
-    "bpe": {
-      "prompt": "Once upon a time, there was a little girl.",
-      "ask": { "question": "Click the row for **␣upon** (position 1).", "check": { "kind": "position", "positions": [1] } }
-    }
-  }
-}
-```
-
-A variant's fields replace the step's own (`ask` is replaced as a whole). A variant of `null` leaves the step out for that kind of model:
-
-```json
-{ "text": "Zoom in on the striped band at the top of the token table…", "tab": "atlas", "variants": { "char": null } }
-```
-
-To find BPE positions, type the prompt into the app running `bpe-small` and count the chips under the prompt box, from 0. BPE tokens usually include their leading space: `␣upon`, not `upon`.
-
-## Which model to write for
-
-- **Mechanics** (attention, the MLP, the residual stream, training): write for `char-small`, and add `bpe` variants where positions or tokens matter. Every number is small enough to read, and the next-token distribution has only 64 bars.
-- **Words and meanings**: write for `bpe-small` and set `"requires": "bpe"`.
-- `char-tiny` is useful for a first look, where learners should read individual numbers; its 2 layers and 2 heads mean `head` and stage ids must stay within `L0`–`L1` and `H0`–`H1`.
+Lessons are checked against a 2-layer, 2-head test model, so `head` and stage ids must stay within `L0`–`L1` and `H0`–`H1`.
 
 ## Checking a lesson
 
@@ -141,4 +114,4 @@ To find BPE positions, type the prompt into the app running `bpe-small` and coun
 cd ui && npm test
 ```
 
-The lesson tests check every lesson as both kinds of model see it, against the smallest model (2 layers, 2 heads). They check that stage ids exist, heads are in range, tabs are real, placeholders are known, and order numbers run 1, 2, 3… without gaps. Then walk through the lesson in the app on each model it supports.
+The lesson tests check every lesson against a small test model (2 layers, 2 heads). They check that stage ids exist, heads are in range, tabs are real, placeholders are known, and order numbers run 1, 2, 3… without gaps. Then walk through the lesson in the app.

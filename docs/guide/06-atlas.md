@@ -1,6 +1,6 @@
 # Network atlas
 
-The atlas is the whole model as one zoomable image: every weight, one pixel per number, with the current prompt's activations under each column. For `char-small` that is about 215,000 weight pixels.
+The atlas is the whole model as one zoomable image: every weight, one pixel per number, with the current prompt's activations under each column. For `bpe-small` that is about 5.8 million weight pixels.
 
 ![The network atlas, with an MLP stage selected](../images/atlas.png)
 

@@ -23,14 +23,20 @@
 
   let width = $state(600);
   let canvas: HTMLCanvasElement;
+  let labelCanvas: HTMLCanvasElement | undefined = $state();
   let hover = $state<{ r: number; c: number; x: number; y: number } | null>(null);
 
   const dims = $derived(dims2(tensor));
   const labelW = $derived(rowLabels ? Math.max(26, 8 + 6.5 * Math.max(...rowLabels.map((l) => l.length))) : 0);
-  const cellW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))) * zoom);
-  const cellH = $derived(Math.max(1, Math.min(cellW / zoom, Math.max(4, Math.floor(maxHeight / dims[0])))) * zoom);
+  // Fitted to the width, then zoomed, but never past maxCell: zoom enlarges tiny cells and leaves
+  // a small tensor (an attention pattern) as it is. Zooming also sets a minimum row height (3×
+  // gives 9 px, enough for row labels), or a 1,024- or 4,096-wide tensor keeps 1–3 px rows.
+  const fitW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))));
+  const fitH = $derived(Math.max(1, Math.min(fitW, Math.max(4, Math.floor(maxHeight / dims[0])))));
+  const cellW = $derived(Math.min(maxCell, fitW * zoom));
+  const cellH = $derived(Math.max(zoom > 1 ? 3 * zoom : 0, Math.min(maxCell, fitH * zoom)));
   const bandH = $derived(colBands?.length ? 6 : 0);
-  // Column labels only when they fit their cells (single characters do; words usually not).
+  // Column labels only when they fit their cells (short tokens do; words usually not).
   const labelH = $derived(colLabels && cellW >= 9 && Math.max(...colLabels.map((l) => l.length)) * 5.5 <= cellW + 2 ? 14 : 0);
   const topH = $derived(bandH + labelH);
   const showRowText = $derived(cellH >= 9);
@@ -54,9 +60,20 @@
     ctx.fillStyle = ink;
     ctx.font = `${Math.min(11, Math.max(8, cellH - 2))}px ui-monospace, monospace`;
     ctx.textBaseline = "middle";
-    if (rowLabels && showRowText) {
-      ctx.textAlign = "right";
-      rowLabels.slice(0, rows).forEach((t, r) => ctx.fillText(t, labelW - 4, topH + r * cellH + cellH / 2));
+    // Row labels go on their own canvas, pinned to the left edge while a zoomed heatmap scrolls.
+    if (labelCanvas) {
+      labelCanvas.width = Math.ceil(labelW * dpr);
+      labelCanvas.height = Math.ceil(h * dpr);
+      labelCanvas.style.width = `${labelW}px`;
+      labelCanvas.style.height = `${h}px`;
+      const lc = labelCanvas.getContext("2d")!;
+      lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lc.clearRect(0, 0, labelW, h);
+      lc.fillStyle = ink;
+      lc.font = ctx.font;
+      lc.textBaseline = "middle";
+      lc.textAlign = "right";
+      rowLabels!.slice(0, rows).forEach((t, r) => lc.fillText(t, labelW - 4, topH + r * cellH + cellH / 2));
     }
     if (colLabels && labelH) {
       ctx.textAlign = "center";
@@ -87,20 +104,23 @@
 </script>
 
 <div class="wrap" bind:clientWidth={width}>
-  <canvas
-    bind:this={canvas}
-    onmousemove={(e) => {
-      const p = cellAt(e);
-      // Viewport coordinates, kept on screen: the tooltip is fixed-position so it never
-      // overflows the scroll container (which would add scrollbars and resize the heatmap).
-      hover = p ? { ...p, x: Math.min(e.clientX + 14, window.innerWidth - 240), y: Math.min(e.clientY + 12, window.innerHeight - 48) } : null;
-    }}
-    onmouseleave={() => (hover = null)}
-    onclick={(e) => {
-      const p = cellAt(e);
-      if (p) onpick?.(p.r, p.c);
-    }}
-  ></canvas>
+  <div class="layers">
+    <canvas
+      bind:this={canvas}
+      onmousemove={(e) => {
+        const p = cellAt(e);
+        // Viewport coordinates, kept on screen: the tooltip is fixed-position so it never
+        // overflows the scroll container (which would add scrollbars and resize the heatmap).
+        hover = p ? { ...p, x: Math.min(e.clientX + 14, window.innerWidth - 240), y: Math.min(e.clientY + 12, window.innerHeight - 48) } : null;
+      }}
+      onmouseleave={() => (hover = null)}
+      onclick={(e) => {
+        const p = cellAt(e);
+        if (p) onpick?.(p.r, p.c);
+      }}
+    ></canvas>
+    {#if rowLabels && showRowText}<canvas class="rowlabels" bind:this={labelCanvas}></canvas>{/if}
+  </div>
   {#if hover}
     <div class="tip mono" style:left="{hover.x}px" style:top="{hover.y}px">
       row {hover.r}{rowLabels ? ` "${rowLabels[hover.r]}"` : ""} · col {hover.c}{colLabels ? ` "${colLabels[hover.c]}"` : ""}<br />
@@ -113,7 +133,10 @@
   /* Horizontal scrolling only (when zoomed): a vertical scrollbar would steal width, and the
      cell size is computed from width. */
   .wrap { width: 100%; overflow-x: auto; overflow-y: hidden; }
-  canvas { display: block; cursor: crosshair; }
+  /* Both canvases share one grid cell; the label canvas sticks to the left edge on top. */
+  .layers { display: grid; width: max-content; }
+  canvas { display: block; cursor: crosshair; grid-area: 1 / 1; }
+  .rowlabels { position: sticky; left: 0; z-index: 1; justify-self: start; background: var(--panel); cursor: default; }
   .tip {
     position: fixed; pointer-events: none; z-index: 50; white-space: nowrap;
     background: var(--panel); border: 1px solid var(--line); border-radius: 6px;

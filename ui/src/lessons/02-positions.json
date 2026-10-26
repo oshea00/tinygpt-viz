@@ -11,7 +11,7 @@
    "stage": "embed.pos"
   },
   {
-   "text": "This heatmap has one row per position, and it is the same for every prompt: it depends only on where a {{unit}} is, never on which {{unit}} is there. Smooth changes from row to row are the model's sense of distance.",
+   "text": "This heatmap has one row per position, and it is the same for every prompt: it depends only on where a token is, never on which token is there. Smooth changes from row to row are the model's sense of distance.",
    "stage": "embed.pos",
    "ask": {
     "question": "Open the sum of the two, `x₀ = tok + pos`, in the pipeline map on the left.",
@@ -26,7 +26,7 @@
    }
   },
   {
-   "text": "Now an experiment: shuffle the position embeddings, so every {{unit}} is told the wrong position. Watch the next-token panel on the right, and the loss in the interventions tab.",
+   "text": "Now an experiment: shuffle the position embeddings, so every token is told the wrong position. Watch the next-token panel on the right, and the loss in the interventions tab.",
    "tab": "interventions",
    "interventions": [
     {

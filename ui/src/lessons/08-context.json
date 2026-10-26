@@ -5,33 +5,28 @@
  "summary": "The context window, and how a KV cache makes generation cheap until the window slides.",
  "steps": [
   {
-   "text": "The position table has exactly 100 rows, so the model can only ever see 100 positions. Longer text is cut to its last 100 {{units}}: the window **slides**.",
-   "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree.",
+   "text": "The position table has exactly 100 rows, so the model can only ever see 100 positions. Longer text is cut to its last 100 tokens: the window **slides**.",
+   "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree. Lily wanted to climb the tree, but it was very tall. Max barked and ran around the tree. A kind old man saw them and smiled. He helped Lily climb up to the first branch. From the branch, Lily could see the whole park. She saw her mom waving at her. Lily waved back and laughed. Then she climbed down and gave Max a big hug. They walked home together, happy and tired.",
    "tab": "inspector",
-   "stage": "embed.pos",
-   "variants": {
-    "bpe": {
-     "prompt": "Once upon a time, there was a little girl named Lily. She loved to play outside with her dog Max. One day, they went to the park and saw a big tree. Lily wanted to climb the tree, but it was very tall. Max barked and ran around the tree. A kind old man saw them and smiled. He helped Lily climb up to the first branch. From the branch, Lily could see the whole park. She saw her mom waving at her. Lily waved back and laughed. Then she climbed down and gave Max a big hug. They walked home together, happy and tired."
-    }
-   }
+   "stage": "embed.pos"
   },
   {
-   "text": "Under the prompt box: the {{units}} that slid out of view are no longer anywhere in the network. Whatever they said is forgotten unless it was repeated later.",
+   "text": "Under the prompt box: the tokens that slid out of view are no longer anywhere in the network. Whatever they said is forgotten unless it was repeated later.",
    "tab": "attention"
   },
   {
-   "text": "Generation repeats this for every new {{unit}}: run the whole window, read the last row, sample, append, slide. The attention matrix is T×T, so cost grows with the square of the window: one reason context is limited.",
+   "text": "Generation repeats this for every new token: run the whole window, read the last row, sample, append, slide. The attention matrix is T×T, so cost grows with the square of the window: one reason context is limited.",
    "tab": "attention"
   },
   {
-   "text": "Generation recomputes the whole window for every new {{unit}}, yet nothing at the earlier positions changes: a position never sees later ones. So a real model keeps each layer's keys and values, the **KV cache**, and computes only the new position. Turn it on: press **sample one** a few times and watch the panel on the right count the work saved; in the inspector, the rows that came from the cache are greyed.",
+   "text": "Generation recomputes the whole window for every new token, yet nothing at the earlier positions changes: a position never sees later ones. So a real model keeps each layer's keys and values, the **KV cache**, and computes only the new position. Turn it on: press **sample one** a few times and watch the panel on the right count the work saved; in the inspector, the rows that came from the cache are greyed.",
    "tab": "inspector",
    "stage": "L1.attn.H0.weights",
    "kvCache": true,
    "prompt": "Once upon a time, there was a little girl named Lily. She"
   },
   {
-   "text": "The cache only works while the window grows. Once the text passes 100 {{units}}, the oldest drops out and every position shifts by one; position embeddings are added at the very first layer, so every cached key and value is now wrong, and everything must be recomputed for every new {{unit}}. Keep sampling past 100 positions and the panel reports the cache being rebuilt each time. Fixed context windows (and ways to avoid this, such as relative position encodings) come from exactly this.",
+   "text": "The cache only works while the window grows. Once the text passes 100 tokens, the oldest drops out and every position shifts by one; position embeddings are added at the very first layer, so every cached key and value is now wrong, and everything must be recomputed for every new token. Keep sampling past 100 positions and the panel reports the cache being rebuilt each time. Fixed context windows (and ways to avoid this, such as relative position encodings) come from exactly this.",
    "kvCache": true
   }
  ]

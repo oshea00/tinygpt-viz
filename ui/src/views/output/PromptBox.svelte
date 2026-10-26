@@ -9,10 +9,6 @@
   }
 
   const block = $derived(app.hello?.config.block_size ?? 100);
-  // Character profiles drop characters outside their vocabulary; byte-level BPE encodes anything.
-  const charVocab = $derived(app.hello?.config.tokenizer !== "bpe");
-  const known = $derived(new Set((app.hello?.vocab ?? []).map(rawText)));
-  const dropped = $derived(charVocab && known.size ? [...new Set([...app.prompt].filter((c) => !known.has(c)))] : []);
   // How much of the text is out of the window: everything before the trace's first token.
   const shownChars = $derived(app.trace ? rawText(app.trace.text.join("")).length : 0);
   const outOfView = $derived(app.trace && app.trace.tokens.length >= block ? Math.max(0, app.viewPrompt().length - shownChars) : 0);
@@ -28,9 +24,8 @@
   <div class="meta muted">
     {app.trace?.tokens.length ?? 0} / {block} positions
     {#if outOfView > 0}· <span class="slide">window slid: the first {outOfView} characters are out of view</span>{/if}
-    {#if app.travel !== null}· <span class="slide">time travel: the trace that produced generated character {app.travel + 1}</span>
+    {#if app.travel !== null}· <span class="slide">time travel: the trace that produced generated token {app.travel + 1}</span>
     {:else if app.trace && app.trace.prompt !== app.prompt}· showing “{app.trace.prompt?.slice(0, 30)}…”{/if}
-    {#if dropped.length}· <span class="warn">not in vocabulary, dropped: {dropped.map((c) => JSON.stringify(c)).join(" ")}</span>{/if}
     · click a token to follow its row through every stage
   </div>
 </div>
@@ -41,6 +36,5 @@
   .tok { padding: 0 3px; min-width: 14px; border-radius: 3px; font-size: 12px; line-height: 18px; }
   .tok.sel { outline: 2px solid var(--select); border-color: transparent; }
   .meta { font-size: 11px; margin-top: 4px; }
-  .warn { color: var(--bad); }
   .slide { color: var(--accent); }
 </style>

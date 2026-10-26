@@ -2,83 +2,47 @@
  "id": "tokens",
  "order": 1,
  "title": "Text to numbers",
- "summary": "Tokens and the embedding table: how characters become vectors.",
+ "summary": "Tokens and the embedding table: how text becomes vectors.",
  "steps": [
   {
-   "text": "A GPT never sees letters. The tokenizer turns the text into ids, one per position. The chips under the prompt are those positions: this model reads up to **100** of them.",
-   "prompt": "Once upon a time",
+   "text": "A GPT never sees letters. The tokenizer turns the text into ids, one per position. This model's {{V}}-token vocabulary makes most words a single token, usually including the space before it (`␣upon`). The chips under the prompt are the positions: this model reads up to **100** of them.",
+   "prompt": "Once upon a time, there was a little girl.",
    "tab": "inspector",
    "stage": "embed.tok",
-   "position": "last",
-   "variants": {
-    "bpe": {
-     "prompt": "Once upon a time, there was a little girl.",
-     "text": "A GPT never sees letters. The tokenizer turns the text into ids, one per position. This model's {{V}}-token vocabulary makes most words a single token, usually including the space before it (`␣upon`). The chips under the prompt are the positions: this model reads up to **100** of them."
-    }
-   }
+   "position": "last"
   },
   {
-   "text": "Each id picks one row of the **token embedding table** `wte`: a lookup, not a calculation. The heatmap shows the rows picked for this prompt, one per position. Rows are positions, labelled with their {{unit}}; columns are the {{d}} dimensions of the vector.",
+   "text": "Each id picks one row of the **token embedding table** `wte`: a lookup, not a calculation. The heatmap shows the rows picked for this prompt, one per position. Rows are positions, labelled with their token; columns are the {{d}} dimensions of the vector.",
    "stage": "embed.tok",
    "ask": {
-    "question": "Click any cell in the row for the first **e** (position 3).",
+    "question": "Click any cell in the row for **␣upon** (position 1).",
     "check": {
      "kind": "position",
      "positions": [
-      3
+      1
      ]
     },
-    "hint": "Rows are positions, counting from 0: O-n-c-e.",
-    "correct": "The breakdown under the heatmap shows the value is copied straight from the row of `wte` for “e”."
-   },
-   "variants": {
-    "bpe": {
-     "ask": {
-      "question": "Click any cell in the row for **␣upon** (position 1).",
-      "check": {
-       "kind": "position",
-       "positions": [
-        1
-       ]
-      },
-      "hint": "Rows are positions, counting from 0: Once, ␣upon.",
-      "correct": "The breakdown under the heatmap shows the value is copied straight from the `␣upon` row of `wte`."
-     }
-    }
+    "hint": "Rows are positions, counting from 0: Once, ␣upon.",
+    "correct": "The breakdown under the heatmap shows the value is copied straight from the `␣upon` row of `wte`."
    }
   },
   {
-   "text": "The same {{unit}} always gets the same row. Find the second **e** (in “time”): its row is identical to the first one's, because the lookup knows nothing about where a {{unit}} sits.",
+   "text": "The same token always gets the same row. This prompt has **␣a** twice (“upon a time”, “was a little”): both rows are identical, because the lookup knows nothing about where a token sits.",
    "stage": "embed.tok",
    "ask": {
-    "question": "Click a cell in the row for the **e** of “time” (position 15).",
+    "question": "Click a cell in the row for the second **␣a** (position 7).",
     "check": {
      "kind": "position",
      "positions": [
-      15
+      7
      ]
     },
-    "correct": "Compare its colours with row 3: the same vector."
-   },
-   "variants": {
-    "bpe": {
-     "text": "The same token always gets the same row. This prompt has **␣a** twice (“upon a time”, “was a little”): both rows are identical, because the lookup knows nothing about where a token sits.",
-     "ask": {
-      "question": "Click a cell in the row for the second **␣a** (position 7).",
-      "check": {
-       "kind": "position",
-       "positions": [
-        7
-       ]
-      },
-      "hint": "Count from 0: Once, ␣upon, ␣a, ␣time, “,”, ␣there, ␣was, ␣a.",
-      "correct": "Compare its colours with row 2: the same vector."
-     }
-    }
+    "hint": "Count from 0: Once, ␣upon, ␣a, ␣time, “,”, ␣there, ␣was, ␣a.",
+    "correct": "Compare its colours with row 2: the same vector."
    }
   },
   {
-   "text": "The whole table lives in the network atlas: top-left, `token table wte`, one row for each of the {{V}} {{units}} in the vocabulary. Everything the model knows about a {{unit}} before reading its context is in that row.",
+   "text": "The whole table lives in the network atlas: top-left, `token table wte`, one row for each of the {{V}} tokens in the vocabulary. Everything the model knows about a token before reading its context is in that row.",
    "tab": "atlas",
    "atlasMode": "values"
   },
@@ -95,9 +59,6 @@
     },
     "hint": "This model ties its embeddings: `wte` is also its output layer.",
     "correct": "Every training step pushes down the score of every token that is not the right answer. A token that never appears is never the answer and never an input, so that push is the only thing that ever changes its row, and it is the same push for all of them. They all converged on one direction, away from anything the model predicts."
-   },
-   "variants": {
-    "char": null
    }
   }
  ]

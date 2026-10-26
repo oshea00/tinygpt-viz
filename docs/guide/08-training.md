@@ -5,7 +5,7 @@ The app trains the model while you watch. Training runs on the server, between t
 Training is off unless the server is started with **`--train`**:
 
 ```sh
-uv run python -m core.server --config char-small --train
+uv run python -m core.server --train
 ```
 
 Without it, the model only runs: the training panel and the training step tab are hidden, and the weights stay exactly as loaded, which suits a class where everyone should see the same model. Lesson 9, which trains, is then disabled in the lessons menu.

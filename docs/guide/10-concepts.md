@@ -2,7 +2,7 @@
 
 The concept explorer asks how the model represents words. Does it treat *dog* and *cat* as alike? At which layer does "animal" become readable? Is there a direction for it, and does pushing along it change what the model writes?
 
-Run the server with `--config bpe-small`. Its 4,096-token vocabulary makes most words a single token, so each word has one vector per layer to compare. On a character model each word spans several positions; it still works with **mean of sub-tokens**, but less clearly.
+The model's 4,096-token vocabulary makes most words a single token, so each word has one vector per layer to compare. A rare word split into several tokens is read at its last piece, or averaged with **mean of sub-tokens**.
 
 ## Capture
 

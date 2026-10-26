@@ -1,16 +1,16 @@
 import pytest
 import torch
 
-from core.config import PROFILES, DeviceError, TrainConfig, pick_device
-from core.data import load_data
+from core.config import DeviceError, TrainConfig, pick_device
 from core.preflight import device_info, fmt_duration, measure
 from core.train import Trainer
 
+from .conftest import TINY
+
 
 @pytest.fixture
-def trainer() -> Trainer:
-    cfg = PROFILES["char-tiny"]
-    return Trainer(cfg, TrainConfig(batch_size=4), load_data(cfg.tokenizer), "cpu")
+def trainer(tmp_path, data) -> Trainer:
+    return Trainer(TINY, TrainConfig(batch_size=4), data, "cpu", run_dir=tmp_path / "run")
 
 
 def test_requested_device_must_exist():

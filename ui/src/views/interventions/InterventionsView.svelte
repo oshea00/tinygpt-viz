@@ -217,6 +217,6 @@
   .cbars { height: 80px; width: 100%; display: flex; align-items: flex-end; gap: 1px; }
   .cbars .b { flex: 1; display: block; min-height: 1px; }
   .lab { font-size: 9px; }
-  /* Multi-character (BPE) tokens would overlap at this column width: run them downwards. */
+  /* Multi-character tokens would overlap at this column width: run them downwards. */
   .lab.word { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; line-height: 11px; max-height: 70px; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 </style>

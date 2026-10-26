@@ -8,7 +8,7 @@
   {#if player.menuOpen}
     <div class="menu panel">
       {#each player.lessons as l}
-        {@const why = unavailable(l, player.reads, player.training)}
+        {@const why = unavailable(l, player.training)}
         <button class="item" disabled={!!why} onclick={() => player.start(l)}>
           <span class="n">{l.order}</span>
           <span><b>{l.title}</b><br /><span class="muted">{l.summary}</span>
