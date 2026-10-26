@@ -373,16 +373,22 @@ Existing tools either show a large model at a high level of abstraction or a rea
 | [LLM Visualization](https://github.com/bbycroft/llm-viz) (Brendan Bycroft) | minGPT sorting model, about 85k parameters, in 3D | Every block and value present, guided walkthrough | Sorts the letters A, B, C rather than writing text |
 | [nanoGPT](https://github.com/karpathy/nanoGPT) (Karpathy) | Character-level Shakespeare GPT | Shortest path to training one; source of our model code | Code only, no visualisation (now superseded by nanochat) |
 
-Decisions to make before milestone 1:
+Decisions made before milestone 1:
 
-- [ ] **Tokenizer:** characters for the mechanics profiles and BPE for Concepts is settled; still open are the exact vocabulary size (2k–8k) and the library (Hugging Face tokenizers is the default choice).
-- [ ] **Default width:** 64 (everything visible) or 128 (better text, atlas needs more zoom).
-- [ ] **Corpus:** TinyStories for Concepts is settled; for the mechanics profiles, Tiny Shakespeare or a slice of TinyStories, which would let both profiles share a domain and make comparisons easier.
-- [ ] **UI framework:** Svelte or React.
-- [ ] **App shell:** pywebview (simplest, all Python) or Tauri (smaller, more polished, more setup).
-- [ ] **Target hardware:** CPU-only baseline, plus CUDA, Apple MPS, or both.
-- [ ] **Manual-backward mode:** a core feature for builders, or an advanced extra.
+- [x] **Tokenizer:** characters for the mechanics profiles; for Concepts, a byte-level BPE with **4,096** tokens, trained with Hugging Face `tokenizers` on the TinyStories slice. Every concept word tried (animals, colours, emotions, family roles, actions) is a single token.
+- [x] **Default width:** **64**: the 4-layer, 4-head, 215k-parameter model is the default, so everything stays visible; width 128 remains available as a config.
+- [x] **Corpus:** a **TinyStories slice for the mechanics profiles too** (10 MB, character-level), so both profiles share a domain. The character vocabulary is built from the slice after normalising typographic punctuation, which gives 64 characters rather than 65. Concepts uses a larger slice (250 MB, about 62M tokens).
+- [x] **UI framework:** **Svelte 5** with TypeScript and Vite.
+- [x] **App shell:** **a browser tab first**. The Python server serves the built UI and the WebSocket on localhost; a pywebview or Tauri window, and installers, were not built.
+- [x] **Target hardware:** **CPU and CUDA**. Apple MPS is accepted as a device but untested. The 215k model trains in about 7 minutes on a GPU and about 30 on a CPU; Concepts in about 22 minutes on a GPU.
+- [x] **Manual-backward mode:** **an advanced extra** (milestone 11): one hand-written backward function per operation, compared with autograd for every stage and weight, and shown with each stage's backward rule in the inspector's gradient view.
 
-A suggested first step: write the explicit-ops model and the trainer with play, pause and single-step, then the tracer, since every view depends on the trace format.
+Later decisions that change how this document reads:
 
-Sources: [nanoGPT README](https://github.com/karpathy/nanoGPT) · [Transformer Explainer repo](https://github.com/poloclub/transformer-explainer) · [llm-viz repo](https://github.com/bbycroft/llm-viz) · [GIGAZINE review of LLM Visualization](https://gigazine.net/gsc_news/en/20231204-llm-visualization)
+- **Config names** follow how the model reads text, then its size: `char-tiny`, `char-small` (the default), `char-large` and `bpe-small` stand for the Tiny, Default, Larger and Concepts rows of the table above. The old names still work as aliases.
+- **Training is opt-in**: the server only trains with `--train`. Without it the weights stay as loaded and the training panel, the training step and checkpoint replay are hidden, which suits a class where everyone should see the same model.
+- **The KV-cache incremental mode** described under the stages was built, with a lesson on why a sliding window invalidates the cache.
+
+Status: milestones 1–12 are implemented. The README covers setup, and `docs/` is the user guide for learners and lesson authors.
+
+Sources: [nanoGPT README](https://github.com/karpathy/nanoGPT) · [Transformer Explainer repo](https://github.com/poloclub/transformer-explainer) · 
