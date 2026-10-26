@@ -2,40 +2,12 @@
 
 ## Install
 
-You need [uv](https://docs.astral.sh/uv/), Node 20 or later, and Chrome or another modern browser. A GPU is optional if you [download trained checkpoints](#or-download-trained-checkpoints); training from scratch wants one.
+You need [uv](https://docs.astral.sh/uv/), Node 20 or later, and Chrome or another modern browser. A GPU is optional: the published model runs on any CPU.
 
 ```sh
 uv sync                                   # Python and PyTorch (CUDA wheels on Linux and Windows)
 cd ui && npm install && npm run build && cd ..
 ```
-
-## The model
-
-There is one model, `bpe-small`: 6 layers × 8 heads, 256-wide vectors, 5.8M parameters. It reads text as BPE tokens from a 4,096-token vocabulary, so most words are a single token (usually with the space before them, as in `␣dog`). That is what you want when you compare how it represents *dog* and *cat*.
-
-## Train it
-
-```sh
-uv run python -m core.train --steps 20000   # ~22 minutes on a GPU
-```
-
-The first run downloads a slice of [TinyStories](https://arxiv.org/abs/2305.07759), short stories in simple English, and trains the 4,096-token vocabulary on it. Every 1,000 steps it prints a sample, and you can watch the text go from noise to *"Once upon a time, there was a girl named…"*. Before it starts, it times a few steps and prints an estimate of how long the run will take.
-
-Checkpoints are saved under `runs/bpe-small/` at roughly logarithmic intervals, so that early learning can be [replayed](08-training.md#replaying-training) in detail.
-
-You don't have to train first: with `--train`, the app can train from random weights while you watch. See [Training](08-training.md).
-
-### Or download trained checkpoints
-
-If `runs/bpe-small/` is empty, the server first downloads the model's checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), along with the small validation set the neuron examples use. A model that only runs needs nothing else, so a machine without a GPU never downloads or tokenizes TinyStories. The shared checkpoints contain only weights. With `--train`, training continues from them using a fresh optimizer, and the full corpus is built the first time training needs it.
-
-To publish your own runs, log in once with `hf auth login`, then:
-
-```sh
-uv run python -m core.hub push --config all     # every profile with checkpoints; --repo <user>/<name> for another repo
-```
-
-Set `TINYGPT_HF_REPO` (or pass `--repo` to `core.hub pull`) to download from a repo other than the default.
 
 ## Run the app
 
@@ -43,13 +15,23 @@ Set `TINYGPT_HF_REPO` (or pass `--repo` to `core.hub pull`) to download from a r
 uv run python -m core.server
 ```
 
-Then open <http://localhost:8765>. The server loads the latest checkpoint; add `--fresh` to start from random weights.
+Then open <http://localhost:8765>. You don't need to train anything first. The first time the server starts, it downloads the trained checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), along with the small validation set the neuron examples use. After that it loads the latest checkpoint from `runs/bpe-small/`. A model that only runs needs nothing else, so a machine without a GPU never downloads or tokenizes TinyStories.
+
+## The model
+
+There is one model, `bpe-small`: 6 layers × 8 heads, 256-wide vectors, 5.8M parameters. It reads text as BPE tokens from a 4,096-token vocabulary, so most words are a single token (usually with the space before them, as in `␣dog`). That is what you want when you compare how it represents *dog* and *cat*.
+
+## Watch it train
 
 By default the model only runs: its weights stay as loaded. Add **`--train`** to turn on [training](08-training.md): the training panel, the training step tab and checkpoint replay.
 
 ```sh
 uv run python -m core.server --train
 ```
+
+Training continues from the downloaded checkpoints with a fresh optimizer; the full corpus is downloaded and built the first time training needs it. Add `--fresh` to start from random weights instead and watch the model learn from nothing.
+
+To train the model from the command line, change it, or publish your own checkpoints, see [Training and publishing your own models](../training-your-own-models.md).
 
 ## The screen
 

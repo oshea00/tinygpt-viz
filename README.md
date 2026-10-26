@@ -18,39 +18,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Node 20+.
 
 ```sh
 uv sync                          # Python deps (PyTorch with CUDA 12.8 wheels on Linux/Windows)
-uv run python -m core.data       # fetch a 250 MB TinyStories slice, train the BPE tokenizer, ~62M tokens
 cd ui && npm install && npm run build && cd ..
-```
-
-## Train
-
-```sh
-uv run python -m core.train --steps 20000   # ~22 min on a 4090
-```
-
-There is one config, `bpe-small` (the default, so `--config` can be left out):
-
-| Config | Reads | Params | Shape | Notes |
-| --- | --- | --- | --- | --- |
-| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 layers × 8 heads, d=256, tied embeddings | most words are one token |
-
-Checkpoints land in `runs/bpe-small/` on a log-spaced schedule for later replay.
-
-Every run begins by timing a few real steps on the device it found and printing an estimate,
-so a run that is going to take all night says so in the first minute. `--dry-run` stops after
-that report; `--log-every N` sets how often the progress line appears (default every 10 steps).
-The quoted timings below are for a desktop GPU: a power-capped laptop GPU can be far slower,
-and the report flags one when it sees it.
-
-```sh
-uv run python -m core.train --steps 20000 --dry-run
-```
-```
-bpe-small: 6L 8H d256 vocab 4,096 ctx 100, batch 128
-device: cuda - NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6.4 GB VRAM
-  ! memory clock 810 of 5501 MHz at 10 W - this GPU is power-capped, so bandwidth-bound work runs several times slower than its rating
-measured: 4,011 ms/step, 3,192 tok/s, peak 4.2 GB VRAM
-estimate: 22.9h for 20,000 steps (22.3h training + 34m eval + 2m sampling), ~2.2 GB of checkpoints
 ```
 
 ## Run the app
@@ -59,6 +27,16 @@ estimate: 22.9h for 20,000 steps (22.3h training + 34m eval + 2m sampling), ~2.2
 uv run python -m core.server           # loads the latest checkpoint; --fresh for random weights
 uv run python -m core.server --train   # also enables training, replay and the training step tab
 ```
+
+No training is needed first: if `runs/bpe-small/` is empty, the server downloads the model's
+trained checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)).
+A model that only runs never downloads or tokenizes TinyStories.
+
+There is one model, `bpe-small` (the default, so `--config` can be left out):
+
+| Config | Reads | Params | Shape | Notes |
+| --- | --- | --- | --- | --- |
+| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 layers × 8 heads, d=256, tied embeddings | most words are one token |
 
 Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
 `npm run dev` in `ui/` alongside the server; Vite proxies `/ws` to port 8765.
@@ -107,6 +85,11 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.
 - **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
   checks autograd against a hand-written backward pass (`core/manual_backward.py`).
+
+## Training and publishing your own models
+
+Only for those who want to retrain, modify or share the model: see
+[Training and publishing your own models](docs/training-your-own-models.md).
 
 ## Tests
 
