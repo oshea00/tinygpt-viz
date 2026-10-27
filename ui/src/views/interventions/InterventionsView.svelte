@@ -146,7 +146,8 @@
 
   <div class="two">
     <section>
-      <h2>Next token after position {pos} “{trace.text[pos]}”: before ▪ after ▪</h2>
+      <h2>Next token after position {pos} “{trace.text[pos]}”</h2>
+      <div class="legend"><span><i class="before"></i>before</span><span><i class="after"></i>after</span></div>
       {#each nextTok as t}
         <div class="pair">
           <span class="mono tok" title={app.hello?.vocab[t.i]}>{app.hello?.vocab[t.i]}</span>
@@ -174,7 +175,8 @@
   </div>
 
   {#if probs.length}
-    <h2>p(actual next token) at each position: before ▪ after ▪</h2>
+    <h2>p(actual next token) at each position</h2>
+    <div class="legend"><span><i class="before"></i>before</span><span><i class="after"></i>after, higher or the same</span><span><i class="after down"></i>after, lower</span></div>
     <div class="pchart">
       {#each probs as p, i}
         <div class="col" title="position {i} “{trace.text[i]}”: {(p.before * 100).toFixed(1)}% → {(p.after * 100).toFixed(1)}%">
@@ -213,6 +215,9 @@
   .tok { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bars2 { display: grid; gap: 1px; }
   .bars2 .b { display: block; height: 6px; border-radius: 2px; min-width: 1px; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin: -2px 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
   .before { background: #a5b4fc; }
   .after { background: var(--ok); }
   .after.down { background: var(--bad); }
