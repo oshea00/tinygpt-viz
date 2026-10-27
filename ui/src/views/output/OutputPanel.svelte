@@ -51,7 +51,7 @@
 </script>
 
 <div>
-  <h2>Next token after position {pos} <HelpButton topic="generation" label="next token and generation" /></h2>
+  <h2>Next token after pos {pos} <HelpButton topic="generation" label="next token and generation" /></h2>
   <!-- One line whatever the token: a wrapping heading would move the stop button while it generates. -->
   <div class="mono tokname" title={trace && pos >= 0 ? trace.text[pos] : undefined}>{trace && pos >= 0 ? `“${trace.text[pos].replace(/\n/g, "↵")}”` : "\u00a0"}</div>
 
