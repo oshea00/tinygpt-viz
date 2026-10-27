@@ -77,11 +77,6 @@ the model, and the server's options.
 - **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
   checks autograd against a hand-written backward pass (`core/manual_backward.py`).
 
-## Training and publishing your own models
-
-Only for those who want to retrain, modify or share the model: see
-[Training and publishing your own models](docs/training-your-own-models.md).
-
 ## Tests
 
 ```sh
