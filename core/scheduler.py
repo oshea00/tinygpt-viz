@@ -192,6 +192,20 @@ class ModelWorker(threading.Thread):
                 raise ValueError("pick a position that has a next token")
             self.emit({"type": "occlusion", "prompt": cmd["prompt"], "position": pos, "step": t.step_num,
                        "drops": concepts.occlusion(t.model, ids, pos)})
+        elif kind == "patch":
+            # Activation patching: the clean prompt's activations copied into the corrupted run.
+            tok, what = t.data.tokenizer, cmd.get("what", "resid")
+            first = lambda text: (tok.encode(text) or [0])[0]   # noqa: E731  (an answer is read at its first token)
+            answer, wrong = first(cmd["answer"]), first(cmd["wrong"])
+            clean, corrupt = tok.encode(cmd["clean"]), tok.encode(cmd["corrupt"])
+            r = concepts.patch_sweep(t.model, clean, corrupt, answer, wrong, what)
+            text = lambda ids: [tok.token_text(i) for i in ids[-t.model_cfg.block_size:]]   # noqa: E731
+            self.emit(encode_tensors("patch", {"tensors": {"grid": r["grid"], "source": r["source"]}}, {
+                "clean": cmd["clean"], "corrupt": cmd["corrupt"], "what": what, "stages": r["stages"],
+                "cleanText": text(clean), "corruptText": text(corrupt),
+                "answer": tok.token_text(answer), "wrong": tok.token_text(wrong),
+                "ldClean": r["ldClean"], "ldCorrupt": r["ldCorrupt"], "step": t.step_num,
+            }))
         elif kind == "neuronTop":
             self.emit({"type": "neuronTop", "layer": cmd["layer"], "neuron": cmd["neuron"], "step": t.step_num,
                        "examples": concepts.neuron_top(t.model, t.data.tokenizer, t.data, int(cmd["layer"]), int(cmd["neuron"]))})

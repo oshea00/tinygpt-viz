@@ -11,9 +11,11 @@ Specs are the JSON dicts the UI sends:
     {"kind": "set",     "stage": "L0.q", "row": 3, "col": 7, "value": 1.5}
     {"kind": "shuffle_pos", "seed": 0}
     {"kind": "steer",   "stage": "L2.resid_mlp", "vector": [...], "scale": 4.0}
+    {"kind": "patch",   "stage": "L2.resid_mlp", "positions": [4], "values": [[...]]}
 
 "mean" replaces each value with its average over the prompt's positions, keeping the
-unit's typical output but removing what is specific to each position.
+unit's typical output but removing what is specific to each position. "patch" overwrites
+rows (positions) of a stage with values taken from another run (activation patching).
 """
 
 from typing import Callable
@@ -52,6 +54,14 @@ def _set(row: int, col: int, value: float) -> Rewrite:
     return rewrite
 
 
+def _patch(positions: list[int], values: list[list[float]]) -> Rewrite:
+    def rewrite(x: torch.Tensor) -> torch.Tensor:
+        out = x.clone()
+        out[:, positions] = torch.tensor(values, dtype=x.dtype, device=x.device)
+        return out
+    return rewrite
+
+
 def _shuffle(seed: int) -> Rewrite:
     def rewrite(pos: torch.Tensor) -> torch.Tensor:
         g = torch.Generator().manual_seed(seed)
@@ -79,6 +89,8 @@ def compile_spec(spec: dict) -> tuple[str, Rewrite]:
         vec = torch.tensor(spec["vector"], dtype=torch.float32)
         scale = float(spec.get("scale", 1.0))
         return spec["stage"], lambda x: x + scale * vec.to(x.device)
+    if kind == "patch":
+        return spec["stage"], _patch([int(p) for p in spec["positions"]], spec["values"])
     if kind == "shuffle_pos":
         return "embed.pos", _shuffle(int(spec.get("seed", 0)))
     raise ValueError(f"unknown intervention {kind!r}")

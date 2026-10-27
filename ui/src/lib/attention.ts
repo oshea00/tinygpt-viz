@@ -11,15 +11,24 @@ export interface HeadStats {
   entropy: number;   // mean entropy of a row, in nats
   distance: number;  // mean look-back distance, weighted by attention
   peak: number;      // mean of each row's largest weight: how focused the head is
+  induction: number; // weight on the token after an earlier copy of this one (rows with a copy only; 0 if none)
 }
 
-/** Statistics over query rows 1..T-1 (row 0 can only attend to itself, so it says nothing). */
-export function headStats(weights: Tensor): HeadStats {
+/** Statistics over query rows 1..T-1 (row 0 can only attend to itself, so it says nothing).
+ * With the prompt's token ids, also the induction score: for each query whose token appeared
+ * earlier at j, the weight on j + 1 (what followed it last time), averaged over those queries. */
+export function headStats(weights: Tensor, tokens?: number[]): HeadStats {
   const T = dims2(weights)[0];
-  const s: HeadStats = { prev: 0, self: 0, first: 0, entropy: 0, distance: 0, peak: 0 };
+  const s: HeadStats = { prev: 0, self: 0, first: 0, entropy: 0, distance: 0, peak: 0, induction: 0 };
   if (T < 2) return { ...s, self: 1, peak: 1 };
+  let repeats = 0;
   for (let r = 1; r < T; r++) {
     const w = row(weights, r);
+    if (tokens) {
+      let copied = 0, seen = false;
+      for (let j = 0; j < r; j++) if (tokens[j] === tokens[r]) { copied += w[j + 1]; seen = true; }
+      if (seen) { s.induction += copied; repeats++; }
+    }
     s.prev += w[r - 1];
     s.self += w[r];
     s.first += w[0];
@@ -32,8 +41,12 @@ export function headStats(weights: Tensor): HeadStats {
     s.peak += peak;
   }
   const n = T - 1;
-  return { prev: s.prev / n, self: s.self / n, first: s.first / n, entropy: s.entropy / n, distance: s.distance / n, peak: s.peak / n };
+  return { prev: s.prev / n, self: s.self / n, first: s.first / n, entropy: s.entropy / n, distance: s.distance / n, peak: s.peak / n,
+           induction: repeats ? s.induction / repeats : 0 };
 }
+
+/** Whether any token appears twice, so the induction score means something. */
+export const hasRepeats = (tokens: number[]) => new Set(tokens).size < tokens.length;
 
 /** A short description of the head's pattern: a fixed target if it has one, otherwise
  * how focused it is and how far back it typically looks. */

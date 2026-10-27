@@ -60,7 +60,7 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   click a cell to see how it was computed (dot products, layer-norm statistics, softmax terms, gradient sums).
 - **Attention**: arcs over the text from the selected position, the masked T×T matrix per head,
   a Q·K explorer (one query against every earlier key: products, dot, scaled score, weight), and a
-  head gallery with pattern badges and names you can give each head.
+  head gallery with pattern badges (and an induction score when a token repeats) and names you can give each head.
 - **Residual stream**: one position's vector at every snapshot (or what each sublayer writes),
   write sizes per sublayer and position, and the gradient highway: at each residual add, how much
   gradient passes straight through and how much comes back through the sublayer.
@@ -81,7 +81,8 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   PCA maps (click a point to open its trace), nearest neighbours in the embedding table and in
   context, context drift, linear probes tested on held-out words (with shuffled-label and untrained
   baselines), concept directions with steering during generation, attribution (attention
-  rollout, gradient × input, occlusion), and the top-activating contexts of any MLP neuron.
+  rollout, gradient × input, occlusion), activation patching between a clean and a corrupted prompt
+  (per snapshot and position, or per head), and the top-activating contexts of any MLP neuron.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by
@@ -93,7 +94,7 @@ Open http://localhost:8765 (from WSL2, in the Windows browser). For UI developme
   cached key and value goes stale.
 - **Training panel** (with `--train`): play, pause, single-step, reset, learning rate, batch size, and a replay
   slider over saved checkpoints (with "play through") to watch the model learn.
-- **Lessons** (header menu): ten guided lessons that drive the views, with questions checked
+- **Lessons** (header menu): twelve guided lessons that drive the views, with questions checked
   against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.
 - **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
   checks autograd against a hand-written backward pass (`core/manual_backward.py`).

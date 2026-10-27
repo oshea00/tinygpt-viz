@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from core import concepts
@@ -66,3 +67,39 @@ def test_neuron_top_is_sorted(data):
     m = _model()
     ex = concepts.neuron_top(m, TOK, data, 1, 5, windows=64, k=5)
     assert len(ex) == 5 and all(a["value"] >= b["value"] for a, b in zip(ex, ex[1:]))
+
+
+def test_patching_recovers_at_the_ends_and_nowhere_else():
+    m = _model()
+    clean, corrupt = TOK.encode("Lily gave the ball to Tom and"), TOK.encode("Ben gave the ball to Tom and")
+    assert len(clean) == len(corrupt) and clean[0] != corrupt[0] and clean[1:] == corrupt[1:]
+    answer, wrong = TOK.encode(" Lily")[0], TOK.encode(" Ben")[0]
+    r = concepts.patch_sweep(m, clean, corrupt, answer, wrong, "resid")
+    T = len(clean)
+    assert r["grid"].shape == (9, T) and r["source"].shape == (9, T, 64)
+    # The differing token restores everything at the start, and the last position at the end;
+    # positions where the prompts agree hold the same values in both runs, so patching does nothing.
+    np.testing.assert_allclose(r["grid"][0, 0], 1, atol=1e-4)
+    np.testing.assert_allclose(r["grid"][-1, -1], 1, atol=1e-4)
+    np.testing.assert_allclose(r["grid"][0, 1:], 0, atol=1e-4)
+    heads = concepts.patch_sweep(m, clean, corrupt, answer, wrong, "heads")
+    assert heads["grid"].shape == (4, 4) and heads["source"].shape == (4, 4, T, 16)
+
+
+def test_patching_needs_prompts_of_one_length():
+    m = _model()
+    with pytest.raises(ValueError, match="same number of tokens"):
+        concepts.patch_sweep(m, TOK.encode("The cat sat."), TOK.encode("The big cat sat."), 0, 1)
+
+
+def test_a_patch_cell_applied_as_an_intervention_reproduces_the_sweep():
+    m = _model()
+    clean, corrupt = TOK.encode("Lily gave the ball to Tom and"), TOK.encode("Ben gave the ball to Tom and")
+    answer, wrong = TOK.encode(" Lily")[0], TOK.encode(" Ben")[0]
+    r = concepts.patch_sweep(m, clean, corrupt, answer, wrong, "resid")
+    row, col = 3, 0
+    spec = {"kind": "patch", "stage": r["stages"][row], "positions": [col], "values": [r["source"][row, col].tolist()]}
+    t = trace(m, corrupt, [TOK.token_text(i) for i in corrupt], with_grad=False, interventions=[spec])
+    logits = t.stage("logits").output[-1]
+    ld = logits[answer] - logits[wrong]
+    np.testing.assert_allclose((ld - r["ldCorrupt"]) / (r["ldClean"] - r["ldCorrupt"]), r["grid"][row, col], atol=1e-4)

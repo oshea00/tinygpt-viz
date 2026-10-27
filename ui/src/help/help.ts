@@ -157,8 +157,10 @@ export const TOPICS: Record<string, HelpTopic> = {
       "Keep **also the untrained model** ticked: structure it also shows was not learned.",
       "**similarity**, **projection map**, **neighbours**, **context drift** and **probes** analyse the captured vectors; **directions & steering** tests one by adding it during generation.",
       "**attribution** and **neurons** work on the main prompt and need no capture.",
+      "**activation patching** compares two prompts that differ in one word: it copies one activation from the clean run into the corrupted one and shows how much of the clean answer comes back. Click a cell to apply that patch to the live model.",
     ],
-    tryThis: ["Fit the probes, then steer with the direction of the category that probes best."],
+    tryThis: ["Fit the probes, then steer with the direction of the category that probes best.",
+              "Run activation patching on the example, then switch to **heads** to find the heads that carry the name to the end."],
     guide: "10-concepts.md",
   },
   onestep: {

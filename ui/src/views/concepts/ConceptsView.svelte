@@ -8,6 +8,7 @@
   import MapPanel from "./MapPanel.svelte";
   import Neighbours from "./Neighbours.svelte";
   import Neurons from "./Neurons.svelte";
+  import Patching from "./Patching.svelte";
   import Probes from "./Probes.svelte";
   import Similarity from "./Similarity.svelte";
   import Steer from "./Steer.svelte";
@@ -18,8 +19,9 @@
   const panels: [Panel, string][] = [
     ["similarity", "similarity"], ["map", "projection map"], ["neighbours", "neighbours"], ["drift", "context drift"],
     ["probes", "probes"], ["steer", "directions & steering"], ["attribution", "attribution"], ["neurons", "neurons"],
+    ["patching", "activation patching"],
   ];
-  const needsCapture = $derived(!["attribution", "neurons"].includes(concepts.panel));
+  const needsCapture = $derived(!["attribution", "neurons", "patching"].includes(concepts.panel));
 </script>
 
 <div class="setup">
@@ -59,7 +61,7 @@
     <p>Press <b>capture</b> (top right) to run the prompt set through the model. It records the vector of each
       filled-in word (the animal, colour, emotion…) at every layer; this panel then shows what those vectors have in common.</p>
     <p class="muted">Keep “also the untrained model” ticked to compare against random weights: structure that also appears
-      there was not learned. Attribution and neurons work without capturing.</p>
+      there was not learned. Attribution, neurons and activation patching work without capturing.</p>
   </div>
 {:else if concepts.panel === "similarity"}<Similarity />
 {:else if concepts.panel === "map"}<MapPanel />
@@ -68,6 +70,7 @@
 {:else if concepts.panel === "probes"}<Probes />
 {:else if concepts.panel === "steer"}<Steer />
 {:else if concepts.panel === "attribution"}<Attribution />
+{:else if concepts.panel === "patching"}<Patching />
 {:else}<Neurons />{/if}
 
 <style>

@@ -1,0 +1,71 @@
+{
+ "id": "induction",
+ "order": 11,
+ "title": "Induction heads: a two-head circuit",
+ "summary": "Copying from earlier in the context: find the head that does it, its partner, and what breaks without it.",
+ "steps": [
+  {
+   "text": "This sentence is unlike anything in the children's stories the model was trained on, so it is hard to predict. The logit lens's **p(actual)** mode shows how likely the model found each next token, row by row: the bottom row is the real prediction. Most of it is pale.",
+   "prompt": "The purple dragon sang a song about seven shiny spoons under the old bridge.",
+   "tab": "lens",
+   "lensMode": "actual"
+  },
+  {
+   "text": "Now the same sentence twice. The first copy is as hard as before, but in the second copy the bottom row turns dark: having seen the sentence once, the model predicts it almost word for word. The loss on the second copy is about half that on the first.",
+   "prompt": "The purple dragon sang a song about seven shiny spoons under the old bridge. The purple dragon sang a song about seven shiny spoons under the old bridge.",
+   "tab": "lens",
+   "lensMode": "actual"
+  },
+  {
+   "text": "Copying needs a rule that works for any text: find where the current token appeared before, and predict whatever came after it. If the model has seen “A B” and now sees “A” again, it predicts “B”. Heads that do this are called **induction heads** (Olsson et al., 2022). In the attention matrix, such a head draws a diagonal stripe in the second copy, one step to the right of the earlier copy of each token.",
+   "tab": "attention"
+  },
+  {
+   "text": "Because a token repeats here, the head gallery now shows an **induction** score under each head: for every token seen before, the weight the head puts on the token that came after it last time.",
+   "tab": "attention",
+   "ask": {
+    "question": "Click the head with the highest **induction** score.",
+    "check": {
+     "kind": "headBest",
+     "stat": "induction"
+    },
+    "hint": "Compare the induction bars. It is in a late layer: in its thumbnail, the lower half has a diagonal stripe parallel to the main one.",
+    "correct": "Look at its matrix: query rows in the second copy put their weight on the key just after the same word in the first copy. Give it a name, such as “induction”."
+   }
+  },
+  {
+   "text": "One head cannot do this on its own. A query at the second “dragon” has to find the key at “sang”, but the vector at “sang” describes “sang”, not the “dragon” that came before it. An **earlier** head has to move each token's predecessor into its position first: a **previous-token head**. The induction head's keys then read “the token before me was dragon”. Two heads in different layers, composed through the residual stream, are a **circuit** (Elhage et al., 2021, call this K-composition).",
+   "tab": "attention",
+   "ask": {
+    "question": "Find a candidate partner: click the head that attends most to the **previous** position.",
+    "check": {
+     "kind": "headBest",
+     "stat": "prev"
+    },
+    "hint": "On this prompt no head is consistent enough to earn a “previous” badge, so look at the thumbnails instead. In an earlier layer than the induction head, find one with a dark stripe just below the main diagonal: each query looking one step back.",
+    "correct": "It sits in an earlier layer, so its output is in the residual stream by the time the induction head computes its keys. Several heads share this habit, so the model has more than one way to build the circuit."
+   }
+  },
+  {
+   "text": "Test the claim causally. Go back to the induction head you found and press **ablate** under it. Then open the **interventions** tab: the per-position chart compares p(actual) with and without the head.",
+   "tab": "attention"
+  },
+  {
+   "text": "The first copy barely changes, because there was nothing to copy yet. The damage is in the second copy, where p(actual) falls at most positions. The model still predicts better than on the first copy: other heads (try the second-highest induction score as well) do part of the same job. Real circuits are often spread over several units like this.",
+   "tab": "interventions"
+  },
+  {
+   "text": "One more experiment. Clear the interventions and give the model a repeat of random tokens instead of a sentence, for example a line of unrelated words and its copy.",
+   "tab": "interventions",
+   "interventions": [],
+   "ask": {
+    "question": "In this model, repeating random words helps far less than repeating a sentence. Why might that be?",
+    "check": {
+     "kind": "reveal"
+    },
+    "hint": "Think about what the training stories needed copying for.",
+    "correct": "Large models trained on varied text copy almost anything, because web text is full of repeated code, lists and quotes. This small model learned from simple children's stories, where the main thing to copy is a **name** or a phrase that comes back. Its induction heads are weaker and lean on the surrounding words, so a repeated sentence works much better than a repeated jumble. Further reading: Elhage et al. 2021, A Mathematical Framework for Transformer Circuits; Olsson et al. 2022, In-context Learning and Induction Heads."
+   }
+  }
+ ]
+}

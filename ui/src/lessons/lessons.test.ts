@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeBinary } from "../bridge";
-import type { Trace } from "../types";
+import type { PatchResult, Trace } from "../types";
 import { available, unavailable, formatText, isCorrect, lessonVars, type Lesson, type Selected } from "./lesson";
 
 const dir = new URL(".", import.meta.url);
@@ -87,6 +87,25 @@ describe("answer checks", () => {
   it("finds exactly one best head", () => {
     const hits = [0, 1].flatMap((l) => [0, 1].map((h) => isCorrect({ kind: "headBest", stat: "peak" }, { ...sel, layer: l, head: h }, trace, 2, 2)));
     expect(hits.filter(Boolean).length).toBe(1);
+  });
+
+  it("finds no induction head when no token repeats", () => {
+    const fixed = { ...trace, tokens: trace.tokens.map((_, i) => i) };
+    const hits = [0, 1].flatMap((l) => [0, 1].map((h) => isCorrect({ kind: "headBest", stat: "induction" }, { ...sel, layer: l, head: h }, fixed, 2, 2)));
+    expect(hits.some(Boolean)).toBe(false);
+  });
+
+  it("checks the patching cells applied", () => {
+    // resid: 3 snapshots × 4 positions; the last column first reaches 0.5 at snapshot 1.
+    const resid = { what: "resid", grid: { shape: [3, 4], data: new Float32Array([1, 0, 0, 0, 0.6, 0, 0, 0.55, 0, 0, 0, 1]) } } as unknown as PatchResult;
+    const heads = { what: "heads", grid: { shape: [2, 2], data: new Float32Array([0.1, 0.2, 0.7, 0.3]) } } as unknown as PatchResult;
+    const live = (what: "resid" | "heads", row: number, col: number) => ({ patches: { resid, heads }, patchCell: { what, row, col } });
+    expect(isCorrect({ kind: "patchHandoff" }, sel, trace, 2, 2, live("resid", 1, 3))).toBe(true);
+    expect(isCorrect({ kind: "patchHandoff" }, sel, trace, 2, 2, live("resid", 2, 3))).toBe(false);   // later than needed
+    expect(isCorrect({ kind: "patchHandoff" }, sel, trace, 2, 2, live("resid", 1, 0))).toBe(false);   // not the last position
+    expect(isCorrect({ kind: "patchTop" }, sel, trace, 2, 2, live("heads", 1, 0))).toBe(true);
+    expect(isCorrect({ kind: "patchTop" }, sel, trace, 2, 2, live("heads", 0, 1))).toBe(false);
+    expect(isCorrect({ kind: "patchTop" }, sel, trace, 2, 2, { patches: { heads } })).toBe(false);    // nothing applied
   });
 
   it("escapes narration and renders bold, code and model-specific words", () => {

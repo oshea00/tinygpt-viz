@@ -159,6 +159,15 @@ def test_concept_commands(client):
         ws.send_text(json.dumps({"type": "occlude", "prompt": "The cat sat.", "position": 2}))   # The ␣cat ␣sat .
         o, _ = _until(ws, lambda h: h["type"] == "occlusion")
         assert len(o["drops"]) == 3
+        ws.send_text(json.dumps({"type": "patch", "clean": "The cat sat.", "corrupt": "The dog sat.",
+                                 "answer": " cat", "wrong": " dog", "what": "resid"}))
+        p, raw = _until(ws, lambda h: h["type"] == "patch")
+        assert p["tensors"]["grid"]["shape"] == [5, 4] and p["tensors"]["source"]["shape"] == [5, 4, 32]
+        assert p["corruptText"] == ["The", "␣dog", "␣sat", "."] and p["answer"] == "␣cat"
+        ws.send_text(json.dumps({"type": "patch", "clean": "The cat sat.", "corrupt": "The big dog sat.",
+                                 "answer": " cat", "wrong": " dog", "what": "heads"}))
+        e, _ = _until(ws, lambda h: h["type"] in ("patch", "error"))
+        assert e["type"] == "error" and "same number of tokens" in e["message"]
         ws.send_text(json.dumps({"type": "lens", "prompt": "The cat"}))
         l, _ = _until(ws, lambda h: h["type"] == "lens")
         assert len(l["topIds"]) == 5 and len(l["topIds"][0]) == 2

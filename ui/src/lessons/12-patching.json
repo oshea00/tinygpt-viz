@@ -1,0 +1,67 @@
+{
+ "id": "patching",
+ "order": 12,
+ "title": "Activation patching: where the information lives",
+ "summary": "Two prompts that differ in one name: copy activations from one run into the other to find where the model carries the name and which heads move it.",
+ "steps": [
+  {
+   "text": "Ablation tells you what a model can't do without. It doesn't tell you where a particular piece of information is. For that, compare two runs. Here the model has to work out who receives the ball: someone other than the giver, so **Lily**.",
+   "prompt": "Lily and Tom went to the park. Tom gave the ball to",
+   "tab": "concepts",
+   "conceptPanel": "patching"
+  },
+  {
+   "text": "Swap one name and the answer flips: now Tom should receive it. The two prompts have the same number of tokens and differ in one position. Call the first one **clean** and this one **corrupted**. The next-token panel shows the model getting both right.",
+   "prompt": "Lily and Tom went to the park. Lily gave the ball to",
+   "tab": "concepts",
+   "conceptPanel": "patching"
+  },
+  {
+   "text": "**Activation patching** runs the corrupted prompt but copies in one activation from the clean run, then measures how far the answer moves back towards Lily. The measure is the logit difference, logit(Lily) − logit(Tom), rescaled so that **0** means no change and **1** means the clean answer is fully restored. Press **run patching**, with **residual stream** selected, to try every snapshot at every position.",
+   "tab": "concepts",
+   "conceptPanel": "patching"
+  },
+  {
+   "text": "Read the grid from top to bottom. At first, only the highlighted column (the swapped name) matters: patching it restores everything, because it is the difference. Further down, that column fades while the **last** column lights up. Somewhere in the middle layers, the information about who gave the ball **moves** from the name's position to the position that makes the prediction. Attention is the only thing that moves information between positions, so heads in those layers must be doing it.",
+   "tab": "concepts",
+   "conceptPanel": "patching",
+   "ask": {
+    "question": "In the last column, click the **earliest** snapshot (highest row) that already restores at least half the answer (50 or more).",
+    "check": {
+     "kind": "patchHandoff"
+    },
+    "hint": "Go down the rightmost column until the number first reaches 50.",
+    "correct": "By this snapshot, the last position holds enough of the giver's name to change the answer. Clicking a cell applies that patch to the live model, so the next-token panel now shows the corrupted prompt answering more like the clean one."
+   }
+  },
+  {
+   "text": "Now find the heads. Switch the toggle to **heads** and run patching again. Each cell copies one head's output, at every position, from the clean run into the corrupted one.",
+   "tab": "concepts",
+   "conceptPanel": "patching",
+   "ask": {
+    "question": "Click the head whose patch restores the most.",
+    "check": {
+     "kind": "patchTop"
+    },
+    "hint": "Look for the darkest red cell. It is in one of the layers where the handoff happened.",
+    "correct": "This head moves the giver's name to the last position. Open it in the **attention** tab: from the last position, it attends to the name that differs between the prompts."
+   }
+  },
+  {
+   "text": "The patch is applied to the live model, so every view shows it. The **interventions** tab compares the patched run with the plain corrupted one, including how the next-token distribution moved. In the **attention** tab, select the head and the last position to see what it looks at. Try the other heads that light up too: some look at the giver's name, others at the other name, the answer itself. Together they form a small circuit.",
+   "tab": "interventions"
+  },
+  {
+   "text": "Patching and ablation answer different questions. Ablating a head shows whether the model **needs** it; patching shows whether it is **enough** to carry the difference.",
+   "tab": "interventions",
+   "ask": {
+    "question": "Can a head score high on patching yet barely matter when you ablate it? What would that mean?",
+    "check": {
+     "kind": "reveal"
+    },
+    "hint": "Try it: ablate the top head with the head gallery's ablate button and compare.",
+    "correct": "Yes. If several heads carry the same information, removing one leaves the others to do the job (backup heads), while patching any one of them still moves the answer. Later layers can also make up for a missing component (“self-repair”). So a full analysis uses both methods, and the size of a patching effect depends on the metric and on the corrupted prompt you chose. Further reading: Vig et al. 2020 (causal mediation); Meng et al. 2022 (causal tracing, ROME); Wang et al. 2022 (indirect object identification, the study this lesson copies at small scale); Zhang & Nanda 2023, and Heimersheim & Nanda 2024, on doing patching well."
+   }
+  }
+ ]
+}

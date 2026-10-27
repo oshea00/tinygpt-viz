@@ -1,5 +1,5 @@
 """Server side of the concept explorer: capture word representations from prompt sets,
-generate with and without steering, occlusion attribution, and neuron search. The
+generate with and without steering, occlusion attribution, activation patching, and neuron search. The
 analyses themselves (similarity, projections, probes, directions) run in the browser on
 the captured vectors."""
 
@@ -106,6 +106,79 @@ def occlusion(model: GPT, ids: list[int], target_pos: int) -> list[float]:
         logits, _ = model(batch)
     logp = torch.log_softmax(logits[:, t], dim=-1)[:, ids[t + 1]]
     return (logp[n] - logp[:n]).tolist()   # positive: this token helped the prediction
+
+
+def patch_stages(model: GPT, what: str) -> list[str]:
+    """The stages a patching sweep copies: residual snapshots (one row per snapshot, a cell per
+    position), or every head's output (a cell per head, all positions at once)."""
+    if what == "resid":
+        return snapshot_ids(model)
+    if what == "heads":
+        return [f"L{l}.attn.H{h}.mix" for l in range(model.cfg.n_layer) for h in range(model.cfg.n_head)]
+    raise ValueError(f"unknown patching target {what!r}")
+
+
+@torch.no_grad()
+def patch_sweep(model: GPT, clean: list[int], corrupt: list[int], answer: int, wrong: int,
+                what: str = "resid") -> dict:
+    """Activation patching: run the corrupted prompt, copy one activation from the clean run into
+    it, and measure how much of the clean answer comes back. The metric is the logit difference
+    LD = logit[answer] − logit[wrong] at the last position, as recovery
+    (LD_patched − LD_corrupt) / (LD_clean − LD_corrupt): 0 changes nothing, 1 restores the clean run.
+    Returns the grid ([snapshots, positions] or [layers, heads]) and the clean activations
+    ([snapshots, T, d] or [layers, heads, T, d_head]) so a cell can be applied as an intervention."""
+    T = model.cfg.block_size
+    clean, corrupt = clean[-T:], corrupt[-T:]
+    if len(clean) != len(corrupt):
+        raise ValueError(f"the prompts must have the same number of tokens ({len(clean)} vs {len(corrupt)})")
+    device = next(model.parameters()).device
+    stages = patch_stages(model, what)
+    src: dict[str, torch.Tensor] = {}
+
+    def keep(stage_id: str, x: torch.Tensor) -> torch.Tensor:
+        if stage_id in stages:
+            src[stage_id] = x[0]
+        return x
+
+    model.eval()
+    ld = lambda logits: logits[:, -1, answer] - logits[:, -1, wrong]   # noqa: E731
+    with model.tapped(keep):
+        ld_clean = ld(model(torch.tensor([clean], device=device))[0]).item()
+    ld_corrupt = ld(model(torch.tensor([corrupt], device=device))[0]).item()
+
+    n = len(corrupt)
+    cells = [(s, p) for s in stages for p in range(n)] if what == "resid" else [(s, None) for s in stages]
+    lds = []
+    for start in range(0, len(cells), 256):
+        chunk = cells[start:start + 256]
+
+        def patch(stage_id: str, x: torch.Tensor) -> torch.Tensor:
+            rows = [i for i, (s, _) in enumerate(chunk) if s == stage_id]
+            if not rows:
+                return x
+            x = x.clone()
+            for i in rows:
+                p = chunk[i][1]
+                if p is None:
+                    x[i] = src[stage_id]
+                else:
+                    x[i, p] = src[stage_id][p]
+            return x
+
+        with model.tapped(patch):
+            logits, _ = model(torch.tensor([corrupt] * len(chunk), device=device))
+        lds.append(ld(logits))
+    gap = ld_clean - ld_corrupt
+    rec = (torch.cat(lds) - ld_corrupt) / gap if abs(gap) > 1e-6 else torch.zeros(len(cells))
+    if what == "resid":
+        grid = rec.reshape(len(stages), n)
+        source = torch.stack([src[s] for s in stages])
+    else:
+        L, H = model.cfg.n_layer, model.cfg.n_head
+        grid = rec.reshape(L, H)
+        source = torch.stack([src[s] for s in stages]).reshape(L, H, n, -1)
+    return {"grid": grid.float().cpu().numpy(), "source": source.float().cpu().numpy(), "stages": stages,
+            "ldClean": ld_clean, "ldCorrupt": ld_corrupt}
 
 
 @torch.no_grad()

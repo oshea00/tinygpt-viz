@@ -57,7 +57,8 @@ export type Intervention =
   | { kind: "attend"; layer: number; head: number; position: number }
   | { kind: "set"; stage: string; row: number; col: number; value: number }
   | { kind: "shuffle_pos"; seed: number }
-  | { kind: "steer"; stage: string; vector: number[]; scale: number; label?: string };
+  | { kind: "steer"; stage: string; vector: number[]; scale: number; label?: string }
+  | { kind: "patch"; stage: string; positions: number[]; values: number[][]; label?: string };
 
 export interface Weights {
   step: number;
@@ -124,6 +125,7 @@ export type Command =
   | { type: "generateWith"; prompt: string; n: number; interventions?: Intervention[]; temperature?: number; seed?: number; tag?: string }
   | { type: "occlude"; prompt: string; position: number }
   | { type: "neuronTop"; layer: number; neuron: number }
+  | { type: "patch"; clean: string; corrupt: string; answer: string; wrong: string; what: "resid" | "heads" }
   | { type: "stepExplain"; prompt?: string };
 
 export interface MetricsMsg {
@@ -169,6 +171,23 @@ export interface LensMsg {
   topIds: number[][][];    // [snapshot][position][k]
   topP: number[][][];
   pActual: number[][];     // [snapshot][position], −1 where there is no next token
+}
+
+/** An activation-patching sweep (core/concepts.py patch_sweep). */
+export interface PatchResult {
+  clean: string;
+  corrupt: string;
+  cleanText: string[];
+  corruptText: string[];
+  what: "resid" | "heads";
+  stages: string[];          // the stage each grid row (resid) or cell (heads, layer-major) patches
+  answer: string;            // the clean prompt's answer token, and the token it competes with
+  wrong: string;
+  ldClean: number;           // logit[answer] − logit[wrong] at the last position, in each run
+  ldCorrupt: number;
+  step: number;
+  grid: Tensor;              // recovery: [snapshots, positions] or [layers, heads]
+  source: Tensor;            // the clean activations: [snapshots, T, d] or [layers, heads, T, d_head]
 }
 
 export interface NeuronExample { value: number; before: string; token: string; after: string; }

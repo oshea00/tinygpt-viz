@@ -39,6 +39,8 @@ class Player {
       lensSnap: settings.lensSnap, lens: app.serverLens, revealed: this.revealed,
       captured: !!concepts.current && concepts.pending === 0 && (!concepts.withBaseline || !!concepts.untrained),
       trained: !!app.stepExplain,
+      patches: concepts.patches,
+      patchCell: app.interventions.some((iv) => iv.kind === "patch") ? concepts.patchCell : null,
     });
   }
 

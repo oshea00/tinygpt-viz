@@ -20,7 +20,7 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | [Training](guide/08-training.md) | Live training, checkpoint replay, and one training step up close |
 | [Interventions](guide/09-interventions.md) | Ablating heads and neurons, editing values, before and after |
 | [Concept explorer](guide/10-concepts.md) | How the model represents words: similarity, probes, steering |
-| [Lessons](guide/11-lessons.md) | The ten guided lessons |
+| [Lessons](guide/11-lessons.md) | The twelve guided lessons |
 | [Embeddings](guide/12-embeddings.md) | The token and position tables as maps |
 
 ## For instructors and lesson authors

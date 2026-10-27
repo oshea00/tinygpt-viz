@@ -71,3 +71,12 @@ def test_gradients_still_flow(default_model: GPT):
 def test_unknown_intervention(default_model: GPT):
     with pytest.raises(ValueError):
         _run(default_model, [{"kind": "nope"}])
+
+
+def test_patch_overwrites_rows(default_model: GPT):
+    base = _run(default_model).stage("L0.resid_mlp").output
+    values = [[1.0] * base.shape[1], [2.0] * base.shape[1]]
+    t = _run(default_model, [{"kind": "patch", "stage": "L0.resid_mlp", "positions": [3, 7], "values": values}])
+    out = t.stage("L0.resid_mlp").output
+    np.testing.assert_array_equal(out[[3, 7]], np.array(values, dtype=np.float32))
+    np.testing.assert_array_equal(np.delete(out, [3, 7], axis=0), np.delete(base, [3, 7], axis=0))

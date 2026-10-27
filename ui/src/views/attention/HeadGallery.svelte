@@ -2,7 +2,7 @@
   // Every head's pattern for the current prompt, so recognisable ones can be spotted and named.
   import type { Tensor } from "../../types";
   import { app, selection } from "../../state/app.svelte";
-  import { headPattern, headStats } from "../../lib/attention";
+  import { hasRepeats, headPattern, headStats } from "../../lib/attention";
   import { headColor } from "../../lib/colormap";
   import { drawThumb } from "../../lib/heatmap";
 
@@ -12,11 +12,12 @@
     Array.from({ length: cfg.n_layer }, (_, l) =>
       Array.from({ length: cfg.n_head }, (_, h) => {
         const w = trace.byId.get(`L${l}.attn.H${h}.weights`)!.output;
-        const stats = headStats(w);
-        return { l, h, w, pattern: headPattern(stats), focus: stats.peak };
+        const stats = headStats(w, trace.tokens);
+        return { l, h, w, pattern: headPattern(stats), focus: stats.peak, induction: stats.induction };
       }),
     ),
   );
+  const repeats = $derived(hasRepeats(trace.tokens));
 
   // Names are a per-viewer convenience, so browser storage is enough; it may be unavailable.
   const storeKey = $derived(`tinygpt.headNames.${cfg.name}`);
@@ -59,6 +60,11 @@
         <div class="focus mono" title="focus: the average weight each row gives its heaviest key (1 = always one key)">
           focus {c.focus.toFixed(2)}<span class="track"><span class="fill" style:width="{c.focus * 100}%"></span></span>
         </div>
+        {#if repeats}
+          <div class="focus mono" title="induction: weight on the token that followed an earlier copy of this one">
+            induction {c.induction.toFixed(2)}<span class="track"><span class="fill" style:width="{c.induction * 100}%"></span></span>
+          </div>
+        {/if}
         <button class="ablate" class:on={ablated} title="zero this head's output in every trace"
                 onclick={() => ablated
                   ? app.setInterventions(app.interventions.filter((iv) => !(iv.kind === "head" && iv.layer === c.l && iv.head === c.h)))
@@ -74,7 +80,9 @@
 <p class="muted note">Badges: a fixed habit (mean weight on the previous / same / first position) if the head has one;
   otherwise “sharp” (most weight on one key, chosen by content), “local” or “broad”, and how many positions back it
   looks on average. <b>Focus</b>: the average weight each row gives its heaviest key, whatever the badge; 1 means every
-  query looks at a single key. Measured on this prompt only, so try a few.</p>
+  query looks at a single key. <b>Induction</b> (shown when a token repeats): for each token seen before, the weight on
+  the token that followed it last time, so a head that completes “A B … A” with B scores near 1. Measured on this
+  prompt only, so try a few.</p>
 
 <style>
   .gallery { display: grid; gap: 8px; align-items: center; }

@@ -35,6 +35,17 @@ describe("headStats", () => {
     expect(headPattern(s)).toBe("sharp · 1.9 back");   // early rows cannot reach 3 back
   });
 
+  it("scores an induction head on a repeated sequence", () => {
+    // A B C D A B C D: from the second copy, attend to the token after the earlier copy.
+    const tokens = [1, 2, 3, 4, 1, 2, 3, 4];
+    const ind = headStats(matrix(8, (r, j) => (r >= 4 ? (j === r - 3 ? 1 : 0) : j === r ? 1 : 0)), tokens);
+    expect(ind.induction).toBeCloseTo(1);
+    const prev = headStats(matrix(8, (r, j) => (j === Math.max(0, r - 1) ? 1 : 0)), tokens);
+    expect(prev.induction).toBeCloseTo(0);
+    expect(headStats(matrix(8, (r, j) => (j === r ? 1 : 0)), [1, 2, 3, 4, 5, 6, 7, 8]).induction).toBe(0);   // nothing repeats
+    expect(headStats(matrix(8, (r, j) => (j === r ? 1 : 0))).induction).toBe(0);                              // no tokens given
+  });
+
   it("measures a uniform head as broad", () => {
     const s = headStats(matrix(20, (r, j) => (j <= r ? 1 / (r + 1) : 0)));
     expect(s.entropy).toBeGreaterThan(1.5);

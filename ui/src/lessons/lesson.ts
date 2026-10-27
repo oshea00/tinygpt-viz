@@ -1,7 +1,7 @@
 // Lessons are plain JSON (see ./*.json): a sequence of steps, each setting up the views
 // and narrating, optionally asking the learner to find something. New lessons need no code.
 
-import type { Intervention, LensMsg, Trace } from "../types";
+import type { Intervention, LensMsg, PatchResult, Trace } from "../types";
 import { headStats } from "../lib/attention";
 import { argmax } from "../lib/residual";
 import { at, dims2, row } from "../lib/tensor";
@@ -14,13 +14,15 @@ export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens"
 export type Check =
   | { kind: "stage"; ids: string[] }                       // select one of these stages
   | { kind: "position"; positions: number[] }              // select one of these positions
-  | { kind: "headBest"; stat: "prev" | "self" | "first" | "peak" }   // select the head scoring highest
+  | { kind: "headBest"; stat: "prev" | "self" | "first" | "peak" | "induction" }   // select the head scoring highest
   | { kind: "attnTop" }                                    // pick the key the selected head weights most for the query
   | { kind: "tab"; tab: Tab }
   | { kind: "bright"; ids: string[] }                      // click a cell of one of these stages at least half its maximum
   | { kind: "lensEarly" }                                  // click a logit-lens cell in the first half of the rows that is correct
   | { kind: "captured" }                                   // capture the concept prompt set (and the untrained model, if ticked)
   | { kind: "trained" }                                    // take a step in the training step tab
+  | { kind: "patchHandoff" }                               // apply the earliest residual patch at the last position that recovers ≥ half
+  | { kind: "patchTop" }                                   // apply the head patch that recovers most
   | { kind: "reveal" };                                    // a question to think about: answered by showing the answer
 
 export interface LessonStep {
@@ -35,7 +37,7 @@ export interface LessonStep {
   atlasMode?: "values" | "grads" | "flow" | "diff" | "recent";
   lensMode?: "confidence" | "actual";
   residualMode?: "snapshots" | "writes";
-  conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons";
+  conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons" | "patching";
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   kvCache?: boolean;            // switch KV cache mode on or off
@@ -67,6 +69,8 @@ export interface Live {
   captured?: boolean;
   trained?: boolean;
   revealed?: boolean;
+  patches?: Partial<Record<"resid" | "heads", PatchResult>>;
+  patchCell?: { what: "resid" | "heads"; row: number; col: number } | null;   // the patch applied, if still applied
 }
 
 export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLayer: number, nHead: number, live: Live = {}): boolean {
@@ -90,6 +94,19 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
     }
     case "captured": return !!live.captured;
     case "trained": return !!live.trained;
+    case "patchHandoff": {
+      const r = live.patches?.resid, c = live.patchCell;
+      if (!r || c?.what !== "resid") return false;
+      const [S, T] = r.grid.shape;
+      const first = Array.from({ length: S }, (_, s) => s).find((s) => r.grid.data[s * T + T - 1] >= 0.5);
+      return c.col === T - 1 && c.row === first;
+    }
+    case "patchTop": {
+      const r = live.patches?.heads, c = live.patchCell;
+      if (!r || c?.what !== "heads") return false;
+      const best = argmax(r.grid.data);
+      return c.row * r.grid.shape[1] + c.col === best;
+    }
     case "reveal": return !!live.revealed;
     case "position": return check.positions.includes(sel.position);
     case "tab": return sel.tab === check.tab;
@@ -99,10 +116,10 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
       for (let l = 0; l < nLayer; l++) for (let h = 0; h < nHead; h++) {
         const w = trace.byId.get(`L${l}.attn.H${h}.weights`);
         if (!w) continue;
-        const v = headStats(w.output)[check.stat];
+        const v = headStats(w.output, trace.tokens)[check.stat];
         if (v > bestV) [bestV, best] = [v, [l, h]];
       }
-      return sel.layer === best[0] && sel.head === best[1];
+      return bestV > 0 && sel.layer === best[0] && sel.head === best[1];   // 0: nothing to find (no token repeats, for induction)
     }
     case "attnTop": {
       const w = trace?.byId.get(`L${sel.layer}.attn.H${sel.head}.weights`);

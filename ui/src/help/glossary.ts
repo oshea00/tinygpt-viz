@@ -85,6 +85,8 @@ const CONCEPTS: GlossEntry[] = [
   C("Logit lens", ["logit lens"], "Reading a prediction out of every snapshot, not just the last, by applying the final layer norm and unembedding early. It shows when the guess forms."),
   C("Principal components", ["PCA", "principal component", "principal components"], "The directions along which a set of vectors varies most. The maps in the embeddings tab, the concept explorer and the trajectories project onto the top two, and say how much of the variation they keep."),
   C("Ablation", ["ablation", "ablate"], "Switching part of the model off (zeroing a head or neuron, or replacing it with its average) to see what depends on it."),
+  C("Activation patching", ["activation patching", "patching"], "Running a corrupted prompt with one activation copied in from a clean prompt, to find where the model carries the information the two prompts differ in. Ablation asks what is **necessary**; patching asks what is **sufficient** to restore the answer."),
+  C("Induction head", ["induction head", "induction heads"], "A head that finds an earlier copy of the current token and attends to the token after it, so “A B … A” predicts B. It needs an earlier head that moves each token's predecessor into its position (a previous-token head)."),
   C("Steering", ["steering", "steer"], "Adding a direction to the residual stream during generation, to test whether that direction changes what the model writes.", String.raw`x \leftarrow x + \alpha\, v`),
   C("Probe", ["probe", "probes"], "A simple classifier (here logistic regression) trained to read a concept from vectors at one snapshot. Accuracy on held-out words shows where a concept becomes readable, but not that the model uses it."),
 ];

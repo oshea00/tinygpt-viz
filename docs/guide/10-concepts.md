@@ -81,6 +81,15 @@ Which tokens of the main prompt drove a prediction? Pick a prediction to explain
 
 Where the three agree, the evidence is strong. Where they disagree, each is measuring something different.
 
+## Activation patching
+
+Where does the model carry a piece of information, and which heads move it? Give two prompts with the same number of tokens that differ in one word: a **clean** one and a **corrupted** one with a different answer (the example swaps who gave the ball, so the answer flips between Lily and Tom). **run patching** runs the corrupted prompt many times, each time copying one activation in from the clean run, and measures the logit difference between the two answers at the last position. Each cell shows the **recovery**, (patched − corrupted) / (clean − corrupted): 1 restores the clean answer, 0 changes nothing.
+
+- **residual stream**: one cell per snapshot (row) and position (column). The column where the prompts differ is highlighted. Reading down, the information starts at that column and, in the layers where attention moves it, shows up in the last column.
+- **heads**: one cell per head, copying its output at every position.
+
+Click a cell to apply that patch to the live model. The prompt becomes the corrupted one, and every view, including the **interventions** tab, shows the patched run. Ablation shows what the model **needs**; patching shows what is **enough** to restore the answer. When several heads do the same job, the two can disagree. Lesson 12 walks through it.
+
 ## Neurons
 
 Pick an MLP neuron (or use the one selected in the inspector) and **find what it responds to**: its strongest activations over validation text, with the token where it fires in bold. Many neurons respond to several unrelated things.

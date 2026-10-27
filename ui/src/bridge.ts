@@ -1,6 +1,6 @@
 // WebSocket client and binary frame decoding (see core/trace_io.py for the layout).
 
-import type { Command, JsonMsg, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
+import type { Command, JsonMsg, PatchResult, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
 import type { Capture } from "./lib/concepts";
 
 interface Ref {
@@ -83,8 +83,14 @@ export function decodeCapture(f: Frame): Capture {
   return { vectors: t.data, N, S, d, items: h.items, snapshots: h.snapshots, model: h.model, step: h.step };
 }
 
+export function decodePatch(f: Frame): PatchResult {
+  const h = f.header;
+  return { ...h, grid: f.tensor(h.tensors.grid), source: f.tensor(h.tensors.source) };
+}
+
 export type BinaryMsg =
   | { type: "capture"; capture: Capture; tag?: string }
+  | { type: "patch"; patch: PatchResult }
   | { type: "trace"; trace: Trace }
   | { type: "weights"; weights: Weights }
   | { type: "stepExplain"; explain: StepExplain };
@@ -96,6 +102,7 @@ export function decodeBinary(buf: ArrayBuffer): BinaryMsg {
     case "weights": return { type: "weights", weights: decodeWeights(f) };
     case "stepExplain": return { type: "stepExplain", explain: decodeStepExplain(f) };
     case "capture": return { type: "capture", capture: decodeCapture(f), tag: f.header.tag };
+    case "patch": return { type: "patch", patch: decodePatch(f) };
     default: throw new Error(`unknown frame ${f.header.type}`);
   }
 }

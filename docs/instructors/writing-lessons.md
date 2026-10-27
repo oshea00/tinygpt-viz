@@ -57,7 +57,7 @@ Every field except `text` is optional. A step only changes what it names; everyt
 | `atlasMode` | `values`, `grads`, `flow`, `diff` or `recent`. |
 | `lensMode` | `confidence` or `actual`. |
 | `residualMode` | `snapshots` or `writes`. |
-| `conceptPanel` | `similarity`, `map`, `neighbours`, `drift`, `probes`, `steer`, `attribution` or `neurons`. |
+| `conceptPanel` | `similarity`, `map`, `neighbours`, `drift`, `probes`, `steer`, `attribution`, `neurons` or `patching`. |
 | `interventions` | Replaces the active interventions; `[]` clears them. Same form as the server's, e.g. `{"kind": "head", "layer": 1, "head": 2, "mode": "zero"}` or `{"kind": "shuffle_pos", "seed": 1}`. |
 | `sampling` | `{"temperature": 0.8, "topK": 5, "topP": null}` for the next-token panel. |
 | `kvCache` | `true` or `false`: KV cache mode. |
@@ -88,17 +88,19 @@ Lessons start by clearing interventions, so each one starts from the plain model
 | `{"kind": "stage", "ids": ["L1.mlp.gelu"]}` | selected one of these stages |
 | `{"kind": "position", "positions": [3]}` | selected one of these positions (clicking any cell in that row counts) |
 | `{"kind": "tab", "tab": "atlas"}` | opened this tab |
-| `{"kind": "headBest", "stat": "prev"}` | selected the head that scores highest on `prev`, `self`, `first` or `peak` (sharpness) |
+| `{"kind": "headBest", "stat": "prev"}` | selected the head that scores highest on `prev`, `self`, `first`, `peak` (sharpness) or `induction` (needs a prompt in which a token repeats) |
 | `{"kind": "attnTop"}` | clicked the key the selected head weights most for the current query |
 | `{"kind": "bright", "ids": ["L1.mlp.gelu"]}` | clicked a cell of one of these stages whose value is at least half the stage's largest |
 | `{"kind": "lensEarly"}` | clicked a logit-lens cell in the top half of the rows whose guess is correct |
 | `{"kind": "captured"}` | pressed **capture** in the concepts tab (with the untrained model too, if ticked) |
 | `{"kind": "trained"}` | taken a step in the training step tab |
+| `{"kind": "patchHandoff"}` | applied the residual-stream patching cell in the last column at the earliest snapshot that recovers at least half the answer |
+| `{"kind": "patchTop"}` | applied the head patching cell that recovers most |
 | `{"kind": "reveal"}` | pressed **show the answer**: for a question to think about, with the answer in `correct` |
 
 A question must not be answered by its own step: a `tab` check on a step that opens that tab, or a `stage` check on a step that selects that stage, shows ✓ before the learner does anything. The lesson tests catch this. **Reset this step** clears the selection, the clicked lens row, a shown answer and, on a `captured` or `trained` step, the capture or training step.
 
-`headBest`, `attnTop`, `bright` and `lensEarly` are worked out from the live model. Use them for anything that depends on what the model learned (which head does what): a hard-coded answer would be wrong at another checkpoint or on another model.
+`headBest`, `attnTop`, `bright`, `lensEarly`, `patchHandoff` and `patchTop` are worked out from the live model. Use them for anything that depends on what the model learned (which head does what): a hard-coded answer would be wrong at another checkpoint or on another model.
 
 ## Formatting
 

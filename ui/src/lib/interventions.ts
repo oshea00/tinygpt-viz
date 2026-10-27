@@ -12,6 +12,7 @@ export function describe(iv: Intervention): string {
     case "set": return `${iv.stage}[${iv.row}, ${iv.col}] set to ${iv.value}`;
     case "shuffle_pos": return `position embeddings shuffled (seed ${iv.seed})`;
     case "steer": return `steering at ${iv.stage}${iv.label ? ` towards ${iv.label}` : ""} × ${iv.scale}`;
+    case "patch": return `${iv.stage} patched from ${iv.label ?? "another prompt"} at ${iv.positions.length === 1 ? `position ${iv.positions[0]}` : "every position"}`;
   }
 }
 
