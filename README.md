@@ -14,47 +14,22 @@ pipeline map with a stepper and tensor inspector, attention views, generation wi
 the residual stream and logit lens, a network atlas, interventions, guided lessons, live
 training with checkpoint replay, a manual backward mode, and a concept explorer.
 
-## Setup
+## Run it
 
-Requires [uv](https://docs.astral.sh/uv/) and Node 20+.
-
-```sh
-uv sync                          # Python deps (PyTorch with CUDA 12.8 on x86 Linux/Windows, CUDA 13.0 on ARM Linux, MPS on macOS)
-cd ui && npm install && npm run build && cd ..
-```
-
-PyTorch comes in one of three builds, chosen by uv dependency group: `cuda` (the default: CUDA 13.0
-on ARM Linux such as DGX Spark, and the standard build with MPS on macOS), `rocm` for AMD GPUs on
-x86 Linux, and `cpu` for a smaller CPU-only install. To switch, turn the default off for this shell
-(add it to your shell profile to keep it), then sync the build you want:
+Requires [uv](https://docs.astral.sh/uv/) and Node 20+. A GPU is optional: the model runs on any CPU.
 
 ```sh
-export UV_NO_GROUP=cuda
-uv sync --group rocm             # PyTorch 2.14 for ROCm 7.2; or --group cpu
+uv sync                                          # Python and PyTorch
+cd ui && npm install && npm run build && cd ..   # the UI
+uv run python -m core.server                     # add --train for live training and replay
 ```
 
-`uv run` then keeps that build. The ROCm build is not yet tested on AMD hardware.
+Then open http://localhost:8765. No training is needed first: the first run downloads the trained
+checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)).
+[Getting started](docs/guide/01-getting-started.md) covers the PyTorch builds (CUDA, CPU-only, ROCm),
+the model, and the server's options.
 
-## Run the app
-
-```sh
-uv run python -m core.server           # loads the latest checkpoint; --fresh for random weights
-uv run python -m core.server --train   # also enables training, replay and the training step tab
-```
-
-No training is needed first: if `runs/bpe-small/` is empty, the server downloads the model's
-trained checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)).
-A model that only runs never downloads or tokenizes TinyStories.
-
-There is one model, `bpe-small` (the default, so `--config` can be left out):
-
-| Config | Reads | Params | Shape | Notes |
-| --- | --- | --- | --- | --- |
-| `bpe-small` | BPE tokens (4,096) | 5.8M | 6 layers × 8 heads, d=256, tied embeddings | most words are one token |
-
-Open http://localhost:8765 (from WSL2, in the Windows browser). For UI development, run
-`npm run dev` in `ui/` alongside the server; Vite proxies `/ws` to port 8765. The server binds
-127.0.0.1; pass `--host 0.0.0.0` to reach it from other machines (it has no authentication).
+## What's inside
 
 - **Prompt box**: every keystroke re-runs the model; click a token to follow its row through every stage.
 - **Pipeline map** (left): the residual spine with attention and MLP branches, one live thumbnail per stage.

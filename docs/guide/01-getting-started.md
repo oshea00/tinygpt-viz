@@ -5,11 +5,24 @@
 You need [uv](https://docs.astral.sh/uv/), Node 20 or later, and Chrome or another modern browser. A GPU is optional: the published model runs on any CPU.
 
 ```sh
-uv sync                                   # Python and PyTorch (CUDA wheels on Linux and Windows)
+uv sync                                   # Python and PyTorch
 cd ui && npm install && npm run build && cd ..
 ```
 
-With an AMD GPU on Linux, install the ROCm build of PyTorch instead: run `export UV_NO_GROUP=cuda` (and add it to your shell profile), then `uv sync --group rocm`. `--group cpu` gives a smaller CPU-only install the same way.
+### PyTorch builds
+
+PyTorch comes in one of three builds, chosen by uv dependency group:
+
+- **`cuda`** (the default): CUDA 12.8 on x86 Linux and Windows, CUDA 13.0 on ARM Linux (such as DGX Spark), and the standard build with MPS on macOS.
+- **`cpu`**: a smaller CPU-only install.
+- **`rocm`**: PyTorch for ROCm, for AMD GPUs on x86 Linux. **Not yet tested on AMD hardware.**
+
+To switch, turn the default off for this shell (add the line to your shell profile to keep it), then sync the build you want. `uv run` keeps that build from then on.
+
+```sh
+export UV_NO_GROUP=cuda
+uv sync --group cpu                       # or --group rocm
+```
 
 ## Run the app
 
@@ -18,6 +31,15 @@ uv run python -m core.server
 ```
 
 Then open <http://localhost:8765>. You don't need to train anything first. The first time the server starts, it downloads the trained checkpoints from Hugging Face ([oshea00/tinygpt-viz](https://huggingface.co/oshea00/tinygpt-viz)), along with the small validation set the neuron examples use. After that it loads the latest checkpoint from `runs/bpe-small/`. A model that only runs needs nothing else, so a machine without a GPU never downloads or tokenizes TinyStories.
+
+### Server options
+
+- **`--port`** (default 8765) and **`--host`**: the server binds 127.0.0.1, so only this machine can reach it. Under WSL2, open the address in the Windows browser. Pass `--host 0.0.0.0` to reach it from other machines; it has no authentication.
+- **`--fresh`**: start from random weights instead of the latest checkpoint.
+- **`--train`**: enable training (see [Watch it train](#watch-it-train)).
+- **`--device`**: choose the device (`cpu`, `cuda`, `mps`…) instead of the best one available.
+
+For UI development, run `npm run dev` in `ui/` alongside the server and open <http://localhost:5173>: Vite reloads on every save and proxies `/ws` to port 8765.
 
 ## The model
 
