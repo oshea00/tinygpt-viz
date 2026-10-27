@@ -39,7 +39,7 @@
       {#if topic.tryThis.length}
         <p class="try"><b>Try:</b> {@html formatText(topic.tryThis.join(" "))}</p>
       {/if}
-      <p class="more muted">More in the guide: <a href="/docs/guide/{topic.guide}" target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
+      <p class="more muted">More in the guide: <a href="/guide.html?doc=guide/{topic.guide}" target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
     {/if}
   </section>
 {/if}
