@@ -123,3 +123,7 @@ core/    model.py (explicit-ops GPT with tap points), stages.py (stage registry)
 ui/src/  bridge.ts, state/, lib/ (colour maps, scales, heatmaps, provenance, pipeline layout), views/
 tests/   pytest suites; ui/src/fixtures/ holds frames they generate for Vitest
 ```
+
+## License
+
+[MIT](LICENSE)
