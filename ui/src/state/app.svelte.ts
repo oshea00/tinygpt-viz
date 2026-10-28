@@ -298,7 +298,7 @@ export const selection = new Selection();
 
 class Settings {
   help = $state(false);                    // the help panel
-  helpTopic = $state<string | null>(null);   // a panel's help (see help/help.ts PANELS), "glossary"; null: the open tab
+  helpTopic = $state<string | null>(null);   // a panel's help (see help/help.ts PANELS), "glossary", "bibliography"; null: the open tab
   glossaryKey = $state<string | null>(null); // the glossary entry a link pointed to
 
   openHelp(topic: string | null): void {

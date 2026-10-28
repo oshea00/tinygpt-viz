@@ -2,12 +2,14 @@
   // Help for the open tab, or for one of the always-visible panels, or the glossary.
   import { app, settings } from "../state/app.svelte";
   import { formatText } from "../lessons/lesson";
+  import Bibliography from "./Bibliography.svelte";
   import Glossary from "./Glossary.svelte";
   import { LAYOUT, PANELS, TOPICS } from "./help";
 
   const tabTopic = $derived(TOPICS[settings.tab] ?? LAYOUT);
   const glossary = $derived(settings.helpTopic === "glossary");
-  const topic = $derived(settings.helpTopic === "layout" || glossary ? LAYOUT : settings.helpTopic ? PANELS[settings.helpTopic] : tabTopic);
+  const bibliography = $derived(settings.helpTopic === "bibliography");
+  const topic = $derived(settings.helpTopic === "layout" || glossary || bibliography ? LAYOUT : settings.helpTopic ? PANELS[settings.helpTopic] : tabTopic);
   const choices = $derived([
     [null, `${tabTopic.title} (open tab)`],
     ["layout", LAYOUT.title],
@@ -15,6 +17,7 @@
     ["generation", PANELS.generation.title],
     ...(app.hello?.training ? [["training", PANELS.training.title] as const] : []),
     ["glossary", "Glossary"],
+    ["bibliography", "Bibliography"],
   ] as const);
 </script>
 
@@ -32,6 +35,9 @@
     {#if glossary}
       <h3>Glossary</h3>
       <Glossary />
+    {:else if bibliography}
+      <h3>Bibliography</h3>
+      <Bibliography />
     {:else}
       <h3>{topic.title}</h3>
       <p class="what">{@html formatText(topic.what)}</p>
