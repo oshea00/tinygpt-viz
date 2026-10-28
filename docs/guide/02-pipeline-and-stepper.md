@@ -10,7 +10,7 @@ The left column is the whole forward pass, top to bottom, one row per stage:
 - **Branches** (indented) are what each sublayer computes from the stream before adding its result back: layer norm, Q, K and V, the attention heads, the MLP.
 - **Thumbnails** show each stage's output for the current prompt. Rows with several thumbnails are per-head stages, one per head, bordered in that head's colour.
 
-Click any thumbnail to select that stage: the inspector shows it, the atlas outlines it, and the stepper jumps to it.
+Click any thumbnail to select that stage: the inspector shows it, the atlas outlines it, and the stepper jumps to it. **Double-click** also switches to the inspector tab, as it does in the atlas.
 
 When [interventions](09-interventions.md) are active, stages whose values changed get an orange outline. In [KV cache mode](07-generation.md#kv-cache-mode), rows that came from the cache are greyed in the thumbnails.
 

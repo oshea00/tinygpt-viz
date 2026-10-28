@@ -2,7 +2,7 @@
   // The residual stream as a vertical spine; attention and MLP branch off it and rejoin
   // at an add node. Each stage carries a live thumbnail of its output (or gradient).
   import type { Tensor } from "../../types";
-  import { app, selection } from "../../state/app.svelte";
+  import { app, selection, settings } from "../../state/app.svelte";
   import { headColor } from "../../lib/colormap";
   import HelpButton from "../../help/HelpButton.svelte";
   import { drawThumb } from "../../lib/heatmap";
@@ -72,8 +72,9 @@
             class:selected
             class:changed={changed.has(s.id)}
             style:border-color={s.head !== undefined && !selected ? headColor(s.head) : undefined}
-            title="{row.label}: {s.id}"
+            title="{row.label}: {s.id} (double-click to open in the inspector)"
             onclick={() => selection.select(s.id)}
+            ondblclick={() => (settings.tab = "inspector")}
           >
             {#if !t}
               <span class="none">–</span>

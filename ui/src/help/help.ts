@@ -30,7 +30,7 @@ export const PANELS: Record<string, HelpTopic> = {
     title: "Pipeline map and stepper",
     what: "The whole forward pass, top to bottom. The vertical line with ⊕ nodes is the **residual stream**, the vector each position carries; each block's attention and MLP branch off it, compute, and add their result back. Each stage has a live thumbnail of its output.",
     how: [
-      "Click a thumbnail to select that stage: every view follows. Per-head stages show one thumbnail per head, bordered in the head's colour.",
+      "Click a thumbnail to select that stage: every view follows. **Double-click** also opens it in the inspector. Per-head stages show one thumbnail per head, bordered in the head's colour.",
       "**Stepper** (under the prompt): ◀ / ▶ or the ← → keys walk the stages in order; **play** steps automatically; **jump to** goes to a block, the output, or the start of the backward pass.",
       "Past the loss, the stepper walks **back up** the network: each stage then shows its gradient.",
       "Orange outlines: stages changed by an intervention. Grey: rows that came from the KV cache.",
