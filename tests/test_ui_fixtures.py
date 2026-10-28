@@ -7,7 +7,7 @@ import torch
 
 from core.model import GPT
 from core.sampling import SampleSettings, shape_distribution
-from core.trace_io import decode_trace, encode_trace, encode_weights
+from core.trace_io import decode_trace, encode_tensors, encode_trace, encode_weights
 from core.tracer import trace
 
 from .conftest import TINY
@@ -122,6 +122,39 @@ def test_write_kvcache_fixture():
     for i, seq in enumerate([ids[:8], ids[:9], ids[:10], ids[:5] + [7, 7, 7]]):
         t, info = trace_cached(model, cache, seq, [str(x) for x in seq], 42, weights_version=1)
         (out / f"step{i}.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run", "incremental": info}))
+
+
+def test_write_training_fixture(tmp_path):
+    """Two steps of core/train.py's Trainer on fixed batches, for the browser engine's training
+    (ui/src/engine/train.ts): the batched loss and gradients, then AdamW with warmup, weight decay
+    and gradient clipping (set tight, so it clips)."""
+    from types import SimpleNamespace
+
+    from core.config import TrainConfig
+    from core.train import Trainer
+
+    cfg = TrainConfig(lr=1e-2, warmup_steps=2, grad_clip=0.1, seed=0)
+    data = SimpleNamespace(tokenizer=SimpleNamespace(vocab_size=16))
+    t = Trainer(TINY, cfg, data, "cpu", run_dir=tmp_path)
+    w0 = {n: p.detach().numpy().copy() for n, p in t.model.named_weights().items()}
+    g = torch.Generator().manual_seed(5)
+    batches = [torch.randint(16, (3, 13), generator=g) for _ in range(2)]
+    batches = [(b[:, :-1].contiguous(), b[:, 1:].contiguous()) for b in batches]
+
+    x, y = batches[0]
+    _, loss = t.model(x, y)
+    loss.backward()
+    grads = {n: p.grad.numpy().copy() for n, p in t.model.named_weights().items()}
+    t.model.zero_grad(set_to_none=True)
+
+    steps = [t.step(batch=b) for b in batches]
+    w2 = {n: p.detach().numpy() for n, p in t.model.named_weights().items()}
+    FIXTURES.mkdir(parents=True, exist_ok=True)
+    (FIXTURES / "train.bin").write_bytes(encode_tensors("train", {"before": w0, "grads": grads, "after": w2}, {
+        "config": {"lr": cfg.lr, "warmupSteps": cfg.warmup_steps, "weightDecay": cfg.weight_decay, "gradClip": cfg.grad_clip},
+        "batches": [{"x": x.tolist(), "y": y.tolist()} for x, y in batches],
+        "loss": loss.item(), "steps": [{k: s[k] for k in ("step", "loss", "gradNorm", "lr")} for s in steps],
+    }))
 
 
 def test_write_sampling_fixture():

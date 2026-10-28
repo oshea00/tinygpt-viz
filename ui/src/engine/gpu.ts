@@ -4,7 +4,7 @@
 
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { frameAround, traceHeader } from "./frames";
-import { runForward, type Engine, type ForwardOptions, type WeightSet } from "./engine";
+import { ADAM_EPS, BETAS, runForward, type Engine, type ForwardOptions, type StepSettings, type WeightSet } from "./engine";
 import { forward, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
@@ -55,9 +55,9 @@ export class Arena {
 
 // -- shaders ----------------------------------------------------------------
 
-// Every kernel reads its sizes from P: eight u32 slots (floats are bit-cast).
+// Every kernel reads its sizes from P: twelve u32 slots (floats are bit-cast).
 const HEADER = /* wgsl */ `
-struct P { a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32 }
+struct P { a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32, i: u32, j: u32, k: u32, l: u32 }
 @group(0) @binding(0) var<uniform> p: P;
 `;
 const LOWEST = "-3.4028234663852886e38";   // the lowest f32, to start a running max
@@ -93,6 +93,7 @@ fn reduce_max(v: f32, lid: u32) -> f32 {
 const SHADERS: Record<string, string> = {
   // C[m,n] (=|+=) alpha · op(A) op(B) (+ bias). a=m b=n c=k d=transA e=transB f=accumulate g=bias h=alpha.
   // op(A) is [m,k]: stored [k,m] when transposed. op(B) is [k,n]: stored [n,k] when transposed.
+  // Batched over workgroup z (one per sequence), with element strides i, j, k for A, B and C.
   matmul: `
 @group(0) @binding(1) var<storage, read> A: array<f32>;
 @group(0) @binding(2) var<storage, read> B: array<f32>;
@@ -100,15 +101,15 @@ const SHADERS: Record<string, string> = {
 @group(0) @binding(4) var<storage, read> bias: array<f32>;
 var<workgroup> As: array<array<f32, 16>, 16>;
 var<workgroup> Bs: array<array<f32, 16>, 16>;
-fn a_at(r: u32, c: u32) -> f32 {
+fn a_at(z: u32, r: u32, c: u32) -> f32 {
   if (r >= p.a || c >= p.c) { return 0.0; }
-  if (p.d == 1u) { return A[c * p.a + r]; }
-  return A[r * p.c + c];
+  if (p.d == 1u) { return A[z * p.i + c * p.a + r]; }
+  return A[z * p.i + r * p.c + c];
 }
-fn b_at(r: u32, c: u32) -> f32 {
+fn b_at(z: u32, r: u32, c: u32) -> f32 {
   if (r >= p.c || c >= p.b) { return 0.0; }
-  if (p.e == 1u) { return B[c * p.c + r]; }
-  return B[r * p.b + c];
+  if (p.e == 1u) { return B[z * p.j + c * p.c + r]; }
+  return B[z * p.j + r * p.b + c];
 }
 @compute @workgroup_size(16, 16)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
@@ -116,8 +117,8 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec
   let col = wg.x * 16u + lid.x;
   var s = 0.0;
   for (var t = 0u; t < (p.c + 15u) / 16u; t++) {
-    As[lid.y][lid.x] = a_at(row, t * 16u + lid.x);
-    Bs[lid.y][lid.x] = b_at(t * 16u + lid.y, col);
+    As[lid.y][lid.x] = a_at(wg.z, row, t * 16u + lid.x);
+    Bs[lid.y][lid.x] = b_at(wg.z, t * 16u + lid.y, col);
     workgroupBarrier();
     for (var i = 0u; i < 16u; i++) { s += As[lid.y][i] * Bs[i][lid.x]; }
     workgroupBarrier();
@@ -125,7 +126,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec
   if (row < p.a && col < p.b) {
     var v = bitcast<f32>(p.h) * s;
     if (p.g == 1u) { v += bias[col]; }
-    let i = row * p.b + col;
+    let i = wg.z * p.k + row * p.b + col;
     if (p.f == 1u) { v += C[i]; }
     C[i] = v;
   }
@@ -144,6 +145,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let v = src[i * p.c + p.d + j];
   let k = i * p.e + p.f + j;
   if (p.g == 1u) { dst[k] += v; } else { dst[k] = v; }
+}`,
+
+  // gW[c + j] += Σ_r g[r·b + j] for j < b, r < a: the backward of rows() repeated per sequence.
+  repeat_back: `
+@group(0) @binding(1) var<storage, read> g: array<f32>;
+@group(0) @binding(2) var<storage, read_write> gW: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let j = id.y * 65535u * 64u + id.x;
+  if (j >= p.b) { return; }
+  var s = 0.0;
+  for (var r = 0u; r < p.a; r++) { s += g[r * p.b + j]; }
+  gW[p.c + j] += s;
 }`,
 
   // out = x + y, n = a.
@@ -276,8 +290,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 }`,
 
-  // The causal mask: a=m b=n c=offset d=backward e=the bits of -∞. Forward writes -∞ above the
-  // diagonal; backward passes the gradient through below it.
+  // The causal mask: a=m b=n c=offset d=backward e=the bits of -∞ f=rows per sequence. Forward
+  // writes -∞ above the diagonal; backward passes the gradient through below it.
   mask: `
 @group(0) @binding(1) var<storage, read> x: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out: array<f32>;
@@ -287,7 +301,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.y;
   if (i >= p.a || j >= p.b) { return; }
   let k = i * p.b + j;
-  let keep = j <= i + p.c;
+  let keep = j <= i % p.f + p.c;
   if (p.d == 0u) {
     if (keep) { out[k] = x[k]; } else { out[k] = bitcast<f32>(p.e); }
   } else if (keep) {
@@ -295,8 +309,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 }`,
 
-  // Softmax per row, one workgroup per row. a=n b=causal c=offset: with causal set, columns past
-  // the diagonal are left out by index rather than through -∞ arithmetic.
+  // Softmax per row, one workgroup per row. a=n b=causal c=offset d=rows per sequence: with causal
+  // set, columns past the diagonal are left out by index rather than through -∞ arithmetic.
   softmax: `
 @group(0) @binding(1) var<storage, read> x: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out: array<f32>;
@@ -305,7 +319,7 @@ ${REDUCE}
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
   let r = wg.x * p.a;
   var n = p.a;
-  if (p.b == 1u) { n = min(p.a, wg.x + p.c + 1u); }
+  if (p.b == 1u) { n = min(p.a, wg.x % p.d + p.c + 1u); }
   var m = ${LOWEST};
   for (var j = lid.x; j < n; j += 256u) { m = max(m, x[r + j]); }
   m = reduce_max(m, lid.x);
@@ -440,6 +454,60 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (p.c == 0u) { out[i * p.b + j] = x[perm[i] * p.b + j]; } else { out[perm[i] * p.b + j] += x[i * p.b + j]; }
 }`,
 
+  // Training. Σ x² over x [a] into out[b], one workgroup: a weight's share of the gradient norm.
+  sumsq: `
+@group(0) @binding(1) var<storage, read> x: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+${REDUCE}
+@compute @workgroup_size(256)
+fn main(@builtin(local_invocation_id) lid: vec3u) {
+  var s = 0.0;
+  for (var i = lid.x; i < p.a; i += 256u) { s += x[i] * x[i]; }
+  s = reduce_sum(s, lid.x);
+  if (lid.x == 0u) { out[p.b] = s; }
+}`,
+
+  // The clipping coefficient from a weights' sums of squares: out = [min(1, clip / (norm + 1e-6)),
+  // norm], as torch.nn.utils.clip_grad_norm_. a=count h=clip.
+  clip: `
+@group(0) @binding(1) var<storage, read> sq: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+${REDUCE}
+@compute @workgroup_size(256)
+fn main(@builtin(local_invocation_id) lid: vec3u) {
+  var s = 0.0;
+  for (var i = lid.x; i < p.a; i += 256u) { s += sq[i]; }
+  s = reduce_sum(s, lid.x);
+  if (lid.x == 0u) {
+    let norm = sqrt(s);
+    out[0] = min(1.0, bitcast<f32>(p.h) / (norm + 1e-6));
+    out[1] = norm;
+  }
+}`,
+
+  // AdamW on one weight, as torch.optim.AdamW: the gradient is clipped (and kept clipped), the
+  // weight decays, then moves by the bias-corrected moments. a=n b=lr c=decay d=β1 e=β2 f=ε
+  // g=lr / (1 − β1^t) h=√(1 − β2^t), floats bit-cast.
+  adamw: `
+@group(0) @binding(1) var<storage, read_write> w: array<f32>;
+@group(0) @binding(2) var<storage, read_write> g: array<f32>;
+@group(0) @binding(3) var<storage, read_write> m: array<f32>;
+@group(0) @binding(4) var<storage, read_write> v: array<f32>;
+@group(0) @binding(5) var<storage, read> coef: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.y * 65535u * 256u + id.x;
+  if (i >= p.a) { return; }
+  let b1 = bitcast<f32>(p.d);
+  let b2 = bitcast<f32>(p.e);
+  let gi = g[i] * coef[0];
+  g[i] = gi;
+  w[i] *= 1.0 - bitcast<f32>(p.b) * bitcast<f32>(p.c);
+  m[i] += (gi - m[i]) * (1.0 - b1);
+  v[i] = v[i] * b2 + (1.0 - b2) * gi * gi;
+  w[i] -= bitcast<f32>(p.g) * m[i] / (sqrt(v[i]) / bitcast<f32>(p.h) + bitcast<f32>(p.f));
+}`,
+
   // Fill with a constant: a=n h=value.
   fill: `
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
@@ -524,11 +592,11 @@ export class GpuOps implements OpSet<GTensor> {
 
   dispatches = 0;
 
-  private run(name: string, params: number[], bindings: (GTensor | GPUBuffer)[], groups: [number, number?, number?]): void {
+  run(name: string, params: number[], bindings: (GTensor | GPUBuffer)[], groups: [number, number?, number?]): void {
     this.dispatches++;
-    const u = new Uint32Array(8);
+    const u = new Uint32Array(12);
     u.set(params);
-    const ub = this.gpu.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
+    const ub = this.gpu.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
     new Uint32Array(ub.getMappedRange()).set(u);
     ub.unmap();
     this.uniforms.push(ub);
@@ -541,8 +609,14 @@ export class GpuOps implements OpSet<GTensor> {
   }
 
   /** Elementwise dispatch over n items in 256-wide groups, split across y past the x limit. */
-  private flat(n: number): [number, number] {
+  flat(n: number): [number, number] {
     const g = Math.ceil(n / 256);
+    return g <= 65535 ? [g, 1] : [65535, Math.ceil(g / 65535)];
+  }
+
+  /** Dispatch over n items in 64-wide groups, split across y past the x limit. */
+  private flat64(n: number): [number, number] {
+    const g = Math.ceil(n / 64);
     return g <= 65535 ? [g, 1] : [65535, Math.ceil(g / 65535)];
   }
 
@@ -567,11 +641,13 @@ export class GpuOps implements OpSet<GTensor> {
     this.run("fill", [1, 0, 0, 0, 0, 0, 0, bits(1)], [this.g(root)], [1]);
   }
 
-  /** C (=|+=) alpha · op(A) op(B) (+ bias), with op(A) [m,k] and op(B) [k,n]. */
+  /** C (=|+=) alpha · op(A) op(B) (+ bias), with op(A) [m,k] and op(B) [k,n]; with `batch`, that
+   * many products of consecutive blocks (one per sequence). */
   private matmul(A: GTensor, B: GTensor, C: GTensor, m: number, n: number, k: number,
-                 o: { ta?: boolean; tb?: boolean; acc?: boolean; bias?: GTensor | null; alpha?: number } = {}): void {
-    this.run("matmul", [m, n, k, +!!o.ta, +!!o.tb, +!!o.acc, +!!o.bias, bits(o.alpha ?? 1)],
-             [A, B, C, o.bias ?? this.gpu.dummy], [Math.ceil(n / 16), Math.ceil(m / 16)]);
+                 o: { ta?: boolean; tb?: boolean; acc?: boolean; bias?: GTensor | null; alpha?: number; batch?: number } = {}): void {
+    const z = o.batch ?? 1;
+    this.run("matmul", [m, n, k, +!!o.ta, +!!o.tb, +!!o.acc, +!!o.bias, bits(o.alpha ?? 1), m * k, k * n, m * n],
+             [A, B, C, o.bias ?? this.gpu.dummy], [Math.ceil(n / 16), Math.ceil(m / 16), z]);
   }
 
   /** dst (=|+=) a band of src: rows m, width w, at column s0 of src and d0 of dst. */
@@ -593,11 +669,11 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  rows(W: GTensor, start: number, n: number): GTensor {
+  rows(W: GTensor, start: number, n: number, repeat = 1): GTensor {
     const d = W.cols;
-    const o = this.out([n, d], [W]);
-    this.band(W, o, 1, n * d, 0, start * d, 0, 0, false);
-    this.tape.push(o, () => this.band(o.grad!, this.g(W), 1, n * d, 0, 0, 0, start * d, true));
+    const o = this.out([repeat * n, d], [W]);
+    this.band(W, o, repeat, n * d, 0, start * d, n * d, 0, false);
+    this.tape.push(o, () => this.run("repeat_back", [repeat, n * d, start * d], [o.grad!, this.g(W)], this.flat64(n * d)));
     return o;
   }
 
@@ -679,32 +755,32 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  scores(q: GTensor, k: GTensor, scale: number): GTensor {
-    const [m, d] = q.shape, n = k.rows;
-    const o = this.out([m, n], [q, k]);
-    this.matmul(q, k, o, m, n, d, { tb: true, alpha: scale });
+  scores(q: GTensor, k: GTensor, scale: number, B = 1): GTensor {
+    const d = q.cols, m = q.rows / B, n = k.rows / B;      // per sequence
+    const o = this.out([B * m, n], [q, k]);
+    this.matmul(q, k, o, m, n, d, { tb: true, alpha: scale, batch: B });
     this.tape.push(o, () => {
       const g = o.grad!;
-      if (q.requiresGrad) this.matmul(g, k, this.g(q), m, d, n, { acc: true, alpha: scale });
-      if (k.requiresGrad) this.matmul(g, q, this.g(k), n, d, m, { ta: true, acc: true, alpha: scale });
+      if (q.requiresGrad) this.matmul(g, k, this.g(q), m, d, n, { acc: true, alpha: scale, batch: B });
+      if (k.requiresGrad) this.matmul(g, q, this.g(k), n, d, m, { ta: true, acc: true, alpha: scale, batch: B });
     });
     return o;
   }
 
-  causalMask(s: GTensor, offset = 0): GTensor {
-    const [m, n] = s.shape;
+  causalMask(s: GTensor, offset = 0, B = 1): GTensor {
+    const [m, n] = s.shape, per = m / B;
     const o = this.out([m, n], [s]);
-    this.run("mask", [m, n, offset, 0, NEG_INF_BITS], [s, o], [Math.ceil(n / 64), m]);
-    this.tape.push(o, () => this.run("mask", [m, n, offset, 1], [o.grad!, this.g(s)], [Math.ceil(n / 64), m]));
+    this.run("mask", [m, n, offset, 0, NEG_INF_BITS, per], [s, o], [Math.ceil(n / 64), m]);
+    this.tape.push(o, () => this.run("mask", [m, n, offset, 1, 0, per], [o.grad!, this.g(s)], [Math.ceil(n / 64), m]));
     return o;
   }
 
   /** Softmax per attention row: causal, so columns past the diagonal (offset by the KV cache's
    * length) get weight 0. */
-  softmax(x: GTensor, offset = 0): GTensor {
+  softmax(x: GTensor, offset = 0, B = 1): GTensor {
     const [m, n] = x.shape;
     const o = this.out([m, n], [x]);
-    this.run("softmax", [n, 1, offset], [x, o], [m]);
+    this.run("softmax", [n, 1, offset, m / B], [x, o], [m]);
     this.tape.push(o, () => this.run("softmax_back", [n], [o, o.grad!, this.g(x)], [m]));
     return o;
   }
@@ -720,21 +796,21 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  mix(A: GTensor, V: GTensor): GTensor {
-    const [m, n] = A.shape, d = V.cols;
-    const o = this.out([m, d], [A, V]);
-    this.matmul(A, V, o, m, d, n);
+  mix(A: GTensor, V: GTensor, B = 1): GTensor {
+    const m = A.rows / B, n = A.cols, d = V.cols;        // per sequence: A [m, n], V [n, d]
+    const o = this.out([B * m, d], [A, V]);
+    this.matmul(A, V, o, m, d, n, { batch: B });
     this.tape.push(o, () => {
       const g = o.grad!;
-      if (A.requiresGrad) this.matmul(g, V, this.g(A), m, n, d, { tb: true, acc: true });
-      if (V.requiresGrad) this.matmul(A, g, this.g(V), n, d, m, { ta: true, acc: true });
+      if (A.requiresGrad) this.matmul(g, V, this.g(A), m, n, d, { tb: true, acc: true, batch: B });
+      if (V.requiresGrad) this.matmul(A, g, this.g(V), n, d, m, { ta: true, acc: true, batch: B });
     });
     return o;
   }
 
-  crossEntropy(logits: GTensor, targets: number[]): GTensor {
+  crossEntropy(logits: GTensor, targets: number[], denom?: number): GTensor {
     const [m, V] = logits.shape;
-    const kept = targets.filter((t) => t >= 0).length;
+    const kept = denom ?? targets.filter((t) => t >= 0).length;
     const tBuf = this.temp(new Int32Array(targets));
     const nll = this.scratch.alloc([m]);
     this.run("nll", [V], [logits, tBuf, nll], [m]);
@@ -742,7 +818,7 @@ export class GpuOps implements OpSet<GTensor> {
     this.run("mean", [m, 0, 0, 0, 0, 0, 0, bits(1 / kept)], [nll, o], [1]);
     this.tape.push(o, () => {
       const probs = this.scratch.alloc([m, V]);
-      this.run("softmax", [V, 0, 0], [logits, probs], [m]);
+      this.run("softmax", [V, 0, 0, 1], [logits, probs], [m]);
       this.run("nll_back", [V, 0, 0, 0, 0, 0, 0, bits(1 / kept)], [probs, tBuf, o.grad!, this.g(logits)], [Math.ceil(V / 256), m]);
     });
     return o;
@@ -807,7 +883,7 @@ export class GpuOps implements OpSet<GTensor> {
   probs(logits: GTensor): GTensor {
     const [m, V] = logits.shape;
     const o = this.arena.alloc([m, V]);   // not on the loss path: no gradient
-    this.run("softmax", [V, 0, 0], [logits, o], [m]);
+    this.run("softmax", [V, 0, 0, 1], [logits, o], [m]);
     return o;
   }
 }
@@ -840,6 +916,13 @@ export class GpuModel implements Engine {
     return `WebGPU (${this.gpu.adapterName})`;
   }
 
+  // Training: weight gradients summed over micro-batches, Adam's moments, and the clipping result.
+  private gradArena: Arena | null = null;
+  private gradOf = new Map<string, GTensor>();
+  private moments = new Map<string, [GPUBuffer, GPUBuffer]>();
+  private adamStep = 0;
+  private chunk = 16;            // sequences per micro-batch: halved until one fits the arena
+
   get config(): ModelConfig {
     return this.cfg;
   }
@@ -868,6 +951,128 @@ export class GpuModel implements Engine {
 
   /** A trace, and with `frame` its trace frame too, built around the read-back in one copy: the
    * arena is laid out as the frame's data section. */
+  private gradients(): Map<string, GTensor> {
+    if (!this.gradArena) {
+      const total = [...this.W.values()].reduce((n, w) => n + Math.ceil((w.length * F) / ALIGN) * ALIGN, 0);
+      const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+      this.gradArena = new Arena(this.gpu.device.createBuffer({ size: total, usage: storage }));
+      for (const [n, w] of this.W) this.gradOf.set(n, this.gradArena.alloc(w.shape));
+    }
+    return this.gradOf;
+  }
+
+  async trainStep(x: number[], y: number[], B: number, s: StepSettings) {
+    const device = this.gpu.device, T = x.length / B;
+    const grads = this.gradients();
+    const kept = y.filter((t) => t >= 0).length;
+    const losses = device.createBuffer({ size: B * F, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+    const temps: GPUBuffer[] = [losses];
+    const zero = device.createCommandEncoder();
+    zero.clearBuffer(this.gradArena!.buf);
+    device.queue.submit([zero.finish()]);
+
+    // Micro-batches, each adding its share of the batch's gradient into `grads`.
+    let chunks = 0;
+    for (let b0 = 0; b0 < B;) {
+      const n = Math.min(this.chunk, B - b0);
+      const tape = new Tape();
+      for (const [name, w] of this.W) {
+        w.requiresGrad = true;
+        w.grad = grads.get(name)!;
+      }
+      this.arena.used = this.scratch.used = 0;
+      const encoder = device.createCommandEncoder();
+      const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
+      let loss: GTensor;
+      try {
+        loss = forward(this.cfg, (name) => this.W.get(name)!, op, x.slice(b0 * T, (b0 + n) * T), y.slice(b0 * T, (b0 + n) * T),
+                       (_, t) => t, { B: n, lossDenom: kept })!;
+        op.seed(loss);
+        tape.backward();
+      } catch (e) {
+        temps.push(...op.finish());
+        if (chunks === 0 && this.chunk > 1 && e instanceof Error && e.message.includes("does not fit")) {
+          this.chunk = Math.max(1, this.chunk >> 1);    // nothing submitted yet: retry smaller
+          continue;
+        }
+        throw e;
+      }
+      temps.push(...op.finish());
+      encoder.copyBufferToBuffer(loss.buf, loss.offset, losses, chunks * F, F);
+      const clear = device.createCommandEncoder();
+      clear.clearBuffer(this.arena.buf, 0, this.arena.used);
+      device.queue.submit([clear.finish(), encoder.finish()]);
+      b0 += n;
+      chunks++;
+    }
+
+    // Clip the global norm, then AdamW on every weight, all on the GPU.
+    const names = [...this.W.keys()];
+    const sq = device.createBuffer({ size: names.length * F, usage: GPUBufferUsage.STORAGE });
+    const clip = device.createBuffer({ size: 2 * F, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    temps.push(sq, clip);
+    const encoder = device.createCommandEncoder();
+    const op = new GpuOps(this.gpu, new Tape(), this.arena, this.scratch, encoder);
+    names.forEach((name, i) => op.run("sumsq", [grads.get(name)!.length, i], [grads.get(name)!, sq], [1]));
+    op.run("clip", [names.length, 0, 0, 0, 0, 0, 0, bits(s.gradClip)], [sq, clip], [1]);
+    this.adamStep++;
+    const [b1, b2] = BETAS;
+    const stepSize = s.lr / (1 - b1 ** this.adamStep), bc2 = Math.sqrt(1 - b2 ** this.adamStep);
+    for (const [name, w] of this.W) {
+      const [m, v] = this.moments.get(name) ?? this.moments.set(name, [0, 1].map(() =>
+        device.createBuffer({ size: w.length * F, usage: GPUBufferUsage.STORAGE })) as [GPUBuffer, GPUBuffer]).get(name)!;
+      const decay = w.shape.length >= 2 ? s.weightDecay : 0;     // matrices decay; biases and gains do not
+      op.run("adamw", [w.length, bits(s.lr), bits(decay), bits(b1), bits(b2), bits(ADAM_EPS), bits(stepSize), bits(bc2)],
+             [w, grads.get(name)!, m, v, clip], op.flat(w.length));
+    }
+    temps.push(...op.finish());
+    encoder.copyBufferToBuffer(losses, 0, this.staging, 0, chunks * F);
+    encoder.copyBufferToBuffer(clip, F, this.staging, chunks * F, F);
+    device.queue.submit([encoder.finish()]);
+    await this.staging.mapAsync(GPUMapMode.READ, 0, (chunks + 1) * F);
+    const r = new Float32Array(this.staging.getMappedRange(0, (chunks + 1) * F).slice(0));
+    this.staging.unmap();
+    for (const b of temps) b.destroy();
+    for (const w of this.W.values()) {
+      w.requiresGrad = false;
+      w.grad = null;
+    }
+    return { loss: r.subarray(0, chunks).reduce((a, b) => a + b, 0), gradNorm: r[chunks] };
+  }
+
+  /** Tensors copied back to the host, in one transfer. */
+  private async readBack(tensors: Map<string, GTensor>): Promise<Weights> {
+    const device = this.gpu.device, encoder = device.createCommandEncoder();
+    let at = 0;
+    const places = [...tensors].map(([n, t]) => {
+      encoder.copyBufferToBuffer(t.buf, t.offset, this.staging, at, t.length * F);
+      at += t.length * F;
+      return [n, at - t.length * F, t] as const;
+    });
+    device.queue.submit([encoder.finish()]);
+    await this.staging.mapAsync(GPUMapMode.READ, 0, at);
+    const host = new Float32Array(this.staging.getMappedRange(0, at).slice(0));
+    this.staging.unmap();
+    return new Map(places.map(([n, start, t]) => [n, new Tensor(host.subarray(start / F, start / F + t.length), t.shape)]));
+  }
+
+  readWeights(): Promise<Weights> {
+    return this.readBack(this.W);
+  }
+
+  readGrads(): Promise<Weights> {
+    return this.readBack(this.gradients());
+  }
+
+  resetOptimizer(): void {
+    for (const [m, v] of this.moments.values()) {
+      m.destroy();
+      v.destroy();
+    }
+    this.moments.clear();
+    this.adamStep = 0;
+  }
+
   /** A forward pass without gradients; only the tensors `read` returns are copied back. */
   async forward(tokens: number[], opts: ForwardOptions): Promise<Record<string, Float32Array>> {
     const device = this.gpu.device;

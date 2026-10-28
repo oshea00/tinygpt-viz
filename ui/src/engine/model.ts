@@ -105,14 +105,16 @@ export interface KV<T> {
 }
 
 /** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given.
- * With kv.past, idx continues from the cached positions. */
+ * idx holds B sequences one after another (training batches; traces are B = 1). With kv.past
+ * (B = 1), idx continues from the cached positions. lossDenom: see OpSet.crossEntropy. */
 export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T, op: OpSet<T>, idx: number[],
-                                        targets: number[] | null, tap: (id: string, x: T) => T, kv: KV<T> = {}): T | null {
-  const T = idx.length, H = cfg.n_head, dh = cfg.d_model / H;
+                                        targets: number[] | null, tap: (id: string, x: T) => T,
+                                        { kv = {}, B = 1, lossDenom }: { kv?: KV<T>; B?: number; lossDenom?: number } = {}): T | null {
+  const T = idx.length / B, H = cfg.n_head, dh = cfg.d_model / H;
   const t0 = kv.past ? kv.past[0][0].shape[0] : 0;
   if (t0 + T > cfg.block_size) throw new Error("the cache and the new tokens do not fit the window");
   const tok = tap("embed.tok", op.embed(w("wte"), idx));
-  const pos = tap("embed.pos", op.rows(w("wpe"), t0, T));
+  const pos = tap("embed.pos", op.rows(w("wpe"), t0, T, B));
   let x = tap("embed.sum", op.add(tok, pos));
   for (let l = 0; l < cfg.n_layer; l++) {
     const P = `L${l}`;
@@ -134,10 +136,10 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
         kh = op.concatRows(band(past[0]), kh);
         vh = op.concatRows(band(past[1]), vh);
       }
-      const scores = tap(`${p}.scores`, op.scores(qh, kh, 1 / Math.sqrt(dh)));
-      const masked = tap(`${p}.masked`, op.causalMask(scores, t0));
-      const weights = tap(`${p}.weights`, op.softmax(masked, t0));
-      heads.push(tap(`${p}.mix`, op.mix(weights, vh)));
+      const scores = tap(`${p}.scores`, op.scores(qh, kh, 1 / Math.sqrt(dh), B));
+      const masked = tap(`${p}.masked`, op.causalMask(scores, t0, B));
+      const weights = tap(`${p}.weights`, op.softmax(masked, t0, B));
+      heads.push(tap(`${p}.mix`, op.mix(weights, vh, B)));
     }
     const concat = tap(`${P}.attn.concat`, op.concatCols(heads));
     const attn = tap(`${P}.attn.out`, op.linear(concat, w(`${P}.W_o`), w(`${P}.b_o`)));
@@ -153,5 +155,5 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
   // probs is shown, not differentiated through: the loss reads the logits directly.
   tap("probs", op.probs(logits));
   if (!targets) return null;
-  return tap("loss", op.crossEntropy(logits, targets));
+  return tap("loss", op.crossEntropy(logits, targets, lossDenom));
 }

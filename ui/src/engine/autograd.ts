@@ -57,7 +57,7 @@ export class Tape {
 /** The operations the GPT is written in, on CPU tensors (Ops) or GPU ones (GpuOps in ./gpu). */
 export interface OpSet<T extends Node> {
   embed(W: T, ids: number[]): T;
-  rows(W: T, start: number, n: number): T;
+  rows(W: T, start: number, n: number, repeat?: number): T;   // repeat: once per sequence of a batch
   add(a: T, b: T): T;
   linear(x: T, W: T, b: T | null): T;
   linearT(x: T, W: T): T;
@@ -65,12 +65,13 @@ export interface OpSet<T extends Node> {
   gelu(x: T): T;
   cols(x: T, c0: number, c1: number): T;
   concatCols(parts: T[]): T;
-  scores(q: T, k: T, scale: number): T;
-  causalMask(s: T, offset?: number): T;     // offset: the first query's position (the KV cache's length)
-  softmax(x: T, offset?: number): T;        // attention rows: causal, with the same offset
+  // Attention ops take the batch size B: rows are B sequences one after another.
+  scores(q: T, k: T, scale: number, B?: number): T;
+  causalMask(s: T, offset?: number, B?: number): T;   // offset: the first query's position (the KV cache's length)
+  softmax(x: T, offset?: number, B?: number): T;      // attention rows: causal, with the same offset
   concatRows(a: T, b: T): T;
-  mix(A: T, V: T): T;
-  crossEntropy(logits: T, targets: number[]): T;
+  mix(A: T, V: T, B?: number): T;
+  crossEntropy(logits: T, targets: number[], denom?: number): T;   // denom: kept positions of the whole batch
   probs(logits: T): T;        // softmax of the logits, not on the loss path
 
   // Interventions (./interventions) rewrite a stage's output with these.
@@ -122,6 +123,12 @@ function mmTN(A: Float32Array, B: Float32Array, C: Float32Array, k: number, m: n
   }
 }
 
+/** A flat array as B equal consecutive views: one per sequence of a batch. */
+function blocks(a: Float32Array, B: number): Float32Array[] {
+  const n = a.length / B;
+  return Array.from({ length: B }, (_, b) => a.subarray(b * n, (b + 1) * n));
+}
+
 // -- ops --------------------------------------------------------------------
 
 export class Ops implements OpSet<Tensor> {
@@ -156,12 +163,14 @@ export class Ops implements OpSet<Tensor> {
     });
   }
 
-  /** Rows start..start+n of W: the position embeddings for the prompt's positions. */
-  rows(W: Tensor, start: number, n: number): Tensor {
-    const d = W.cols;
-    return this.out(W.data.slice(start * d, (start + n) * d), [n, d], [W], (o) => {
+  /** Rows start..start+n of W, `repeat` times over: the position embeddings for each sequence. */
+  rows(W: Tensor, start: number, n: number, repeat = 1): Tensor {
+    const d = W.cols, band = W.data.subarray(start * d, (start + n) * d);
+    const out = new Float32Array(repeat * n * d);
+    for (let r = 0; r < repeat; r++) out.set(band, r * n * d);
+    return this.out(out, [repeat * n, d], [W], (o) => {
       const g = W.g();
-      for (let i = 0; i < n * d; i++) g[start * d + i] += o.grad![i];
+      for (let r = 0; r < repeat; r++) for (let i = 0; i < n * d; i++) g[start * d + i] += o.grad![r * n * d + i];
     });
   }
 
@@ -295,26 +304,27 @@ export class Ops implements OpSet<Tensor> {
   }
 
   /** q kᵀ · scale: every query against every key. */
-  scores(q: Tensor, k: Tensor, scale: number): Tensor {
-    const [m, d] = q.shape, n = k.rows;
-    const out = new Float32Array(m * n);
-    mmNT(q.data, k.data, out, m, d, n);
+  scores(q: Tensor, k: Tensor, scale: number, B = 1): Tensor {
+    const d = q.cols, m = q.rows / B, n = k.rows / B;    // per sequence
+    const out = new Float32Array(B * m * n);
+    const Q = blocks(q.data, B), K = blocks(k.data, B), O = blocks(out, B);
+    for (let b = 0; b < B; b++) mmNT(Q[b], K[b], O[b], m, d, n);
     for (let i = 0; i < out.length; i++) out[i] *= scale;
-    return this.out(out, [m, n], [q, k], (o) => {
-      const g = o.grad!.map((v) => v * scale);
-      if (q.requiresGrad) mm(g, k.data, q.g(), m, n, d);
-      if (k.requiresGrad) mmTN(g, q.data, k.g(), m, n, d);
+    return this.out(out, [B * m, n], [q, k], (o) => {
+      const G = blocks(o.grad!.map((v) => v * scale), B);
+      if (q.requiresGrad) { const gq = blocks(q.g(), B); for (let b = 0; b < B; b++) mm(G[b], K[b], gq[b], m, n, d); }
+      if (k.requiresGrad) { const gk = blocks(k.g(), B); for (let b = 0; b < B; b++) mmTN(G[b], Q[b], gk[b], m, n, d); }
     });
   }
 
   /** -∞ above the diagonal. `offset` is the first query's position (the KV cache's length). */
-  causalMask(s: Tensor, offset = 0): Tensor {
-    const [m, n] = s.shape;
+  causalMask(s: Tensor, offset = 0, B = 1): Tensor {
+    const [m, n] = s.shape, per = m / B;                  // row r is query r % per of its sequence
     const out = s.data.slice();
-    for (let i = 0; i < m; i++) for (let j = i + offset + 1; j < n; j++) out[i * n + j] = -Infinity;
+    for (let r = 0; r < m; r++) for (let j = (r % per) + offset + 1; j < n; j++) out[r * n + j] = -Infinity;
     return this.out(out, [m, n], [s], (o) => {
       const gs = s.g();
-      for (let i = 0; i < m; i++) for (let j = 0; j <= Math.min(i + offset, n - 1); j++) gs[i * n + j] += o.grad![i * n + j];
+      for (let r = 0; r < m; r++) for (let j = 0; j <= Math.min((r % per) + offset, n - 1); j++) gs[r * n + j] += o.grad![r * n + j];
     });
   }
 
@@ -329,7 +339,7 @@ export class Ops implements OpSet<Tensor> {
   }
 
   /** Softmax over each row. Masked entries are already −∞ here, so no offset is needed. */
-  softmax(x: Tensor, _offset = 0): Tensor {
+  softmax(x: Tensor, _offset = 0, _B = 1): Tensor {
     const [m, n] = x.shape;
     const out = softmaxRows(x.data, m, n);
     return this.out(out, [m, n], [x], (o) => {
@@ -343,21 +353,24 @@ export class Ops implements OpSet<Tensor> {
   }
 
   /** A V: the weighted average of value rows. */
-  mix(A: Tensor, V: Tensor): Tensor {
-    const [m, n] = A.shape, d = V.cols;
-    const out = new Float32Array(m * d);
-    mm(A.data, V.data, out, m, n, d);
-    return this.out(out, [m, d], [A, V], (o) => {
-      if (A.requiresGrad) mmNT(o.grad!, V.data, A.g(), m, d, n);
-      if (V.requiresGrad) mmTN(A.data, o.grad!, V.g(), m, n, d);
+  mix(A: Tensor, V: Tensor, B = 1): Tensor {
+    const m = A.rows / B, n = A.cols, d = V.cols;       // per sequence: A [m, n], V [n, d]
+    const out = new Float32Array(B * m * d);
+    const As = blocks(A.data, B), Vs = blocks(V.data, B), O = blocks(out, B);
+    for (let b = 0; b < B; b++) mm(As[b], Vs[b], O[b], m, n, d);
+    return this.out(out, [B * m, d], [A, V], (o) => {
+      const G = blocks(o.grad!, B);
+      if (A.requiresGrad) { const ga = blocks(A.g(), B); for (let b = 0; b < B; b++) mmNT(G[b], Vs[b], ga[b], m, d, n); }
+      if (V.requiresGrad) { const gv = blocks(V.g(), B); for (let b = 0; b < B; b++) mmTN(As[b], G[b], gv[b], m, n, d); }
     });
   }
 
-  /** Mean cross-entropy over positions whose target is not -1. */
-  crossEntropy(logits: Tensor, targets: number[]): Tensor {
+  /** Mean cross-entropy over positions whose target is not -1; with `denom`, the sum over this
+   * micro-batch divided by the whole batch's kept positions, so micro-batches add up. */
+  crossEntropy(logits: Tensor, targets: number[], denom?: number): Tensor {
     const [m, n] = logits.shape;
     const probs = softmaxRows(logits.data, m, n);
-    const kept = targets.filter((t) => t >= 0).length;
+    const kept = denom ?? targets.filter((t) => t >= 0).length;
     let loss = 0;
     targets.forEach((t, i) => {
       if (t < 0) return;

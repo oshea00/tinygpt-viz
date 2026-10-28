@@ -1,7 +1,7 @@
 // What the in-browser backend computes with: the model on the CPU (./model) or on WebGPU
 // (./gpu), behind one interface. Analyses (./analyses) are written against it once.
 
-import { Ops, Tape, type Node, type OpSet } from "./autograd";
+import { Ops, Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { forward, trace, type KV, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 import { apply, compileAll } from "./interventions";
 import type { FrameSpec } from "./gpu";
@@ -29,8 +29,26 @@ export interface ForwardOptions {
   keepKV?: boolean;
 }
 
+/** One AdamW step's settings, as core/train.py's optimizer (betas 0.9, 0.99; decay on matrices). */
+export interface StepSettings {
+  lr: number;
+  weightDecay: number;
+  gradClip: number;
+}
+
+export const BETAS = [0.9, 0.99] as const;
+export const ADAM_EPS = 1e-8;
+
 export interface Engine {
   readonly name: string;
+  /** One training step on B sequences (x and y flat, B · T each): forward, backward, clipping
+   * the gradient's global norm, then AdamW. Returns the loss and the norm before clipping. */
+  trainStep(x: number[], y: number[], B: number, s: StepSettings): Promise<{ loss: number; gradNorm: number }>;
+  /** The current weights, and the last step's (clipped) gradients, on the host. */
+  readWeights(): Promise<Weights>;
+  readGrads(): Promise<Weights>;
+  /** Fresh optimizer moments, as after loading a checkpoint or a reset. */
+  resetOptimizer(): void;
   setWeights(W: Weights, set?: WeightSet): void;
   hasWeights(set: WeightSet): boolean;
   /** A trace with its frame (see core/trace_io.py). */
@@ -58,7 +76,7 @@ export function runForward<T extends Node>(cfg: ModelConfig, W: Map<string, T>, 
     keep: opts.keepKV ? [] : undefined,
   };
   forward(cfg, (n) => W.get(n)!, op, tokens.slice(-(cfg.block_size - t0)), null,
-          forwardTap(op, live, opts.interventions, opts.rewrite), kv);
+          forwardTap(op, live, opts.interventions, opts.rewrite), { kv });
   const out = opts.read(live, op, (n) => W.get(n)!);
   kv.keep?.forEach(([k, v], l) => Object.assign(out, { [`kv.L${l}.k`]: k, [`kv.L${l}.v`]: v }));
   return out;
@@ -78,6 +96,8 @@ export function forwardTap<T extends Node>(op: OpSet<T>, live: Map<string, T>, i
 export class CpuEngine implements Engine {
   readonly name = "browser CPU";
   private sets = new Map<WeightSet, Weights>();
+  private adam = { t: 0, m: new Map<string, Float32Array>(), v: new Map<string, Float32Array>() };
+  private grads: Weights = new Map();
 
   constructor(private cfg: ModelConfig) {}
 
@@ -96,6 +116,54 @@ export class CpuEngine implements Engine {
   async trace(tokens: number[], opts: TraceOptions, frame: FrameSpec) {
     const t = trace(this.cfg, this.W, tokens, opts);
     return { ...t, frame: encodeTrace(t, frame.meta, frame.step, frame.text(t.tokens), frame.extra) };
+  }
+
+  async trainStep(x: number[], y: number[], B: number, s: StepSettings) {
+    const W = this.W, tape = new Tape(), op = new Ops(tape);
+    for (const w of W.values()) {
+      w.requiresGrad = true;
+      w.grad = null;
+    }
+    const loss = forward(this.cfg, (n) => W.get(n)!, op, x, y, (_, t) => t, { B })!;
+    op.seed(loss);
+    tape.backward();
+    let sq = 0;
+    for (const w of W.values()) for (const g of w.g()) sq += g * g;
+    const gradNorm = Math.sqrt(sq);
+    const coef = Math.min(1, s.gradClip / (gradNorm + 1e-6));     // torch.nn.utils.clip_grad_norm_
+    const a = this.adam, [b1, b2] = BETAS;
+    a.t++;
+    const bc1 = 1 - b1 ** a.t, bc2 = Math.sqrt(1 - b2 ** a.t);
+    this.grads = new Map();
+    for (const [n, w] of W) {
+      const p = w.data, g = w.g();
+      const m = a.m.get(n) ?? a.m.set(n, new Float32Array(p.length)).get(n)!;
+      const v = a.v.get(n) ?? a.v.set(n, new Float32Array(p.length)).get(n)!;
+      const decay = w.shape.length >= 2 ? s.weightDecay : 0;          // matrices decay; biases and gains do not
+      for (let i = 0; i < p.length; i++) {
+        g[i] *= coef;
+        p[i] *= 1 - s.lr * decay;
+        m[i] += (g[i] - m[i]) * (1 - b1);
+        v[i] = v[i] * b2 + (1 - b2) * g[i] * g[i];
+        p[i] -= (s.lr / bc1) * m[i] / (Math.sqrt(v[i]) / bc2 + ADAM_EPS);
+      }
+      this.grads.set(n, new Tensor(g, w.shape));
+      w.requiresGrad = false;
+      w.grad = null;
+    }
+    return { loss: loss.data[0], gradNorm };
+  }
+
+  async readWeights(): Promise<Weights> {
+    return this.W;
+  }
+
+  async readGrads(): Promise<Weights> {
+    return this.grads;
+  }
+
+  resetOptimizer(): void {
+    this.adam = { t: 0, m: new Map(), v: new Map() };
   }
 
   async forward(tokens: number[], opts: ForwardOptions): Promise<Record<string, Float32Array>> {

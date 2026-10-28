@@ -6,6 +6,7 @@ import type { Trace } from "../types";
 import { Gpu, GpuModel } from "./gpu";
 import { checkAnalyses } from "./analyses.cases";
 import { emptyCache, traceCached } from "./kvcache";
+import { checkTraining, TRAIN_CONFIG, trainFixture } from "./train.cases";
 import { fetchAssets } from "./local";
 import { BPETokenizer } from "./tokenizer";
 import { makeWeights, trace, type TraceResult } from "./model";
@@ -119,6 +120,13 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
     compare(result, asResult(r), `kv cache step ${i}`, 1e-5, failures);
   }
   checked.push("KV cache");
+  // Two steps of core/train.py's Trainer, in micro-batches small enough to be several.
+  const fxTrain = trainFixture(await (await fetch("/src/fixtures/train.bin")).arrayBuffer());
+  const trainer = new GpuModel(gpu, TRAIN_CONFIG);
+  trainer.setWeights(fxTrain.before());
+  (trainer as unknown as { chunk: number }).chunk = 2;
+  failures.push(...(await checkTraining(trainer, fxTrain)).map((f) => `training: ${f}`));
+  checked.push("training");
   // The analyses fixture needs the real tokenizer, which the exported model carries.
   const tokFile = await fetch("/model/tokenizer.json");
   if (tokFile.ok) {
