@@ -3,12 +3,14 @@ can run with no server at all.
 
     uv run python -m core.web_export --config bpe-small            # latest checkpoint and step 0
     uv run python -m core.web_export --config bpe-small --all      # every checkpoint, for replay
+    uv run python -m core.web_export --config bpe-small --train    # with train.bin, to train in the browser
 
 The output directory (default ui/public/model/, served at /model/) holds:
 
     model.json       config, parameter counts, checkpoint steps, and every stage's metadata
     tokenizer.json   the BPE tokenizer
-    val.bin          the validation tokens (story sets and neuron search), fetched when needed
+    val.bin          the validation tokens (story sets, neuron search, validation loss), fetched when needed
+    train.bin        with --train: the training tokens (119 MB), fetched when training starts
     ckpt_NNNNNN.bin  one checkpoint's weights as a "weights" frame (core/trace_io.py)
 """
 
@@ -31,7 +33,7 @@ from .trace_io import encode_weights
 OUT = Path(__file__).resolve().parent.parent / "ui" / "public" / "model"
 
 
-def export(config: str, out: Path = OUT, every: bool = False) -> None:
+def export(config: str, out: Path = OUT, every: bool = False, train: bool = False) -> None:
     tok = BPETokenizer.load(data_dir() / "tokenizer.json")
     cfg = profile(config).with_vocab(tok.vocab_size)
     ckpts = local_checkpoints(cfg)
@@ -50,8 +52,12 @@ def export(config: str, out: Path = OUT, every: bool = False) -> None:
         (out / f"{path.stem}.bin").write_bytes(encode_weights(w, state["step"], {"version": state["step"]}))
         print(f"wrote {out / path.stem}.bin")
     shutil.copy(data_dir() / "tokenizer.json", out / "tokenizer.json")
-    if (data_dir() / "val.bin").exists():
-        shutil.copy(data_dir() / "val.bin", out / "val.bin")
+    for split, wanted in (("val", True), ("train", train)):
+        src = data_dir() / f"{split}.bin"
+        if wanted and not src.exists():
+            raise SystemExit(f"error: no {src}: run uv run python -m core.data to build it")
+        if wanted:
+            shutil.copy(src, out / f"{split}.bin")
     meta = {"config": cfg.__dict__, "params": model.num_params(), "paramGroups": model.param_groups_count(),
             "checkpoints": steps(chosen), "probe": DEFAULT_PROBE,
             "stages": [describe(s, cfg).to_json() for s in stage_order(cfg)]}
@@ -64,8 +70,9 @@ def main() -> None:
     p.add_argument("--config", default=DEFAULT_PROFILE, choices=list(PROFILES))
     p.add_argument("--out", type=Path, default=OUT)
     p.add_argument("--all", action="store_true", help="every checkpoint (for replay), not just step 0 and the latest")
+    p.add_argument("--train", action="store_true", help="include train.bin (119 MB), so the browser can train")
     args = p.parse_args()
-    export(args.config, args.out, args.all)
+    export(args.config, args.out, args.all, args.train)
 
 
 if __name__ == "__main__":

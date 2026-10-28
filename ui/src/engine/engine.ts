@@ -44,6 +44,8 @@ export interface Engine {
   /** One training step on B sequences (x and y flat, B · T each): forward, backward, clipping
    * the gradient's global norm, then AdamW. Returns the loss and the norm before clipping. */
   trainStep(x: number[], y: number[], B: number, s: StepSettings): Promise<{ loss: number; gradNorm: number }>;
+  /** The mean loss on B sequences, without gradients (the validation curve). */
+  loss(x: number[], y: number[], B: number): Promise<number>;
   /** The current weights, and the last step's (clipped) gradients, on the host. */
   readWeights(): Promise<Weights>;
   readGrads(): Promise<Weights>;
@@ -152,6 +154,12 @@ export class CpuEngine implements Engine {
       w.grad = null;
     }
     return { loss: loss.data[0], gradNorm };
+  }
+
+  async loss(x: number[], y: number[], B: number): Promise<number> {
+    const tape = new Tape();
+    tape.enabled = false;
+    return forward(this.cfg, (n) => this.W.get(n)!, new Ops(tape), x, y, (_, t) => t, { B })!.data[0];
   }
 
   async readWeights(): Promise<Weights> {

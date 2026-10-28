@@ -1040,6 +1040,38 @@ export class GpuModel implements Engine {
     return { loss: r.subarray(0, chunks).reduce((a, b) => a + b, 0), gradNorm: r[chunks] };
   }
 
+  async loss(x: number[], y: number[], B: number): Promise<number> {
+    const device = this.gpu.device, T = x.length / B, kept = y.filter((t) => t >= 0).length;
+    const losses = device.createBuffer({ size: B * F, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+    const temps: GPUBuffer[] = [losses];
+    for (const w of this.W.values()) {
+      w.requiresGrad = false;
+      w.grad = null;
+    }
+    let chunks = 0;
+    for (let b0 = 0; b0 < B; b0 += this.chunk, chunks++) {
+      const n = Math.min(this.chunk, B - b0);
+      const tape = new Tape();
+      tape.enabled = false;
+      this.arena.used = this.scratch.used = 0;
+      const encoder = device.createCommandEncoder();
+      const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
+      const loss = forward(this.cfg, (name) => this.W.get(name)!, op, x.slice(b0 * T, (b0 + n) * T), y.slice(b0 * T, (b0 + n) * T),
+                           (_, t) => t, { B: n, lossDenom: kept })!;
+      temps.push(...op.finish());
+      encoder.copyBufferToBuffer(loss.buf, loss.offset, losses, chunks * F, F);
+      device.queue.submit([encoder.finish()]);
+    }
+    const encoder = device.createCommandEncoder();
+    encoder.copyBufferToBuffer(losses, 0, this.staging, 0, chunks * F);
+    device.queue.submit([encoder.finish()]);
+    await this.staging.mapAsync(GPUMapMode.READ, 0, chunks * F);
+    const r = new Float32Array(this.staging.getMappedRange(0, chunks * F).slice(0));
+    this.staging.unmap();
+    for (const b of temps) b.destroy();
+    return r.reduce((a, b) => a + b, 0);
+  }
+
   /** Tensors copied back to the host, in one transfer. */
   private async readBack(tensors: Map<string, GTensor>): Promise<Weights> {
     const device = this.gpu.device, encoder = device.createCommandEncoder();

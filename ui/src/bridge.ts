@@ -166,6 +166,7 @@ export class LocalBridge implements Backend {
   constructor(
     private base: string,      // where core/web_export.py's files are served
     private gpu: boolean,      // use WebGPU if the browser has it
+    private train: boolean,    // allow training, as the server's --train
     private onMessage: (m: JsonMsg | BinaryMsg) => void,
     private onState: (connected: boolean) => void,
   ) {}
@@ -177,7 +178,7 @@ export class LocalBridge implements Backend {
       if (m.type === "hello") this.onState(true);
       this.onMessage(m);
     };
-    w.postMessage({ type: "_init", base: this.base, gpu: this.gpu });
+    w.postMessage({ type: "_init", base: this.base, gpu: this.gpu, train: this.train });
     this.worker = w;
   }
 

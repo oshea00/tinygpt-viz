@@ -90,12 +90,13 @@ class AppState {
   start(): void {
     const onMessage = (m: JsonMsg | BinaryMsg) => this.onMessage(m), onState = (c: boolean) => (this.connected = c);
     // ?backend=local (or a build with VITE_BACKEND=local): run the model in the browser, on
-    // WebGPU unless ?gpu=0.
+    // WebGPU unless ?gpu=0, and with training (as the server's --train) when ?train=1.
     const query = new URLSearchParams(location.search);
     const local = (query.get("backend") ?? import.meta.env.VITE_BACKEND) === "local";
     const proto = location.protocol === "https:" ? "wss" : "ws";
     this.bridge = local
-      ? new LocalBridge(new URL(`${import.meta.env.BASE_URL}model/`, location.href).href, query.get("gpu") !== "0", onMessage, onState)
+      ? new LocalBridge(new URL(`${import.meta.env.BASE_URL}model/`, location.href).href, query.get("gpu") !== "0",
+                         query.get("train") === "1", onMessage, onState)
       : new Bridge(`${proto}://${location.host}/ws`, onMessage, onState);
     this.bridge.connect();
   }
