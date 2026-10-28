@@ -108,6 +108,22 @@ def test_write_analyses_fixture():
     (FIXTURES / "analyses.json").write_text(json.dumps(out))
 
 
+def test_write_kvcache_fixture():
+    """A generation sequence through the KV cache: a first pass, two cached steps, then a changed
+    prompt, for the browser engine's KV cache (ui/src/engine/kvcache.ts)."""
+    from core.kvcache import KVCache, trace_cached
+
+    torch.manual_seed(0)
+    model = GPT(TINY.with_vocab(16))
+    ids = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]
+    cache = KVCache()
+    out = FIXTURES / "kvcache"
+    out.mkdir(parents=True, exist_ok=True)
+    for i, seq in enumerate([ids[:8], ids[:9], ids[:10], ids[:5] + [7, 7, 7]]):
+        t, info = trace_cached(model, cache, seq, [str(x) for x in seq], 42, weights_version=1)
+        (out / f"step{i}.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run", "incremental": info}))
+
+
 def test_write_sampling_fixture():
     g = torch.Generator().manual_seed(3)
     logits = torch.randn(16, generator=g) * 2

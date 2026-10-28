@@ -96,12 +96,23 @@ export function recorder<T extends Node>(op: OpSet<T>, live: Map<string, T>, int
   };
 }
 
-/** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given. */
+/** The KV cache for a forward pass (core/model.py's past and keep_kv): each layer's keys and
+ * values for the positions before idx, and where to leave every layer's keys and values (cached
+ * plus new) for the next step. */
+export interface KV<T> {
+  past?: [T, T][];
+  keep?: [T, T][];
+}
+
+/** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given.
+ * With kv.past, idx continues from the cached positions. */
 export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T, op: OpSet<T>, idx: number[],
-                                        targets: number[] | null, tap: (id: string, x: T) => T): T | null {
+                                        targets: number[] | null, tap: (id: string, x: T) => T, kv: KV<T> = {}): T | null {
   const T = idx.length, H = cfg.n_head, dh = cfg.d_model / H;
+  const t0 = kv.past ? kv.past[0][0].shape[0] : 0;
+  if (t0 + T > cfg.block_size) throw new Error("the cache and the new tokens do not fit the window");
   const tok = tap("embed.tok", op.embed(w("wte"), idx));
-  const pos = tap("embed.pos", op.rows(w("wpe"), 0, T));
+  const pos = tap("embed.pos", op.rows(w("wpe"), t0, T));
   let x = tap("embed.sum", op.add(tok, pos));
   for (let l = 0; l < cfg.n_layer; l++) {
     const P = `L${l}`;
@@ -109,15 +120,23 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
     const q = tap(`${P}.q`, op.linear(ln1, w(`${P}.W_q`), w(`${P}.b_q`)));
     const k = tap(`${P}.k`, op.linear(ln1, w(`${P}.W_k`), w(`${P}.b_k`)));
     const v = tap(`${P}.v`, op.linear(ln1, w(`${P}.W_v`), w(`${P}.b_v`)));
+    const past = kv.past?.[l];
+    kv.keep?.push(past ? [op.concatRows(past[0], k), op.concatRows(past[1], v)] : [k, v]);
     const heads: T[] = [];
     for (let h = 0; h < H; h++) {
       const p = `${P}.attn.H${h}`;
-      const qh = tap(`${p}.q`, op.cols(q, h * dh, (h + 1) * dh));
-      const kh = tap(`${p}.k`, op.cols(k, h * dh, (h + 1) * dh));
-      const vh = tap(`${p}.v`, op.cols(v, h * dh, (h + 1) * dh));
+      const band = (x: T) => op.cols(x, h * dh, (h + 1) * dh);
+      const qh = tap(`${p}.q`, band(q));
+      // The split stages hold the new rows; cached rows (if any) are put in front of them.
+      let kh = tap(`${p}.k`, band(k));
+      let vh = tap(`${p}.v`, band(v));
+      if (past) {
+        kh = op.concatRows(band(past[0]), kh);
+        vh = op.concatRows(band(past[1]), vh);
+      }
       const scores = tap(`${p}.scores`, op.scores(qh, kh, 1 / Math.sqrt(dh)));
-      const masked = tap(`${p}.masked`, op.causalMask(scores));
-      const weights = tap(`${p}.weights`, op.softmax(masked));
+      const masked = tap(`${p}.masked`, op.causalMask(scores, t0));
+      const weights = tap(`${p}.weights`, op.softmax(masked, t0));
       heads.push(tap(`${p}.mix`, op.mix(weights, vh)));
     }
     const concat = tap(`${P}.attn.concat`, op.concatCols(heads));

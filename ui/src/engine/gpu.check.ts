@@ -5,6 +5,7 @@ import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
 import type { Trace } from "../types";
 import { Gpu, GpuModel } from "./gpu";
 import { checkAnalyses } from "./analyses.cases";
+import { emptyCache, traceCached } from "./kvcache";
 import { fetchAssets } from "./local";
 import { BPETokenizer } from "./tokenizer";
 import { makeWeights, trace, type TraceResult } from "./model";
@@ -30,7 +31,7 @@ function worst(got: ArrayLike<number>, want: ArrayLike<number>, rel: number): nu
   let scale = 0, diff = 0;
   for (let i = 0; i < want.length; i++) if (Number.isFinite(want[i])) scale = Math.max(scale, Math.abs(want[i]));
   for (let i = 0; i < want.length; i++) {
-    if (!Number.isFinite(want[i])) diff = Math.max(diff, got[i] === want[i] ? 0 : Infinity);
+    if (!Number.isFinite(want[i])) diff = Math.max(diff, Object.is(got[i], want[i]) ? 0 : Infinity);   // NaN and ±∞ must match exactly
     else diff = Math.max(diff, Math.abs(got[i] - want[i]));
   }
   return diff / (rel * scale + 1e-9);
@@ -108,6 +109,16 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
     const r = decodeTrace(await fixture(`interventions/${name}.bin`));
     compare(await m.trace(r.tokens, { nextToken: 9, interventions: r.interventions }), asResult(r), name, 1e-5, failures);
   }
+  // A generation sequence through the KV cache (core/kvcache.py's traces).
+  const cache = emptyCache();
+  for (let i = 0; i < 4; i++) {
+    const r = decodeTrace(await fixture(`kvcache/step${i}.bin`));
+    const kinds = new Map(r.stages.map((s) => [s.id, s.kind]));
+    const { result, info } = await traceCached(m, { ...m.config, d_mlp: 128 }, cache, r.tokens, 1, (id) => kinds.get(id) ?? "");
+    if (JSON.stringify(info) !== JSON.stringify(r.incremental)) failures.push(`kv cache step ${i}: ${JSON.stringify(info)}`);
+    compare(result, asResult(r), `kv cache step ${i}`, 1e-5, failures);
+  }
+  checked.push("KV cache");
   // The analyses fixture needs the real tokenizer, which the exported model carries.
   const tokFile = await fetch("/model/tokenizer.json");
   if (tokFile.ok) {

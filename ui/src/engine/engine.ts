@@ -2,7 +2,7 @@
 // (./gpu), behind one interface. Analyses (./analyses) are written against it once.
 
 import { Ops, Tape, type Node, type OpSet } from "./autograd";
-import { forward, trace, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
+import { forward, trace, type KV, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 import { apply, compileAll } from "./interventions";
 import type { FrameSpec } from "./gpu";
 import { encodeTrace } from "./frames";
@@ -22,6 +22,11 @@ export interface ForwardOptions {
   interventions?: Intervention[];
   rewrite?: Rewrite;
   read: Read;
+  /** The KV cache: each layer's keys and values ([cached positions, d]) for the positions before
+   * `tokens`, which then continue from there. */
+  past?: { k: Float32Array; v: Float32Array }[];
+  /** Also return every layer's keys and values (cached plus new), as "kv.L<l>.k" and ".v". */
+  keepKV?: boolean;
 }
 
 export interface Engine {
@@ -40,6 +45,23 @@ export function using(e: Engine, weights: WeightSet): Engine {
   return Object.assign(Object.create(e) as Engine, {
     forward: (tokens: number[], opts: ForwardOptions) => e.forward(tokens, { ...opts, weights }),
   });
+}
+
+/** One forward pass on any op set, with the cache and interventions of `opts`; returns what
+ * `opts.read` asks for, plus the keys and values with `keepKV`. Both engines run this. */
+export function runForward<T extends Node>(cfg: ModelConfig, W: Map<string, T>, op: OpSet<T>, tokens: number[],
+                                           opts: ForwardOptions): Record<string, T> {
+  const live = new Map<string, T>();
+  const t0 = opts.past?.[0].k.length ? opts.past[0].k.length / cfg.d_model : 0;
+  const kv: KV<T> = {
+    past: t0 ? opts.past!.map((p) => [op.constant(p.k, [t0, cfg.d_model]), op.constant(p.v, [t0, cfg.d_model])]) : undefined,
+    keep: opts.keepKV ? [] : undefined,
+  };
+  forward(cfg, (n) => W.get(n)!, op, tokens.slice(-(cfg.block_size - t0)), null,
+          forwardTap(op, live, opts.interventions, opts.rewrite), kv);
+  const out = opts.read(live, op, (n) => W.get(n)!);
+  kv.keep?.forEach(([k, v], l) => Object.assign(out, { [`kv.L${l}.k`]: k, [`kv.L${l}.v`]: v }));
+  return out;
 }
 
 /** The tap for a forward pass: interventions, then `rewrite`, then keep the stage. */
@@ -79,11 +101,7 @@ export class CpuEngine implements Engine {
   async forward(tokens: number[], opts: ForwardOptions): Promise<Record<string, Float32Array>> {
     const tape = new Tape();
     tape.enabled = false;
-    const op = new Ops(tape);
-    const live = new Map();
-    const W = this.sets.get(opts.weights ?? "current")!;
-    forward(this.cfg, (n) => W.get(n)!, op, tokens.slice(-this.cfg.block_size), null,
-            forwardTap(op, live, opts.interventions, opts.rewrite));
-    return Object.fromEntries(Object.entries(opts.read(live, op, (n) => W.get(n)!)).map(([k, t]) => [k, t.data]));
+    const out = runForward(this.cfg, this.sets.get(opts.weights ?? "current")!, new Ops(tape), tokens, opts);
+    return Object.fromEntries(Object.entries(out).map(([k, t]) => [k, t.data]));
   }
 }

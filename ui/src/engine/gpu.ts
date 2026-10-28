@@ -4,7 +4,7 @@
 
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { frameAround, traceHeader } from "./frames";
-import { forwardTap, type Engine, type ForwardOptions, type WeightSet } from "./engine";
+import { runForward, type Engine, type ForwardOptions, type WeightSet } from "./engine";
 import { forward, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
@@ -699,12 +699,24 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  /** Softmax per row. Attention rows are causal: columns past the diagonal get weight 0. */
-  softmax(x: GTensor, causal = true, offset = 0): GTensor {
+  /** Softmax per attention row: causal, so columns past the diagonal (offset by the KV cache's
+   * length) get weight 0. */
+  softmax(x: GTensor, offset = 0): GTensor {
     const [m, n] = x.shape;
     const o = this.out([m, n], [x]);
-    this.run("softmax", [n, +causal, offset], [x, o], [m]);
+    this.run("softmax", [n, 1, offset], [x, o], [m]);
     this.tape.push(o, () => this.run("softmax_back", [n], [o, o.grad!, this.g(x)], [m]));
+    return o;
+  }
+
+  concatRows(a: GTensor, b: GTensor): GTensor {
+    const o = this.out([a.rows + b.rows, a.cols], [a, b]);
+    this.band(a, o, 1, a.length, 0, 0, 0, 0, false);
+    this.band(b, o, 1, b.length, 0, 0, 0, a.length, false);
+    this.tape.push(o, () => {
+      if (a.requiresGrad) this.band(o.grad!, this.g(a), 1, a.length, 0, 0, 0, 0, true);
+      if (b.requiresGrad) this.band(o.grad!, this.g(b), 1, b.length, 0, a.length, 0, 0, true);
+    });
     return o;
   }
 
@@ -828,6 +840,10 @@ export class GpuModel implements Engine {
     return `WebGPU (${this.gpu.adapterName})`;
   }
 
+  get config(): ModelConfig {
+    return this.cfg;
+  }
+
   constructor(private gpu: Gpu, private cfg: ModelConfig) {
     const d = gpu.device;
     const size = Math.min(d.limits.maxStorageBufferBindingSize, d.limits.maxBufferSize, 256 * 2 ** 20);
@@ -865,10 +881,7 @@ export class GpuModel implements Engine {
     this.arena.used = this.scratch.used = 0;
     const encoder = device.createCommandEncoder();
     const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
-    const live = new Map<string, GTensor>();
-    forward(this.cfg, (n) => W.get(n)!, op, tokens.slice(-this.cfg.block_size), null,
-            forwardTap(op, live, opts.interventions, opts.rewrite));
-    const wanted = Object.entries(opts.read(live, op, (n) => W.get(n)!));
+    const wanted = Object.entries(runForward(this.cfg, W, op, tokens, opts));
     const temps = op.finish();
     // Pack the wanted tensors into the staging buffer, one after another.
     let at = 0;

@@ -6,7 +6,8 @@ import { decodeFrame } from "../bridge";
 import { Tensor } from "./autograd";
 import * as an from "./analyses";
 import { CpuEngine, using, type Engine, type WeightSet } from "./engine";
-import { encodeTensors } from "./frames";
+import { encodeTensors, encodeTrace } from "./frames";
+import { emptyCache, traceCached } from "./kvcache";
 import { GpuModel, type Gpu } from "./gpu";
 import { compare as manualCompare } from "./manualBackward";
 import type { ModelConfig, Weights } from "./model";
@@ -65,13 +66,14 @@ type Cmd = { type: string } & Record<string, any>;
 const TRAINING_COMMANDS = new Set(["train", "set", "loadCheckpoint", "stepExplain", "save"]);
 
 export class LocalModel {
-  private cfg: ModelConfig;
+  private cfg: ModelMeta["config"];
   private W: Weights = new Map();
   private step = 0;
   private stageMeta: Map<string, ModelMeta["stages"][number]>;
   private weightsSent = false;
   private engine: Engine;
   private val: Uint16Array | null = null;
+  private kvCache = emptyCache();
 
   /** With `gpu`, the model runs on WebGPU; without, on the CPU. */
   constructor(private assets: Assets, private emit: Emit, gpu: Gpu | null = null) {
@@ -141,6 +143,7 @@ export class LocalModel {
                     params: meta.params, paramGroups: meta.paramGroups, probe: meta.probe, training: false, ...this.status() });
         return;
       case "run":
+        if (cmd.incremental && !cmd.interventions?.length && !cmd.tag) return this.sendCachedTrace(cmd.prompt);
         await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag,
                              cmd.interventions ?? []);
         return;
@@ -227,12 +230,26 @@ export class LocalModel {
     };
   }
 
-  private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string,
-                          interventions: Intervention[] = []): Promise<void> {
+  /** Generation with the KV cache: only positions not already cached are computed. */
+  private async sendCachedTrace(prompt: string): Promise<void> {
+    this.sendWeightsIfNeeded();
+    const tok = this.assets.tokenizer;
+    const { result, info } = await traceCached(this.engine, this.cfg, this.kvCache, this.ids(prompt), this.step,
+                                               (id) => this.stageMeta.get(id)?.kind ?? "");
+    this.emit(encodeTrace(result, (id) => this.stageMeta.get(id)!, this.step, result.tokens.map((i) => tok.tokenText(i)),
+                          { prompt, reason: "run", weightsVersion: this.step, interventions: [], incremental: info }));
+  }
+
+  private sendWeightsIfNeeded(): void {
     if (!this.weightsSent) {
       this.emit(encodeTensors("weights", { weights: this.W }, { step: this.step, version: this.step }));
       this.weightsSent = true;
     }
+  }
+
+  private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string,
+                          interventions: Intervention[] = []): Promise<void> {
+    this.sendWeightsIfNeeded();
     const t = await this.engine.trace(this.ids(prompt), { withGrad, targetIndex, interventions },
                                       this.frameSpec(prompt, interventions, tag));
     this.emit(t.frame);

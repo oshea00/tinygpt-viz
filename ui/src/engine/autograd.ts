@@ -66,8 +66,9 @@ export interface OpSet<T extends Node> {
   cols(x: T, c0: number, c1: number): T;
   concatCols(parts: T[]): T;
   scores(q: T, k: T, scale: number): T;
-  causalMask(s: T): T;
-  softmax(x: T): T;
+  causalMask(s: T, offset?: number): T;     // offset: the first query's position (the KV cache's length)
+  softmax(x: T, offset?: number): T;        // attention rows: causal, with the same offset
+  concatRows(a: T, b: T): T;
   mix(A: T, V: T): T;
   crossEntropy(logits: T, targets: number[]): T;
   probs(logits: T): T;        // softmax of the logits, not on the loss path
@@ -317,8 +318,18 @@ export class Ops implements OpSet<Tensor> {
     });
   }
 
-  /** Softmax over each row. */
-  softmax(x: Tensor): Tensor {
+  concatRows(a: Tensor, b: Tensor): Tensor {
+    const out = new Float32Array(a.data.length + b.data.length);
+    out.set(a.data);
+    out.set(b.data, a.data.length);
+    return this.out(out, [a.rows + b.rows, a.cols], [a, b], (o) => {
+      if (a.requiresGrad) { const g = a.g(); for (let i = 0; i < g.length; i++) g[i] += o.grad![i]; }
+      if (b.requiresGrad) { const g = b.g(); for (let i = 0; i < g.length; i++) g[i] += o.grad![a.data.length + i]; }
+    });
+  }
+
+  /** Softmax over each row. Masked entries are already −∞ here, so no offset is needed. */
+  softmax(x: Tensor, _offset = 0): Tensor {
     const [m, n] = x.shape;
     const out = softmaxRows(x.data, m, n);
     return this.out(out, [m, n], [x], (o) => {
