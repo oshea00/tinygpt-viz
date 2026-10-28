@@ -84,6 +84,9 @@
     <button onclick={() => add({ kind: "neuron", layer: nL, index: Math.max(0, Math.min(cfg.d_mlp - 1, nIndex)), mode: nMode })}>add</button>
     {#if gelu && selection.dim >= 0}
       <button class="link" onclick={() => { nL = +gelu[1]; nIndex = selection.dim; }}>use L{gelu[1]} neuron {selection.dim} from the inspector</button>
+    {:else}
+      <span class="muted hint">or click a cell of <span class="mono">L{nL}.mlp.gelu</span>, whose columns are the neurons:
+        <button class="link" onclick={() => { selection.select(`L${nL}.mlp.gelu`, "forward"); settings.tab = "inspector"; }}>open it in the inspector</button></span>
     {/if}
   </fieldset>
 

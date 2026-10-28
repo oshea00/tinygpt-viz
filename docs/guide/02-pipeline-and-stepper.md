@@ -14,6 +14,8 @@ Click any thumbnail to select that stage: the inspector shows it, the atlas outl
 
 When [interventions](09-interventions.md) are active, stages whose values changed get an orange outline. In [KV cache mode](07-generation.md#kv-cache-mode), rows that came from the cache are greyed in the thumbnails.
 
+**Picking an MLP neuron**: each column of a block's `mlp.gelu` stage is one neuron's output. Select that thumbnail and click a cell in the inspector, and the interventions tab offers to ablate that neuron. See [choosing an MLP neuron](09-interventions.md#choosing-an-mlp-neuron) for why it is this stage and not the others.
+
 ## The stepper
 
 The stepper walks the stages in the order they run:

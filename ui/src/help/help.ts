@@ -34,6 +34,7 @@ export const PANELS: Record<string, HelpTopic> = {
       "**Stepper** (under the prompt): ◀ / ▶ or the ← → keys walk the stages in order; **play** steps automatically; **jump to** goes to a block, the output, or the start of the backward pass.",
       "Past the loss, the stepper walks **back up** the network: each stage then shows its gradient.",
       "Orange outlines: stages changed by an intervention. Grey: rows that came from the KV cache.",
+      "**Picking an MLP neuron**: select an `L·.mlp.gelu` thumbnail and click a cell in the inspector. Each column there is one neuron's output, so the interventions tab then offers **use L… neuron … from the inspector**. Other MLP stages are not neurons: `mlp.up` is before the GELU, and `mlp.down` and the stream mix every neuron together.",
     ],
     tryThis: ["Press **play** in the stepper and watch one forward pass run, then the backward pass."],
     guide: "02-pipeline-and-stepper.md",
@@ -142,11 +143,18 @@ export const TOPICS: Record<string, HelpTopic> = {
     title: "Interventions",
     what: "Change one thing inside the network and compare with the original: the loss, the next-token distribution, and where the change spreads.",
     how: [
-      "Ablate a head or MLP neuron (zero, or replace with its mean), switch off a sublayer, force a head's attention, set any cell, shuffle the position embeddings.",
+      "Ablate a head, switch off a sublayer, force a head's attention, set any cell, shuffle the position embeddings.",
+      "**Ablate an MLP neuron**: select an `L·.mlp.gelu` stage and click a cell in the inspector, then use **use L… neuron … from the inspector** on the tile (or type the layer and neuron). GELU's output is the place to do it: each column is one neuron, and that column is all the neuron passes to `mlp.down`. `mlp.up` is the same neuron before its non-linearity; `mlp.down` and the stream are mixes of every neuron.",
+      "**Edit a value** sets one cell of any stage, selected in the inspector or the atlas. The stage decides what it means: in the stream it nudges one position; in `masked` it can unmask a later token and break causality; in `probs` it changes only the display, because the loss reads the logits.",
+      "**zero** removes the unit's output entirely; **mean** keeps its average over the prompt and removes only what differs from position to position, a gentler test of what it does here.",
       "Every view then shows the changed model; changed stages are outlined orange in the pipeline. The inspector's **change from intervention** shows any stage's difference.",
+      "Shortcuts: **ablate** in the head gallery; the concept explorer's **Neurons** panel shows what a neuron responds to.",
       "Interventions apply only to what you look at: training never sees them.",
     ],
-    tryThis: ["Shuffle the position embeddings and watch the predictions fall apart."],
+    tryThis: [
+      "Shuffle the position embeddings and watch the predictions fall apart.",
+      "Select `L1.mlp.gelu`, click a bright cell, ablate that neuron here and look at **biggest change**. Then try **mean** instead of **zero**.",
+    ],
     guide: "09-interventions.md",
   },
   concepts: {

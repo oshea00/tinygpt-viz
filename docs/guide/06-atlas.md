@@ -18,6 +18,7 @@ Where a pixel sits has no meaning of its own: the atlas is a map, to be read alo
 - Labels appear as you zoom in; zoom further and each cell shows its value.
 - **Hover** for the tensor's name, the cell's index and its value.
 - **Click** a tile to select its stage: the pipeline map scrolls to it, and every other view follows. **Double-click** opens it in the inspector.
+- Clicking an activation cell also selects that position and column, so the [interventions](09-interventions.md#editing-a-value) tab can edit that value, or ablate that neuron if it is in an `mlp.gelu` tile.
 - The atlas keeps its zoom and position when you switch tabs and back.
 
 ## Marks
