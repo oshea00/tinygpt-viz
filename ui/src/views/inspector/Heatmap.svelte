@@ -40,8 +40,14 @@
   // gives 9 px, enough for row labels), or a 1,024- or 4,096-wide tensor keeps 1–3 px rows.
   const fitW = $derived(Math.max(1, Math.min(maxCell, Math.floor((width - labelW) / dims[1]))));
   const fitH = $derived(Math.max(1, Math.min(fitW, Math.max(4, Math.floor(maxHeight / dims[0])))));
-  const cellW = $derived(Math.min(maxCell, fitW * zoom));
   const cellH = $derived(Math.max(zoom > 1 ? 3 * zoom : 0, Math.min(maxCell, fitH * zoom)));
+  // Browsers leave a canvas blank past about 32k device pixels a side or 2²⁸ in all, which a
+  // 4,096-wide tensor reaches at high zoom: there the cells stop widening at the limit.
+  const maxCellW = $derived.by(() => {
+    const dpr = window.devicePixelRatio || 1, h = 20 + dims[0] * cellH;
+    return Math.max(1, Math.floor(Math.min(32000 / dpr - labelW, 2 ** 28 / (dpr * dpr * h)) / dims[1]));
+  });
+  const cellW = $derived(Math.min(maxCell, fitW * zoom, maxCellW));
   const bandH = $derived(colBands?.length ? 6 : 0);
   // Column labels only when they fit their cells (short tokens do; words usually not).
   const labelH = $derived(colLabels && cellW >= 9 && Math.max(...colLabels.map((l) => l.length)) * 5.5 <= cellW + 2 ? 14 : 0);

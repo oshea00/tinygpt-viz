@@ -42,7 +42,7 @@ In the gradient view the inspector also shows:
 - **scale**: *per tensor* (the default, best contrast), *per stage type* (the same scale for, say, every layer's MLP output, so layers can be compared), or *global*.
 - **clip at**: very large values would wash out everything else, so the scale stops at the 99th percentile by default. Clipped cells are marked •.
 - **symmetric log**: compresses large values, useful for the residual stream, which grows with depth.
-- **zoom**: cell size, scrolling sideways. The default, 3×, makes rows tall enough to show their tokens; *fit* squeezes the whole tensor into the panel's width.
+- **zoom**: cell size, scrolling sideways. The default, 3×, makes rows tall enough to show their tokens; *fit* squeezes the whole tensor into the panel's width, and up to 10× makes single cells easy to hover. On a 4,096-wide tensor (the logits) cells stop widening sooner, at the largest canvas a browser will draw.
 
 The range in use is always printed above the heatmap.
 

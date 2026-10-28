@@ -94,7 +94,7 @@
     <label><input type="checkbox" bind:checked={settings.symlog} disabled={range.kind === "sequential"} /> symmetric log</label>
     <label>zoom
       <select bind:value={settings.cell}>
-        {#each [0, 2, 3, 4] as z}<option value={z}>{z === 0 ? "fit" : `${z}×`}</option>{/each}
+        {#each [0, 2, 3, 4, 6, 8, 10] as z}<option value={z}>{z === 0 ? "fit" : `${z}×`}</option>{/each}
       </select>
     </label>
     <span class="range mono">
