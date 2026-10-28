@@ -42,6 +42,7 @@ class ModelWorker(threading.Thread):
         self.playing = False
         self.stopping = False
         self.weights_version = 0         # bumps whenever the weights change
+        self.weight_grads = True         # traces carry the weights' gradients (the "view" command)
         self.sent_weights_version = -1
         self._points: list[list[float]] = []
         self._last_metrics = 0.0
@@ -231,6 +232,9 @@ class ModelWorker(threading.Thread):
             self.emit({"type": "status", **self.status()})
         elif kind == "hello":
             self.emit(self.hello())
+        elif kind == "view":
+            # What the open views need: the weights' gradients only for the atlas's gradient mode.
+            self.weight_grads = bool(cmd.get("weightGrads", True))
         else:
             raise ValueError(f"unknown command {kind!r}")
 
@@ -323,11 +327,12 @@ class ModelWorker(threading.Thread):
         self.sent_weights_version = self.weights_version
 
     def trace_prompt(self, prompt: str, with_grad: bool = True, target_index: int | None = None,
-                     interventions: list[dict] | None = None):
+                     interventions: list[dict] | None = None, weight_grads: bool = True):
         tok = self.trainer.data.tokenizer
         ids = tok.encode(prompt) or [0]
         return trace(self.trainer.model, ids, [tok.token_text(i) for i in ids], step=self.trainer.step_num,
-                     with_grad=with_grad, target_index=target_index, interventions=interventions)
+                     with_grad=with_grad, target_index=target_index, interventions=interventions,
+                     weight_grads=weight_grads)
 
     def send_cached_trace(self, prompt: str) -> None:
         """Generation with the KV cache: only positions not already cached are computed."""
@@ -345,7 +350,7 @@ class ModelWorker(threading.Thread):
                    target_index: int | None = None, interventions: list[dict] | None = None,
                    tag: str | None = None) -> None:
         self.send_weights_if_changed()
-        tr = self.trace_prompt(prompt, with_grad, target_index, interventions)
+        tr = self.trace_prompt(prompt, with_grad, target_index, interventions, self.weight_grads)
         extra = {"prompt": prompt, "reason": reason, "weightsVersion": self.weights_version,
                  "interventions": interventions or []}
         if tag:

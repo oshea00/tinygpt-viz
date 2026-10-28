@@ -109,3 +109,14 @@ describe("manual backward", () => {
     expect(r.worstRelative).toBeLessThan(1e-4);
   });
 });
+
+describe("traces without the weights' gradients", () => {
+  it("keep every stage and its gradient", () => {
+    const lean = trace(cfg, W, [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8], { nextToken: 9, weightGrads: false });
+    expect(lean.weightGrads.size).toBe(0);
+    lean.stages.forEach((s, i) => {
+      expectClose(s.output.data, t.stages[i].output.data, s.id);
+      if (s.grad) expectClose(s.grad, t.stages[i].grad!, `grad ${s.id}`);
+    });
+  });
+});

@@ -120,6 +120,7 @@ export type Command =
   | { type: "save" }
   | { type: "manualBackward"; prompt: string }
   | { type: "lens"; prompt: string }
+  | { type: "view"; weightGrads: boolean }   // whether traces carry the weights' gradients
   | { type: "capture"; prompts: { text: string; targets: { start: number; end: number; word: string; category: string }[] }[];
       pool: "last" | "mean"; model: "current" | "untrained"; tag?: string }
   | { type: "generateWith"; prompt: string; n: number; interventions?: Intervention[]; temperature?: number; seed?: number; tag?: string }

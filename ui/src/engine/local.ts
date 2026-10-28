@@ -81,6 +81,7 @@ export class LocalModel {
   private val: Uint16Array | null = null;
   private kvCache = emptyCache();
   private probe: string;
+  private weightGrads = true;            // traces carry the weights' gradients (the "view" command)
 
   // Training (with `training` on).
   private trainCfg = { ...TRAIN_DEFAULTS };
@@ -184,6 +185,10 @@ export class LocalModel {
         await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag,
                              cmd.interventions ?? []);
         return;
+      case "view":
+        // What the open views need: the weights' gradients only for the atlas's gradient mode.
+        this.weightGrads = cmd.weightGrads !== false;
+        return;
       case "lens":
         this.emit({ type: "lens", prompt: cmd.prompt, step: this.step, ...(await an.logitLens(e, cfg, this.ids(cmd.prompt))) });
         return;
@@ -286,7 +291,7 @@ export class LocalModel {
   private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string,
                           interventions: Intervention[] = [], reason = "run"): Promise<void> {
     await this.sendWeightsIfNeeded();
-    const t = await this.engine.trace(this.ids(prompt), { withGrad, targetIndex, interventions },
+    const t = await this.engine.trace(this.ids(prompt), { withGrad, targetIndex, interventions, weightGrads: this.weightGrads },
                                       this.frameSpec(prompt, interventions, tag, reason));
     this.emit(t.frame);
   }

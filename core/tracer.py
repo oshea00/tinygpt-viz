@@ -51,12 +51,15 @@ def _to_numpy(tensors: list[torch.Tensor]) -> list[np.ndarray]:
 
 def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
           with_grad: bool = True, next_token: int | None = None,
-          target_index: int | None = None, interventions: list[dict] | None = None) -> Trace:
+          target_index: int | None = None, interventions: list[dict] | None = None,
+          weight_grads: bool = True) -> Trace:
     """Trace one forward (and backward) pass of `tokens` (at most block_size of them).
 
     Targets are the prompt's own next tokens; the last position has a target only if
     `next_token` is given. `target_index` restricts the loss to a single position.
     `interventions` (see core/interventions.py) rewrite stages on the way through.
+    `weight_grads=False` leaves the weights' gradients out (most of a trace's size); only the
+    network atlas's gradient mode shows them.
     """
     tokens = tokens[-model.cfg.block_size:]
     token_text = token_text[-model.cfg.block_size:]
@@ -89,7 +92,8 @@ def trace(model: GPT, tokens: list[int], token_text: list[str], step: int = 0,
             _, loss = model(idx, targets if has_target else None)
             if with_grad:
                 loss.backward()
-        named = [(n, p.grad) for n, p in model.named_weights().items() if with_grad and p.grad is not None]
+        named = [(n, p.grad) for n, p in model.named_weights().items()
+                 if with_grad and weight_grads and p.grad is not None]
         weight_grads = dict(zip([n for n, _ in named], _to_numpy([g for _, g in named])))
     finally:
         for n, p in model.named_parameters():

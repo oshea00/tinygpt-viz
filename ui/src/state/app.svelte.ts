@@ -105,6 +105,19 @@ class AppState {
     this.bridge?.send(cmd);
   }
 
+  // Traces carry the weights' gradients (most of their size) only while a view shows them: the
+  // network atlas in gradient mode.
+  private weightGradsWanted = false;
+  private weightGradsSent: boolean | null = null;
+
+  wantWeightGrads(want: boolean): void {
+    this.weightGradsWanted = want;
+    if (!this.hello || want === this.weightGradsSent) return;
+    this.send({ type: "view", weightGrads: want });
+    this.weightGradsSent = want;
+    if (want && this.trace) this.run();      // the trace on screen has none
+  }
+
   run(prompt = this.viewPrompt()): void {
     const interventions = this.interventions;
     const incremental = this.kvCache && !interventions.length && this.travel === null;
@@ -183,6 +196,8 @@ class AppState {
     switch (m.type) {
       case "hello": {
         this.hello = m;
+        this.weightGradsSent = null;          // a new connection: tell it what the views need
+        this.wantWeightGrads(this.weightGradsWanted);
         this.status = { step: m.step, playing: m.playing, lr: m.lr, batchSize: m.batchSize, traceEvery: m.traceEvery, device: m.device, checkpoints: m.checkpoints };
         if (!this.prompt) this.prompt = m.probe;
         break;

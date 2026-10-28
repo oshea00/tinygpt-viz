@@ -40,6 +40,7 @@ export interface TraceOptions {
   nextToken?: number | null;
   targetIndex?: number | null;
   interventions?: Intervention[];
+  weightGrads?: boolean;      // false: leave the weights' gradients out (only the atlas shows them)
 }
 
 /** The window and targets for a trace: the prompt's own next tokens, the last position's only
@@ -78,7 +79,7 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
   }));
   const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
   // As core/tracer.py: a weight cut off from the loss (by an intervention) has no gradient at all.
-  if (withGrad) for (const [n, w] of W) if (w.grad) weightGrads.set(n, { data: w.grad, shape: w.shape });
+  if (withGrad && opts.weightGrads !== false) for (const [n, w] of W) if (w.grad) weightGrads.set(n, { data: w.grad, shape: w.shape });
   for (const w of W.values()) {
     w.requiresGrad = false;
     w.grad = null;

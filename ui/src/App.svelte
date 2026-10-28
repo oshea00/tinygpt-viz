@@ -22,6 +22,8 @@
 
   const cfg = $derived(app.hello?.config);
 
+  $effect(() => app.wantWeightGrads(settings.tab === "atlas" && settings.atlasMode === "grads"));
+
   // Glossary links can appear in any formatted text (lessons, help): one handler for all.
   function onDocClick(e: MouseEvent) {
     const a = (e.target as Element | null)?.closest?.("a.gloss");

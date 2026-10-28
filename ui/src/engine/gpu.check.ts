@@ -82,6 +82,8 @@ async function median(f: () => Promise<unknown>, runs = 5): Promise<number> {
 async function profileGpu(gpu: Gpu, m: GpuModel, ids: number[], cfg: { block_size: number }) {
   const device = gpu.device;
   const spec = { meta: (id: string) => ({ id }), step: 0, text: (t: number[]) => t.map(String), extra: {} };
+  const leanTrace = await median(() => m.trace(ids, { weightGrads: false }, spec));
+  const leanBytes = m.timings.bytes;
   const trace = await median(() => m.trace(ids, {}, spec));
   const dispatches = m.timings.dispatches, bytes = m.timings.bytes;
   const forward = await median(() => m.forward(ids, { read: (live, op) => ({ z: op.rows(live.get("logits")!, ids.length - 1, 1) }) }));
@@ -113,7 +115,7 @@ async function profileGpu(gpu: Gpu, m: GpuModel, ids: number[], cfg: { block_siz
   const x = Array.from({ length: 16 }, () => seq).flat(), y = x.map((_, i) => x[(i + 1) % x.length]);
   const train16 = await median(() => m.trainStep(x, y, 16, { lr: 0, weightDecay: 0, gradClip: 1 }), 3);
   for (const b of [arena.buf, scratch.buf, src, dst]) b.destroy();
-  return { traceMs: trace, forwardMs: forward, emptyDispatchesMs: empty, dispatches, transferMs: transfer, transferMB: bytes / 2 ** 20,
+  return { traceMs: trace, traceWithoutWeightGradsMs: leanTrace, leanMB: leanBytes / 2 ** 20, forwardMs: forward, emptyDispatchesMs: empty, dispatches, transferMs: transfer, transferMB: bytes / 2 ** 20,
            trainStep16x100Ms: train16 };
 }
 
@@ -133,6 +135,10 @@ async function checkExported(gpu: Gpu, failures: string[]): Promise<number | und
   const t0 = performance.now();
   const g = await m.trace(ids, {}, spec);
   const ms = performance.now() - t0;
+  // Without the weights' gradients: the same stages and stage gradients, no weight gradients.
+  const lean = await m.trace(ids, { weightGrads: false }, spec);
+  if (lean.weightGrads.size) failures.push("weightGrads: false still read back the weights' gradients");
+  compare(lean, { ...g, weightGrads: new Map() }, "without weight gradients", 0, failures);
   // The frame must decode to the same values the trace returned.
   const back = decodeTrace(decodeFrame(g.frame!));
   for (const s of g.stages) {

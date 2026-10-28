@@ -1327,9 +1327,12 @@ export class GpuModel implements Engine {
     const device = this.gpu.device;
     const tape = new Tape();
     tape.enabled = withGrad;
-    for (const w of this.W.values()) {
+    // Unwanted, the weights' gradients (most of a trace) go to the training gradient buffer, which
+    // is not read back; wanted, to the arena like everything else.
+    const outside = withGrad && opts.weightGrads === false ? this.gradients() : null;
+    for (const [n, w] of this.W) {
       w.requiresGrad = withGrad;
-      w.grad = null;
+      w.grad = outside?.get(n) ?? null;
     }
     this.arena.used = this.scratch.used = 0;
     const encoder = device.createCommandEncoder();
@@ -1349,6 +1352,7 @@ export class GpuModel implements Engine {
     // Gradients accumulate into the arena, so clear what this trace uses before it runs.
     const clear = device.createCommandEncoder();
     clear.clearBuffer(this.arena.buf, 0, used);
+    if (outside) clear.clearBuffer(this.gradArena!.buf);
     device.queue.submit([clear.finish(), encoder.finish()]);
     const t1 = performance.now();
     await this.staging.mapAsync(GPUMapMode.READ, 0, used);
@@ -1359,7 +1363,7 @@ export class GpuModel implements Engine {
     const result = (host: Float32Array): TraceResult => {
       const at = (t: GTensor) => view(t, host, 0);
       const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
-      if (withGrad) for (const [n, w] of this.W) if (w.grad) weightGrads.set(n, { data: at(w.grad).data, shape: w.shape });
+      if (withGrad && !outside) for (const [n, w] of this.W) if (w.grad) weightGrads.set(n, { data: at(w.grad).data, shape: w.shape });
       return {
         tokens: idx, targets, weightGrads, loss: loss ? at(loss).data[0] : null,
         stages: inStageOrder(this.cfg, live).map(([id, x]) => ({ id, output: at(x), grad: withGrad && x.requiresGrad ? at(x.grad!).data : null })),

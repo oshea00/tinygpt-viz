@@ -53,6 +53,17 @@ def test_run_returns_prompt_trace(client):
         assert "".join(decode_trace(raw).text) == "The␣cat␣sat"
 
 
+def test_view_leaves_out_weight_gradients(client):
+    with client.websocket_connect("/ws") as ws:
+        _, raw = _until(ws, lambda h: h["type"] == "trace")
+        assert decode_trace(raw).weight_grads
+        ws.send_text(json.dumps({"type": "view", "weightGrads": False}))
+        ws.send_text(json.dumps({"type": "run", "prompt": "The cat sat"}))
+        _, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == "The cat sat")
+        t = decode_trace(raw)
+        assert not t.weight_grads and t.stage("L0.q").grad is not None   # stage gradients stay
+
+
 def test_training_is_serialised(client):
     with client.websocket_connect("/ws") as ws:
         _until(ws, lambda h: h["type"] == "trace")
