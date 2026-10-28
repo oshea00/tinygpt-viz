@@ -40,8 +40,7 @@
    ]
   },
   {
-   "text": "The predictions fall apart: the model has lost track of order. Clearing the intervention restores them.",
-   "interventions": []
+   "text": "The predictions fall apart: the model has lost track of order, and the **Effect** section shows the loss rising above the baseline's. Press **clear all** under Active interventions and they come back."
   }
  ]
 }
