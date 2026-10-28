@@ -3,7 +3,7 @@
 // Chrome driven over the DevTools protocol. No dependencies beyond Node 20+ and Chrome.
 //
 //   uv run python -m core.server --port 8766 --train &
-//   node scripts/screenshots.mjs --url http://localhost:8766
+//   node scripts/screenshots.mjs --url http://localhost:8766 [--theme light] [--only name,name]
 //
 // The last shots train or take a training step, which changes the server's weights in memory:
 // use a server started for this, not one you are working in.
@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith("--") ? [...acc, [a.slice(2), all[i + 1]]] : acc), []));
 const URL = args.url ?? "http://localhost:8765";
 const ONLY = args.only?.split(",");
+const THEME = args.theme ?? "dark";
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "docs", "images");
 const CHROME = process.env.CHROME ?? "google-chrome";
 const PORT = 9400 + Math.floor(Math.random() * 400);
@@ -89,7 +90,7 @@ const SHOTS = [
   { name: "help-training", height: 1000, setup: `document.querySelector('.right button[title="help: training"]').click(); await h.sleep(400);`, clip: ".help" },
   { name: "concepts-similarity", height: 1400, setup: `await h.tab("concepts"); h.button("capture").click(); await h.until(() => document.querySelector(".setup")?.innerText.includes("captured") && h.has("capture")); await h.sleep(600);`, clip: "main" },
   { name: "concepts-map", height: 1100, setup: `await h.tab("concepts"); h.button("capture").click(); await h.until(() => document.querySelector(".setup")?.innerText.includes("captured") && h.has("capture")); await h.click("projection map"); await h.sleep(600);`, clip: "main" },
-  { name: "concepts-probes", height: 1100, setup: `await h.tab("concepts"); h.button("capture").click(); await h.until(() => document.querySelector(".setup")?.innerText.includes("captured") && h.has("capture")); await h.click("probes", document.querySelector(".sections")); h.button("fit probes at every snapshot").click(); await h.until(() => document.querySelector("svg.chart rect.tr"), 90000); await h.sleep(400);`, clip: "main" },
+  { name: "concepts-probes", height: 1100, setup: `await h.tab("concepts"); h.button("capture").click(); await h.until(() => document.querySelector(".setup")?.innerText.includes("captured") && h.has("capture")); await h.click("probes", document.querySelector(".panels")); h.button("fit probes at every snapshot").click(); await h.until(() => document.querySelector("svg.chart rect.tr"), 90000); await h.sleep(400);`, clip: "main" },
   { name: "concepts-steering", height: 1100, setup: `await h.tab("concepts"); h.button("capture").click(); await h.until(() => document.querySelector(".setup")?.innerText.includes("captured") && h.has("capture")); await h.click("directions & steering"); const sc = document.querySelector('input[type=range][max="4"]'); sc.value = "0.75"; sc.dispatchEvent(new Event("input", { bubbles: true })); await h.sleep(200); await h.click("generate both"); await h.until(() => document.querySelectorAll(".gen b").length === 2 && [...document.querySelectorAll(".gen b")].every((b) => b.textContent !== "…")); await h.sleep(400);`, clip: "main" },
   { name: "concepts-attribution", height: 1000, setup: `await h.tab("concepts"); await h.click("attribution"); await h.until(() => !document.body.innerText.includes("computing…")); await h.sleep(400);`, clip: "main" },
   { name: "beliefs", height: 1500, setup: `await h.tab("beliefs"); h.button("read stories").click(); await h.until(() => document.querySelector(".sections") && h.has("read stories"), 120000); await h.sleep(400); await h.click("probes", document.querySelector(".sections")); h.button("fit probes at every snapshot").click(); await h.until(() => document.querySelector("svg.chart rect.tr"), 120000); await h.click("trajectories", document.querySelector(".sections")); await h.select("story", 2); await h.sleep(600);`, clip: "main" },
@@ -122,7 +123,7 @@ let failed = 0;
 for (const shot of SHOTS.filter((s) => !ONLY || ONLY.includes(s.name))) {
   try {
     await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: shot.height, deviceScaleFactor: 1, mobile: false });
-    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
+    await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: THEME }] });
     await send("Page.navigate", { url: URL });
     await sleep(1500);
     await run(PRELUDE);
