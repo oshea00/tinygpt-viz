@@ -40,3 +40,36 @@ def test_write_sampling_fixture():
         cases.append({"temperature": t, "topK": k, "topP": p, "probs": probs.tolist()})
     FIXTURES.mkdir(parents=True, exist_ok=True)
     (FIXTURES / "sampling.json").write_text(json.dumps({"logits": logits.tolist(), "cases": cases}))
+
+
+# Prose like the training stories, plus the cases byte-level BPE gets wrong most easily.
+TOKENIZER_TEXTS = [
+    "Once upon a time, there was a little girl named Lily. She loved to play outside in the sunshine.",
+    'One day, Tom said, "I don\'t want to go!" His mom smiled. "It\'s okay, we\'ll go tomorrow."',
+    "The big, brown dog ran fast.\n\nThen it stopped.\nIt was tired, so it lay down under a tree.",
+    "Ben had 3 red balls and 12 blue ones. He gave 1 to Sue; she said: thank you!!!",
+    "  two leading spaces, a tab\there, trailing spaces   ",
+    "café, naïve, Zoë, résumé — and “curly quotes” … ellipsis",
+    "emoji 😀👍🏽 and 漢字 and العربية",
+    "she'd, they've, I'm, you're, we'll, it's, 'quoted'",
+    "end of one story\x04start of the next ␄ and a literal <|endoftext|> token",
+    "a",
+    " ",
+    "\n",
+]
+
+
+def test_write_tokenizer_fixture():
+    from core.data import BPE_DIR
+    from core.tokenizers import BPETokenizer
+
+    tok = BPETokenizer.load(BPE_DIR / "tokenizer.json")
+    cases = []
+    for text in TOKENIZER_TEXTS:
+        ids, offsets = tok.encode_with_offsets(text.replace("\x04", "").replace("␄", ""))
+        cases.append({"text": text, "ids": tok.encode(text), "decoded": tok.decode(tok.encode(text)),
+                      "offsetText": text.replace("\x04", "").replace("␄", ""),
+                      "offsetIds": ids, "offsets": offsets})
+    display = [tok.token_text(i) for i in range(tok.vocab_size)]
+    FIXTURES.mkdir(parents=True, exist_ok=True)
+    (FIXTURES / "tokenizer.json").write_text(json.dumps({"cases": cases, "display": display}, ensure_ascii=False))
