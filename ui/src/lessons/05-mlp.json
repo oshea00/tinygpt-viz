@@ -15,10 +15,10 @@
    "stage": "L1.mlp.up"
   },
   {
-   "text": "After **GELU**, negative values are squashed towards zero. Columns that stay pale for every position are neurons that did not fire on this prompt; bright cells are neurons responding to something specific at that position.",
+   "text": "After **GELU**, negative values are squashed towards zero. Zero is white, positive values are red, and the deeper the red, the larger the value. Columns that stay white for every position are neurons that did not fire on this prompt; a deep red cell is a neuron responding strongly to something at that position. Hover over a cell to see its value and how it compares with the largest value in the map.",
    "stage": "L1.mlp.gelu",
    "ask": {
-    "question": "Click a bright cell: a neuron firing strongly at one position.",
+    "question": "Click a deep red cell: a neuron firing strongly at one position.",
     "check": {
      "kind": "bright",
      "ids": [
@@ -26,7 +26,7 @@
      ]
     },
     "correct": "Its provenance shows the pre-activation u and GELU(u). The interventions tab can now ablate exactly this neuron.",
-    "hint": "Bright means at least half the largest value in the map."
+    "hint": "Hover over the darkest red cells. The colour scale tops out below the largest value (see the range above the map), so many cells look equally dark. The tooltip shows each cell as a percentage of the largest value: any cell at 50% or more counts."
    }
   },
   {

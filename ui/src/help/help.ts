@@ -153,7 +153,7 @@ export const TOPICS: Record<string, HelpTopic> = {
     ],
     tryThis: [
       "Shuffle the position embeddings and watch the predictions fall apart.",
-      "Select `L1.mlp.gelu`, click a bright cell, ablate that neuron here and look at **biggest change**. Then try **mean** instead of **zero**.",
+      "Select `L1.mlp.gelu`, click a deep red cell, ablate that neuron here and look at **biggest change**. Then try **mean** instead of **zero**.",
     ],
     guide: "09-interventions.md",
   },

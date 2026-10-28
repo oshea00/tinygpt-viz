@@ -20,7 +20,7 @@ You can combine several. The header shows how many are active; remove them with 
 ## Choosing an MLP neuron
 
 1. Choose a layer in the tile's **layer** dropdown and click **open it in the inspector**. The link always opens the `mlp.gelu` stage of the layer in the dropdown, and the hint beside it names that stage (`L2.mlp.gelu` with layer 2 chosen). Or click any block's `mlp.gelu` thumbnail in the pipeline map.
-2. In the inspector, click a cell. Its column is the neuron; bright cells are where it fires.
+2. In the inspector, click a cell. Its column is the neuron; deep red cells are where it fires (white is zero, and the tooltip shows each cell as a percentage of the largest value).
 3. Back in the interventions tab, the tile shows **use L1 neuron 37 from the inspector** (with your layer and neuron). Click it to fill in the layer and neuron from your selection, which replaces whatever layer the dropdown had. Choose zero or mean, and **add**.
 
 Why `mlp.gelu`, and not the other MLP stages:
@@ -30,7 +30,7 @@ Why `mlp.gelu`, and not the other MLP stages:
 - `mlp.down`, `ln2` and the residual stream are `d_model` wide: each of their columns is a mix of every neuron. Changing one is not ablating a neuron. Use **edit a value** for a single cell there, or **switch off a sublayer** for the whole MLP.
 - The GELU is also why neurons mean anything: it acts on each column separately, so its columns are the units the model can switch on and off. Through a matrix multiply alone, any other set of directions would do as well.
 
-Finding a neuron worth ablating: look for a column that is bright at a few positions and pale elsewhere. A column that stays pale for the whole prompt is a neuron that is not firing here, so ablating it changes almost nothing. The concept explorer's [Neurons](10-concepts.md#neurons) panel shows what a neuron responds to across validation text.
+Finding a neuron worth ablating: look for a column that is deep red at a few positions and white elsewhere. A column that stays white for the whole prompt is a neuron that is not firing here, so ablating it changes almost nothing. The concept explorer's [Neurons](10-concepts.md#neurons) panel shows what a neuron responds to across validation text.
 
 Most single neurons change little: the work is spread across many of them, and later layers can partly make up for one that is missing.
 

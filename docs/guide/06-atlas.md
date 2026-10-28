@@ -41,6 +41,6 @@ The legend under the atlas explains these:
 
 ## Things worth finding
 
-- **Dead neurons**: columns of the MLP activations that stay pale for every position.
+- **Dead neurons**: columns of the MLP activations that stay white (near zero) for every position.
 - **Attention patterns**: the triangles in each head's activation tiles.
 - On `bpe-small`: a striped band at the top of the token table. Those are tokens that never appear in the training text. With tied embeddings the output layer pushes all of them the same way, so their rows ended up almost identical (lesson 1 covers this on that model).

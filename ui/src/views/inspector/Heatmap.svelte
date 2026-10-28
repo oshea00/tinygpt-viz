@@ -28,6 +28,12 @@
   let hover = $state<{ r: number; c: number; x: number; y: number } | null>(null);
 
   const dims = $derived(dims2(tensor));
+  // The largest magnitude in the map, so the tooltip can say how strong a cell is relative to it.
+  const peak = $derived.by(() => {
+    let m = 0;
+    for (const v of tensor.data) if (Number.isFinite(v) && Math.abs(v) > m) m = Math.abs(v);   // masked scores are −∞
+    return m;
+  });
   const labelW = $derived(rowLabels ? Math.max(26, 8 + 6.5 * Math.max(...rowLabels.map((l) => l.length))) : 0);
   // Fitted to the width, then zoomed, but never past maxCell: zoom enlarges tiny cells and leaves
   // a small tensor (an attention pattern) as it is. Zooming also sets a minimum row height (3×
@@ -126,7 +132,7 @@
   {#if hover}
     <div class="tip mono" style:left="{hover.x}px" style:top="{hover.y}px">
       row {hover.r}{rowLabels ? ` "${rowLabels[hover.r]}"` : ""} · col {hover.c}{colLabels ? ` "${colLabels[hover.c]}"` : ""}<br />
-      <b>{fmt(at(tensor, hover.r, hover.c), 5)}</b>
+      <b>{fmt(at(tensor, hover.r, hover.c), 5)}</b>{#if peak > 0 && Number.isFinite(at(tensor, hover.r, hover.c))}{" · "}{Math.round((at(tensor, hover.r, hover.c) / peak) * 100)}% of the largest{range.kind === "diverging" ? " |value|" : ""}{/if}
     </div>
   {/if}
 </div>

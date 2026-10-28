@@ -17,7 +17,7 @@ The prompt as a row of tokens. The selected position (outlined) draws arcs back 
 
 Every query (row) against every key (column), for this head. Each row sums to 1. The hatched triangle is the **causal mask**: a position can't attend to later ones, because during generation they don't exist yet.
 
-Typical patterns to look for: a bright diagonal (attending to itself), the diagonal just below it (the previous token), or a column that lights up everywhere (a token every position checks). Click a cell to select that query and key.
+Weights run from white (0) to dark purple (1), so strong attention is dark. Typical patterns to look for: a dark diagonal (attending to itself), the diagonal just below it (the previous token), or a column that is dark everywhere (a token every position checks). Click a cell to select that query and key.
 
 ## The Q·K explorer
 

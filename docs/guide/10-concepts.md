@@ -29,7 +29,7 @@ The **snapshot** slider picks the layer you are looking at, from `embed.sum` to 
 
 ![Similarity: trained model and untrained baseline](../images/concepts-similarity.png)
 
-How alike every pair of words is, as cosine similarity: 1 means the same direction. Words are sorted by category, so a category the model has learned shows as a bright block. Under each matrix: the average similarity within categories and across them.
+How alike every pair of words is, as cosine similarity: 1 means the same direction. Words are sorted by category, so a category the model has learned shows as a red block (red is similar, white unrelated, blue opposed). Under each matrix: the average similarity within categories and across them.
 
 Before comparing, the vectors are **centred**: the average of all captured vectors is subtracted. Raw residual vectors share a large common part that makes everything look alike.
 
