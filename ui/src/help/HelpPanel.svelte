@@ -3,6 +3,7 @@
   import { app, settings } from "../state/app.svelte";
   import { formatText } from "../lessons/lesson";
   import Bibliography from "./Bibliography.svelte";
+  import { guideHref } from "./docs";
   import Glossary from "./Glossary.svelte";
   import { LAYOUT, PANELS, TOPICS } from "./help";
 
@@ -45,7 +46,7 @@
       {#if topic.tryThis.length}
         <p class="try"><b>Try:</b> {@html formatText(topic.tryThis.join(" "))}</p>
       {/if}
-      <p class="more muted">More in the guide: <a href="/guide.html?doc=guide/{topic.guide}" target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
+      <p class="more muted">More in the guide: <a href={guideHref(`guide/${topic.guide}`)} target="_blank" rel="noreferrer">docs/guide/{topic.guide}</a></p>
     {/if}
   </section>
 {/if}

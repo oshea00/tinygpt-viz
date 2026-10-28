@@ -16,6 +16,14 @@ training with checkpoint replay, a manual backward mode, and a concept explorer.
 
 ## Run it
 
+**In the browser, with nothing to install:** open **<https://oshea00.github.io/tinygpt-viz/>**.
+The model runs in the page, on the GPU through WebGPU (Chrome, Edge and Safari; Firefox on
+Windows), or on the CPU in browsers without it. Every view works; add `?train=1` to the address to
+train it as well (the first step downloads the 124 MB training set). The model is downloaded from
+Hugging Face once and kept by the browser. See
+[Getting started](docs/guide/01-getting-started.md#in-the-browser) for what differs from the server.
+
+**Locally, with the Python server:** for development, and for long training runs at full speed.
 Requires [uv](https://docs.astral.sh/uv/) and Node 20+. A GPU is optional: the model runs on any CPU.
 
 ```sh

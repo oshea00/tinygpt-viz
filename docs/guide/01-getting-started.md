@@ -1,5 +1,35 @@
 # Getting started
 
+## In the browser
+
+Open <https://oshea00.github.io/tinygpt-viz/>. Nothing is installed: the model runs in the page,
+in a background worker, on the GPU through WebGPU, or on the CPU where the browser has no WebGPU
+(the header shows which). It downloads the trained model from Hugging Face on the first visit,
+about 25 MB, and the browser keeps it for the next.
+
+Everything the server does works in the page, with a few differences:
+
+- **Training** is off unless the address ends in `?train=1`, as the server needs `--train`. The
+  first step downloads the training set (124 MB). Training starts with fresh optimizer moments,
+  as the server does from the published checkpoints. A few steps a second on a desktop GPU
+  is enough to watch the model learn, but slower than the server.
+- **Checkpoints** saved during a session (by the schedule or **save now**) are kept in memory, the
+  most recent eight; the published ones can always be replayed.
+- **Random choices** (sampling, and the windows the neuron search reads) use the page's own seeded
+  generator, so they differ from the server's draws.
+
+To run the same page from your own machine, with your own checkpoints:
+
+```sh
+uv run python -m core.web_export --all          # writes ui/public/model/ (--train adds train.bin)
+cd ui && npm install && npm run build           # ui/dist is the whole site: serve it with any web server
+```
+
+and open it with `?backend=local` (the build talks to the Python server unless told otherwise), or
+build with `VITE_BACKEND=local` to make that the default. Add `?gpu=0` to force the CPU. The site
+needs a web server: browsers do not run it from a file. For the guide's pages, copy `docs/` into
+`ui/dist/docs/`.
+
 ## Install
 
 You need [uv](https://docs.astral.sh/uv/), Node 20 or later, and Chrome or another modern browser. A GPU is optional: the published model runs on any CPU.

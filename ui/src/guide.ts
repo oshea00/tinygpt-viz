@@ -1,10 +1,10 @@
-// The guide viewer: renders one Markdown page from docs/ (served at /docs/), named by ?doc=.
+// The guide viewer: renders one Markdown page from docs/ (see help/docs.ts), named by ?doc=.
 // Links to other guide pages stay in the viewer; images and anchors resolve against the page.
 import { marked } from "marked";
 import "./app.css";
 import "./guide.css";
 import "./state/theme.svelte";   // the app's saved theme
-import { fixLinks } from "./help/docs";
+import { docsUrl, fixLinks } from "./help/docs";
 
 const main = document.getElementById("guide")!;
 const doc = new URLSearchParams(location.search).get("doc") ?? "guide/01-getting-started.md";
@@ -14,7 +14,7 @@ async function show(): Promise<void> {
     main.textContent = `Not a guide page: ${doc}`;
     return;
   }
-  const src = new URL(`/docs/${doc}`, location.origin);
+  const src = docsUrl(doc);
   const r = await fetch(src);
   if (!r.ok) {
     main.textContent = `Couldn't load docs/${doc} (${r.status}).`;

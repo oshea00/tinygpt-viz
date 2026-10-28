@@ -1,10 +1,19 @@
-// Rendered pages from docs/ (served at /docs/): shared by the guide viewer and the help panel.
+// Rendered pages from docs/ (served at docs/ under the app's base path: / from the server, the
+// repository's name on GitHub Pages): shared by the guide viewer and the help panel.
+
+const BASE = import.meta.env.BASE_URL;
+
+/** A docs/ page's URL, e.g. docsUrl("bibliography.md"). */
+export const docsUrl = (path: string) => new URL(`${BASE}docs/${path}`, location.origin);
+
+/** The guide viewer's address for a docs/ page (with any #anchor). */
+export const guideHref = (doc: string) => `${BASE}guide.html?doc=${doc}`;
 
 /** The viewer URL for a docs/ page, or null for anything that isn't one. */
 export function viewerHref(url: URL): string | null {
-  const docs = new URL("/docs/", location.origin);
+  const docs = docsUrl("");
   if (url.origin !== location.origin || !url.pathname.startsWith(docs.pathname) || !url.pathname.endsWith(".md")) return null;
-  return `/guide.html?doc=${url.pathname.slice(docs.pathname.length)}${url.hash}`;
+  return guideHref(`${url.pathname.slice(docs.pathname.length)}${url.hash}`);
 }
 
 /** GitHub's heading anchors: lowercase, punctuation dropped, spaces to hyphens. */

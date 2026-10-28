@@ -5,7 +5,8 @@ can run with no server at all.
     uv run python -m core.web_export --config bpe-small --all      # every checkpoint, for replay
     uv run python -m core.web_export --config bpe-small --train    # with train.bin, to train in the browser
 
-The output directory (default ui/public/model/, served at /model/) holds:
+The output directory (default ui/public/model/, served at /model/) holds the following. The
+GitHub Pages build reads the same files from Hugging Face instead (`core.hub push-web`).
 
     model.json       config, parameter counts, checkpoint steps, and every stage's metadata
     tokenizer.json   the BPE tokenizer
@@ -17,6 +18,7 @@ The output directory (default ui/public/model/, served at /model/) holds:
 import argparse
 import json
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -60,6 +62,7 @@ def export(config: str, out: Path = OUT, every: bool = False, train: bool = Fals
             shutil.copy(src, out / f"{split}.bin")
     meta = {"config": cfg.__dict__, "params": model.num_params(), "paramGroups": model.param_groups_count(),
             "checkpoints": steps(chosen), "probe": DEFAULT_PROBE,
+            "exported": datetime.now(timezone.utc).isoformat(timespec="seconds"),   # the browser's cache key
             "stages": [describe(s, cfg).to_json() for s in stage_order(cfg)]}
     (out / "model.json").write_text(json.dumps(meta))
     print(f"wrote {out / 'model.json'} ({len(chosen)} checkpoints)")

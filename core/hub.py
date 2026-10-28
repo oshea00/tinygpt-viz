@@ -5,6 +5,10 @@ the profile's val.bin, so a download lands straight in place.
 
     uv run python -m core.hub push --config all        # on the machine that trained (hf auth login first)
     uv run python -m core.hub pull --config bpe-small  # elsewhere; the server also does this on start
+    uv run python -m core.hub push-web --config bpe-small   # the browser's model (core/web_export.py), for GitHub Pages
+
+The browser's files go under web/<profile>/ in the same repo; the Pages build reads them from
+https://huggingface.co/<repo>/resolve/main/web/<profile>/.
 """
 
 import argparse
@@ -65,6 +69,22 @@ def push(cfg: ModelConfig, repo: str = HF_REPO) -> None:
         api.upload_folder(repo_id=repo, folder_path=staging, commit_message=f"{cfg.name}: {len(ckpts)} checkpoints")
 
 
+def push_web(cfg: ModelConfig, repo: str = HF_REPO) -> None:
+    """The in-browser backend's files: every checkpoint (for replay), val.bin and train.bin."""
+    from huggingface_hub import HfApi
+
+    from .web_export import export
+
+    with tempfile.TemporaryDirectory() as tmp:
+        export(cfg.name, Path(tmp), every=True, train=True)
+        api = HfApi()
+        api.create_repo(repo, exist_ok=True)
+        print(f"uploading the browser's {cfg.name} to {repo}/web/{cfg.name}/")
+        api.upload_folder(repo_id=repo, folder_path=tmp, path_in_repo=f"web/{cfg.name}",
+                          commit_message=f"{cfg.name}: the in-browser backend's model")
+    print(f"served at https://huggingface.co/{repo}/resolve/main/web/{cfg.name}/")
+
+
 def pull(cfg: ModelConfig, repo: str = HF_REPO) -> bool:
     """Download a profile's checkpoints and val.bin; False (with a warning) if that isn't possible."""
     from huggingface_hub import snapshot_download
@@ -83,19 +103,19 @@ def pull(cfg: ModelConfig, repo: str = HF_REPO) -> bool:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("action", choices=["push", "pull"])
+    p.add_argument("action", choices=["push", "pull", "push-web"])
     p.add_argument("--config", required=True, choices=[*PROFILES, "all"],
                    help="a profile, or all: every profile with local checkpoints (push) or every profile (pull)")
     p.add_argument("--repo", default=HF_REPO)
     args = p.parse_args()
     if args.config != "all":
         cfgs = [profile(args.config)]
-    elif args.action == "push":
+    elif args.action in ("push", "push-web"):
         cfgs = [c for c in PROFILES.values() if has_checkpoints(c)]
     else:
         cfgs = list(PROFILES.values())
     for cfg in cfgs:
-        push(cfg, args.repo) if args.action == "push" else pull(cfg, args.repo)
+        {"push": push, "pull": pull, "push-web": push_web}[args.action](cfg, args.repo)
 
 
 if __name__ == "__main__":

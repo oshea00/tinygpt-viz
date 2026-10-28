@@ -1,9 +1,9 @@
 <script lang="ts">
   // The papers behind the views: docs/bibliography.md, rendered in the help panel.
   import { marked } from "marked";
-  import { fixLinks } from "./docs";
+  import { docsUrl, fixLinks, guideHref } from "./docs";
 
-  const src = new URL("/docs/bibliography.md", location.origin);
+  const src = docsUrl("bibliography.md");
   let status = $state("loading…");
   let body: HTMLDivElement;
 
@@ -23,7 +23,7 @@
 </script>
 
 <div class="tools">
-  <span class="muted">{status || "grouped by the view they relate to"} · <a href="/guide.html?doc=bibliography.md" target="_blank" rel="noreferrer">open in the guide viewer</a></span>
+  <span class="muted">{status || "grouped by the view they relate to"} · <a href={guideHref("bibliography.md")} target="_blank" rel="noreferrer">open in the guide viewer</a></span>
 </div>
 <div class="list" bind:this={body}></div>
 

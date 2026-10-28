@@ -1,0 +1,55 @@
+# The app as a static site on GitHub Pages, with the model running in the browser (WebGPU, or the
+# CPU without it). The model itself is not in the site: it is read from Hugging Face, where
+# `uv run python -m core.hub push-web --config bpe-small` puts it.
+#
+# Needs Settings → Pages → Source: GitHub Actions.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npx vite build --base=/${{ github.event.repository.name }}/
+        env:
+          VITE_BACKEND: local
+          VITE_MODEL_URL: https://huggingface.co/oshea00/tinygpt-viz/resolve/main/web/bpe-small/
+      - run: cp -r ../docs dist/docs      # the guide and the help panel's links
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ui/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

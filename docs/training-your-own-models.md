@@ -40,3 +40,13 @@ To make the app download from your repo instead of the default, set `TINYGPT_HF_
 ```sh
 uv run python -m core.hub pull --config bpe-small --repo <user>/<name>
 ```
+
+The page that runs in the browser ([the GitHub Pages site](https://oshea00.github.io/tinygpt-viz/))
+reads its own copy of the model, in the format the in-browser backend uses, from `web/<profile>/` in
+the same repo. Publish that too, with every checkpoint for replay and the training set:
+
+```sh
+uv run python -m core.hub push-web --config bpe-small   # about 790 MB the first time
+```
+
+A fork's Pages build reads from the repo named in `VITE_MODEL_URL` in `.github/workflows/pages.yml`.

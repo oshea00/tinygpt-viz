@@ -24,6 +24,7 @@ export interface ModelMeta {
   paramGroups: Record<string, number>;
   checkpoints: number[];
   probe: string;
+  exported?: string;           // when core/web_export.py wrote it: the cache key's version
   stages: ({ id: string; kind: string; inputs: string[]; weights: string[] } & Record<string, unknown>)[];
 }
 
@@ -37,19 +38,33 @@ export interface Assets {
 
 export const checkpointFile = (step: number) => `ckpt_${String(step).padStart(6, "0")}.bin`;
 
-/** Fetch the exported model from `base` (a URL ending in "/"), latest checkpoint first. */
+const CACHE = "tinygpt-model";
+
+/** Fetch the exported model from `base` (a URL ending in "/"), latest checkpoint first. Files are
+ * kept in the Cache API, keyed by the export's date: Hugging Face's CDN redirects to a newly
+ * signed URL every time, so the browser's own cache never sees the same address twice. */
 export async function fetchAssets(base: string): Promise<Assets> {
+  const meta: ModelMeta = await fetchOk(new URL("model.json", base), { cache: "no-cache" }).then((r) => r.json());
+  const cache = await globalThis.caches?.open(CACHE).catch(() => null);   // none outside https or localhost
   const get = async (path: string) => {
-    const r = await fetch(new URL(path, base));
-    if (!r.ok) throw new Error(`${path}: ${r.status} ${r.statusText}`);
+    const url = new URL(path, base), key = `${url.href}?exported=${meta.exported ?? ""}`;
+    const hit = await cache?.match(key);
+    if (hit) return hit;
+    const r = await fetchOk(url);
+    await cache?.put(key, r.clone()).catch(() => undefined);   // full storage: just fetch next time
     return r;
   };
-  const meta: ModelMeta = await (await get("model.json")).json();
   const [tok, checkpoint] = await Promise.all([
     get("tokenizer.json").then((r) => r.json()),
     get(checkpointFile(meta.checkpoints[meta.checkpoints.length - 1])).then((r) => r.arrayBuffer()),
   ]);
   return { meta, tokenizer: new BPETokenizer(tok), checkpoint, fetch: (path) => get(path).then((r) => r.arrayBuffer()) };
+}
+
+async function fetchOk(url: URL, init?: RequestInit): Promise<Response> {
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(`${url.pathname.split("/").pop()}: ${r.status} ${r.statusText}`);
+  return r;
 }
 
 /** A weights frame's tensors. */
