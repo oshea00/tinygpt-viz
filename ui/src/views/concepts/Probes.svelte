@@ -39,6 +39,7 @@
   <svg viewBox="0 0 {W} {H}" width="100%" class="chart">
     {#each [0, 0.5, 1] as v}<line x1={P} x2={W - P} y1={y(v)} y2={y(v)} class="grid" /><text x={P - 4} y={y(v) + 3} text-anchor="end">{v * 100}%</text>{/each}
     <line x1={P} x2={W - P} y1={y(1 / cats.length)} y2={y(1 / cats.length)} class="chance" />
+    <text x={P} y={P - 10} class="axis">accuracy on held-out words</text>
     {#each result.trained as r, s}
       {@const x0 = P + s * bw}
       <rect x={x0 + 2} y={y(r.testAcc)} width={bw / 3 - 2} height={y(0) - y(r.testAcc)} class="tr"><title>trained {r.layer}: {(r.testAcc * 100).toFixed(0)}%</title></rect>
@@ -50,7 +51,8 @@
     {/each}
   </svg>
   <p class="muted note"><span class="k tr">trained</span> <span class="k sh">shuffled labels</span> <span class="k un">untrained model</span>
-    · dashed: chance. Accuracy on held-out words only, so a probe cannot just memorise words. A probe shows the concept is
+    · dashed: chance. Bar height is the probe's accuracy on held-out words only, so it cannot just memorise words. Higher is
+    better for the trained model; the two baselines should stay near chance. A probe shows the concept is
     <i>readable</i>, not that the model uses it: test that with steering or ablation. If the untrained model also scores well,
     the probe is reading something other than learned meaning: here, each category has its own sentence templates, so
     position and context give the category away. Templates shared across categories remove that.</p>
@@ -63,6 +65,7 @@
   .chance { stroke: var(--muted); stroke-dasharray: 4 3; }
   text { font: 9px var(--mono); fill: var(--muted); }
   .tr { fill: var(--accent); } .sh { fill: #9ca3af; } .un { fill: #d97706; }
+  .axis { text-anchor: start; fill: var(--ink); }
   .note { font-size: 11px; }
   .k { padding: 0 4px; border-radius: 3px; color: #fff; }
   .k.tr { background: var(--accent); } .k.sh { background: #9ca3af; } .k.un { background: #d97706; }

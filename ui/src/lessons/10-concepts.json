@@ -27,7 +27,7 @@
    "conceptPanel": "map"
   },
   {
-   "text": "**Probes**: a simple classifier per snapshot, tested on words it never saw. Compare with shuffled labels and the untrained model. A probe shows a concept is readable, not that the model uses it.",
+   "text": "**Probes**: a simple classifier per snapshot that tries to tell the categories apart, tested on words it never saw. Press **fit probes at every snapshot**. Each bar's height is the probe's accuracy on those held-out words; the dashed line is chance (guessing). Higher is better only for the **trained** bars. **Shuffled labels** and the **untrained** model are baselines that should stay near chance: where they don't, the probe is reading something other than what the model learned. A probe shows a concept is readable, not that the model uses it.",
    "tab": "concepts",
    "conceptPanel": "probes"
   },
