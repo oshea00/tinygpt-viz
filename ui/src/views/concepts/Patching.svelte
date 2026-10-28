@@ -20,20 +20,26 @@
 </script>
 
 <div class="inputs">
-  <label>clean <input class="wide" bind:value={concepts.patchInput.clean} /></label>
-  <label>corrupted <input class="wide" bind:value={concepts.patchInput.corrupt} /></label>
-  <div class="row">
-    <label>answer <input class="tok" bind:value={concepts.patchInput.answer} /></label>
-    <label>versus <input class="tok" bind:value={concepts.patchInput.wrong} /></label>
-    <span class="seg">
-      {#each [["resid", "residual stream"], ["heads", "heads"]] as [w, label]}
-        <button class:on={concepts.patchWhat === w} onclick={() => (concepts.patchWhat = w as PatchWhat)}>{label}</button>
-      {/each}
-    </span>
-    <button class="primary" disabled={concepts.patchPending} onclick={() => concepts.runPatch()}>
-      {concepts.patchPending ? "patching…" : "run patching"}
-    </button>
-    <button class="link" onclick={() => (concepts.patchInput = { ...PATCH_EXAMPLE })}>example</button>
+  <div class="fields">
+    <label class="key" for="patch-clean">clean</label>
+    <input id="patch-clean" class="wide" bind:value={concepts.patchInput.clean} />
+    <label class="key" for="patch-corrupt">corrupted</label>
+    <input id="patch-corrupt" class="wide" bind:value={concepts.patchInput.corrupt} />
+    <label class="key" for="patch-answer">answer</label>
+    <div class="row">
+      <input id="patch-answer" class="tok" bind:value={concepts.patchInput.answer} />
+      <label class="key" for="patch-wrong">versus</label>
+      <input id="patch-wrong" class="tok" bind:value={concepts.patchInput.wrong} />
+      <span class="seg">
+        {#each [["resid", "residual stream"], ["heads", "heads"]] as [w, label]}
+          <button class:on={concepts.patchWhat === w} onclick={() => (concepts.patchWhat = w as PatchWhat)}>{label}</button>
+        {/each}
+      </span>
+      <button class="primary" disabled={concepts.patchPending} onclick={() => concepts.runPatch()}>
+        {concepts.patchPending ? "patching…" : "run patching"}
+      </button>
+      <button class="link" onclick={() => (concepts.patchInput = { ...PATCH_EXAMPLE })}>example</button>
+    </div>
   </div>
   <p class="muted note">The two prompts must have the same number of tokens: change one word for another that is also one token.
     Answers are read at their first token (keep the leading space).</p>
@@ -98,12 +104,14 @@
 
 <style>
   .inputs { margin-bottom: 8px; }
-  .inputs > label { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-bottom: 4px; }
-  .inputs > label { max-width: 720px; }
+  .inputs .note { margin-top: 6px; }
+  /* Labels in their own right-aligned column so the clean and corrupted prompts line up character for character. */
+  .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; max-width: 760px; }
+  .key { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+  .fields > .key { text-align: right; }
   .wide { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
   .tok { width: 8em; font-family: var(--mono); font-size: 12px; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-bottom: 4px; }
-  .row label { display: flex; gap: 4px; align-items: center; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
   .seg { display: inline-flex; gap: 2px; }
   .seg button.on { background: var(--accent-soft); border-color: var(--accent); }
   .link { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; font-size: 12px; }
