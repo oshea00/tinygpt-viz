@@ -8,7 +8,7 @@ import type { Intervention } from "../types";
 export type Rewrite<T extends Node> = (op: OpSet<T>, x: T & { shape: number[] }) => T;
 
 /** mulberry32: a small seeded generator that core/interventions.py reproduces exactly. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

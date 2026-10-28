@@ -60,6 +60,54 @@ def test_write_intervention_fixtures():
         (out / f"{name}.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run", "interventions": specs}))
 
 
+def test_write_analyses_fixture():
+    """Inputs and results of the commands beyond a trace (lens, occlusion, patching, capture,
+    beliefs, generation), for the browser engine's analyses (ui/src/engine/analyses.ts). A tiny
+    random model with the real tokenizer's vocabulary and tied embeddings, like bpe-small."""
+    from core import beliefs, concepts
+    from core.config import ModelConfig
+    from core.data import BPE_DIR
+    from core.lens import logit_lens
+    from core.tokenizers import BPETokenizer
+
+    tok = BPETokenizer.load(BPE_DIR / "tokenizer.json")
+    cfg = ModelConfig("test-tied", n_layer=2, n_head=2, d_model=32, d_mlp=128, tied=True).with_vocab(tok.vocab_size)
+    torch.manual_seed(1)
+    model = GPT(cfg)
+    w = {n: p.detach().numpy() for n, p in model.named_weights().items()}
+    (FIXTURES / "analyses_weights.bin").write_bytes(encode_weights(w, 0, {"version": 0}))
+
+    ids = tok.encode("Once upon a time, there was a little girl named Lily. She loved")
+    clean, corrupt = tok.encode("Tom gave the ball to Sue. Sue"), tok.encode("Tom gave the ball to Ben. Sue")
+    answer, wrong = tok.encode(" Tom")[0], tok.encode(" Ben")[0]
+    prompts = [{"text": "Lily saw a dog in the garden.", "targets": [{"start": 11, "end": 14, "word": "dog", "category": "animal"}]},
+               {"text": "The cat and the elephant played.", "targets": [{"start": 4, "end": 7, "word": "cat", "category": "animal"},
+                                                                      {"start": 16, "end": 24, "word": "elephant", "category": "animal"}]}]
+    stories = ["Tom was sad. His dog ran away! Then it came back.", "Sue found a toy. She was so happy."]
+    steer = [{"kind": "steer", "stage": "L0.resid_mlp", "vector": [((i * 37) % 11 - 5) / 10 for i in range(32)], "scale": 2.0}]
+
+    patch = {what: concepts.patch_sweep(model, clean, corrupt, answer, wrong, what) for what in ("resid", "heads")}
+    b = beliefs.run(model, tok, stories, beliefs.DEFAULT_CLOZE, beliefs.DEFAULT_WORDS)
+    steered = beliefs.run(model, tok, stories, beliefs.DEFAULT_CLOZE, beliefs.DEFAULT_WORDS, steer, with_vectors=False)
+    vectors, items = concepts.capture(model, tok, prompts, "last")
+    mean_vectors, _ = concepts.capture(model, tok, prompts, "mean")
+    out = {
+        "config": cfg.__dict__, "ids": ids,
+        "lens": logit_lens(model, ids),
+        "occlusion": {"position": 8, "drops": concepts.occlusion(model, ids, 8)},
+        "patch": {"clean": clean, "corrupt": corrupt, "answer": answer, "wrong": wrong,
+                  **{what: {"grid": r["grid"].tolist(), "ldClean": r["ldClean"], "ldCorrupt": r["ldCorrupt"],
+                            "sourceSum": float(r["source"].sum())} for what, r in patch.items()}},
+        "capture": {"prompts": prompts, "items": items, "last": vectors.tolist(), "mean": mean_vectors.tolist()},
+        "beliefs": {"stories": stories, "cloze": beliefs.DEFAULT_CLOZE, "words": beliefs.DEFAULT_WORDS,
+                    "prefixes": b["prefixes"], "readout": b["readout"].tolist(), "mass": b["mass"].tolist(),
+                    "vectors": b["vectors"].tolist(), "steer": steer, "steered": steered["readout"].tolist()},
+        "generate": {"prompt": "Once upon a time", "n": 12, "interventions": steer,
+                     "text": concepts.generate(model, tok, "Once upon a time", 12, steer, 0.0)},
+    }
+    (FIXTURES / "analyses.json").write_text(json.dumps(out))
+
+
 def test_write_sampling_fixture():
     g = torch.Generator().manual_seed(3)
     logits = torch.randn(16, generator=g) * 2

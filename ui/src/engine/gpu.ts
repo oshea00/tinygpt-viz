@@ -4,6 +4,7 @@
 
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { frameAround, traceHeader } from "./frames";
+import { forwardTap, type Engine, type ForwardOptions, type WeightSet } from "./engine";
 import { forward, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
@@ -814,14 +815,18 @@ export interface FrameSpec {
 }
 
 /** The model on the GPU: weights uploaded once, then one submit and one read-back per trace. */
-export class GpuModel {
-  private W = new Map<string, GTensor>();
+export class GpuModel implements Engine {
+  private sets = new Map<WeightSet, Map<string, GTensor>>();
   private arena: Arena;
   private scratch: Arena;
   private staging: GPUBuffer;
   /** The last trace's milliseconds: encoding its dispatches (JS), waiting for the GPU work and
    * the transfer, and copying the read-back out. */
   timings = { encode: 0, wait: 0, copy: 0, dispatches: 0, bytes: 0 };
+
+  get name(): string {
+    return `WebGPU (${this.gpu.adapterName})`;
+  }
 
   constructor(private gpu: Gpu, private cfg: ModelConfig) {
     const d = gpu.device;
@@ -832,13 +837,61 @@ export class GpuModel {
     this.staging = d.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   }
 
-  setWeights(W: Weights): void {
-    for (const t of this.W.values()) t.buf.destroy();
-    this.W = new Map([...W].map(([n, w]) => [n, new GTensor(this.gpu.upload(w.data), 0, w.shape)]));
+  private get W(): Map<string, GTensor> {
+    return this.sets.get("current") ?? new Map();
+  }
+
+  setWeights(W: Weights, set: WeightSet = "current"): void {
+    for (const t of this.sets.get(set)?.values() ?? []) t.buf.destroy();
+    this.sets.set(set, new Map([...W].map(([n, w]) => [n, new GTensor(this.gpu.upload(w.data), 0, w.shape)])));
+  }
+
+  hasWeights(set: WeightSet): boolean {
+    return this.sets.has(set);
   }
 
   /** A trace, and with `frame` its trace frame too, built around the read-back in one copy: the
    * arena is laid out as the frame's data section. */
+  /** A forward pass without gradients; only the tensors `read` returns are copied back. */
+  async forward(tokens: number[], opts: ForwardOptions): Promise<Record<string, Float32Array>> {
+    const device = this.gpu.device;
+    const tape = new Tape();
+    tape.enabled = false;
+    const W = this.sets.get(opts.weights ?? "current")!;
+    for (const w of W.values()) {
+      w.requiresGrad = false;
+      w.grad = null;
+    }
+    this.arena.used = this.scratch.used = 0;
+    const encoder = device.createCommandEncoder();
+    const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
+    const live = new Map<string, GTensor>();
+    forward(this.cfg, (n) => W.get(n)!, op, tokens.slice(-this.cfg.block_size), null,
+            forwardTap(op, live, opts.interventions, opts.rewrite));
+    const wanted = Object.entries(opts.read(live, op, (n) => W.get(n)!));
+    const temps = op.finish();
+    // Pack the wanted tensors into the staging buffer, one after another.
+    let at = 0;
+    const places = wanted.map(([name, t]) => {
+      const bytes = t.length * F;
+      encoder.copyBufferToBuffer(t.buf, t.offset, this.staging, at, bytes);
+      at += bytes;
+      return { name, start: at - bytes, length: t.length };
+    });
+    device.queue.submit([encoder.finish()]);
+    const out: Record<string, Float32Array> = {};
+    if (at > 0) {
+      await this.staging.mapAsync(GPUMapMode.READ, 0, at);
+      const host = new Float32Array(this.staging.getMappedRange(0, at).slice(0));
+      this.staging.unmap();
+      for (const p of places) out[p.name] = host.subarray(p.start / F, p.start / F + p.length);
+    }
+    for (const b of temps) b.destroy();
+    return out;
+  }
+
+  async trace(tokens: number[], opts: TraceOptions, frame: FrameSpec): Promise<TraceResult & { frame: ArrayBuffer }>;
+  async trace(tokens: number[], opts?: TraceOptions, frame?: FrameSpec): Promise<TraceResult & { frame?: ArrayBuffer }>;
   async trace(tokens: number[], opts: TraceOptions = {}, frame?: FrameSpec): Promise<TraceResult & { frame?: ArrayBuffer }> {
     const t0 = performance.now();
     const { tokens: idx, targets, hasTarget, withGrad } = prepare(this.cfg, tokens, opts);

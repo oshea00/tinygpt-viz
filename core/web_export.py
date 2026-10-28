@@ -8,6 +8,7 @@ The output directory (default ui/public/model/, served at /model/) holds:
 
     model.json       config, parameter counts, checkpoint steps, and every stage's metadata
     tokenizer.json   the BPE tokenizer
+    val.bin          the validation tokens (story sets and neuron search), fetched when needed
     ckpt_NNNNNN.bin  one checkpoint's weights as a "weights" frame (core/trace_io.py)
 """
 
@@ -49,6 +50,8 @@ def export(config: str, out: Path = OUT, every: bool = False) -> None:
         (out / f"{path.stem}.bin").write_bytes(encode_weights(w, state["step"], {"version": state["step"]}))
         print(f"wrote {out / path.stem}.bin")
     shutil.copy(data_dir() / "tokenizer.json", out / "tokenizer.json")
+    if (data_dir() / "val.bin").exists():
+        shutil.copy(data_dir() / "val.bin", out / "val.bin")
     meta = {"config": cfg.__dict__, "params": model.num_params(), "paramGroups": model.param_groups_count(),
             "checkpoints": steps(chosen), "probe": DEFAULT_PROBE,
             "stages": [describe(s, cfg).to_json() for s in stage_order(cfg)]}

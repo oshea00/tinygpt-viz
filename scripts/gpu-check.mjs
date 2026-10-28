@@ -45,6 +45,7 @@ if (!result) {
 }
 console.log(`${result.ok ? "ok" : "FAILED"} on ${result.adapter ?? "?"}: fixture ${result.ms?.toFixed(0) ?? "?"} ms` +
             (result.exportedMs !== undefined ? `, exported model ${result.exportedMs.toFixed(0)} ms per trace` : ", no exported model"));
+if (result.checked) console.log(`  checked: ${result.checked.join(", ")}`);
 if (result.timings) {
   const t = result.timings;
   console.log(`  ${t.dispatches} dispatches, ${(t.bytes / 2 ** 20).toFixed(0)} MB read back: encoding ${t.encode.toFixed(1)} ms, ` +

@@ -4,7 +4,9 @@
 import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
 import type { Trace } from "../types";
 import { Gpu, GpuModel } from "./gpu";
+import { checkAnalyses } from "./analyses.cases";
 import { fetchAssets } from "./local";
+import { BPETokenizer } from "./tokenizer";
 import { makeWeights, trace, type TraceResult } from "./model";
 
 // The intervention fixtures tests/test_ui_fixtures.py writes, one per kind.
@@ -87,7 +89,7 @@ async function checkExported(gpu: Gpu, failures: string[]): Promise<number | und
   return ms;
 }
 
-async function check(): Promise<{ ok: boolean; adapter?: string; failures: string[]; ms?: number; exportedMs?: number; timings?: GpuModel["timings"] }> {
+async function check(): Promise<{ ok: boolean; adapter?: string; checked?: string[]; failures: string[]; ms?: number; exportedMs?: number; timings?: GpuModel["timings"] }> {
   const gpu = await Gpu.open();
   if (!gpu) return { ok: false, failures: ["no WebGPU adapter"] };
   const errors: string[] = [];
@@ -99,15 +101,26 @@ async function check(): Promise<{ ok: boolean; adapter?: string; failures: strin
   const t = await m.trace(ref.tokens, { nextToken: 9 });
   const ms = performance.now() - t0;
   const failures: string[] = [];
+  const checked = ["fixture trace", `${INTERVENTION_FIXTURES.length} interventions`];
   const want = asResult(ref);
   compare(t, want, "fixture", 1e-5, failures);      // the CPU test's tolerance against core/tracer.py
   for (const name of INTERVENTION_FIXTURES) {
     const r = decodeTrace(await fixture(`interventions/${name}.bin`));
     compare(await m.trace(r.tokens, { nextToken: 9, interventions: r.interventions }), asResult(r), name, 1e-5, failures);
   }
+  // The analyses fixture needs the real tokenizer, which the exported model carries.
+  const tokFile = await fetch("/model/tokenizer.json");
+  if (tokFile.ok) {
+    const fx = await (await fetch("/src/fixtures/analyses.json")).json();
+    const a = new GpuModel(gpu, fx.config);
+    a.setWeights(makeWeights(decodeWeights(await fixture("analyses_weights.bin")).tensors));
+    failures.push(...(await checkAnalyses(a, new BPETokenizer(await tokFile.json()), fx)).map((f) => `analyses: ${f}`));
+    checked.push("analyses");
+  }
   const exportedMs = await checkExported(gpu, failures);
+  if (exportedMs !== undefined) checked.push("exported model against the CPU engine");
   failures.push(...errors);
-  return { ok: failures.length === 0, adapter: gpu.adapterName, failures, ms, exportedMs, timings };
+  return { ok: failures.length === 0, adapter: gpu.adapterName, checked, failures, ms, exportedMs, timings };
 }
 
 check().then((r) => {

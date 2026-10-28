@@ -28,6 +28,7 @@ export class Tensor implements Node {
 
 /** What the tape needs of a tensor, on the CPU or the GPU. */
 export interface Node {
+  shape: number[];
   requiresGrad: boolean;
   grad: unknown;
 }

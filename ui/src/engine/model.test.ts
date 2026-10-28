@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
 import { encodeTrace } from "./frames";
+import { compare } from "./manualBackward";
 import { makeWeights, trace } from "./model";
 
 // The pytest-written fixtures: a tiny random GPT's weights and its trace (core/tracer.py).
@@ -97,4 +98,14 @@ describe("interventions match core/interventions.py", () => {
       for (const [n, g] of got.weightGrads) expectClose(g.data, want.weightGrads[n].data, `grad ${n}`);
     });
   }
+});
+
+describe("manual backward", () => {
+  it("agrees with the engine's autograd on every stage and weight", () => {
+    const metas = new Map(ref.stages.map((s) => [s.id, s]));
+    const r = compare(t, metas, W);
+    // Every stage with a gradient but the loss itself: the hand-written pass starts at the logits.
+    expect(Object.keys(r.stages).length).toBe(t.stages.filter((s) => s.grad && s.id !== "loss").length);
+    expect(r.worstRelative).toBeLessThan(1e-4);
+  });
 });
