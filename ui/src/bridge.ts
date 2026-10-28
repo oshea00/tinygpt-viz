@@ -120,7 +120,13 @@ export function decodeBinary(buf: ArrayBuffer): BinaryMsg {
   }
 }
 
-export class Bridge {
+/** A connection to a backend: the Python server over a WebSocket, or the in-browser one. */
+export interface Backend {
+  connect(): void;
+  send(cmd: Command): void;
+}
+
+export class Bridge implements Backend {
   private ws: WebSocket | null = null;
   private retry = 250;
 
@@ -150,5 +156,31 @@ export class Bridge {
 
   send(cmd: Command): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(cmd));
+  }
+}
+
+/** The in-browser backend (src/engine/): the model runs in a Web Worker, no server needed. */
+export class LocalBridge implements Backend {
+  private worker: Worker | null = null;
+
+  constructor(
+    private base: string,      // where core/web_export.py's files are served
+    private onMessage: (m: JsonMsg | BinaryMsg) => void,
+    private onState: (connected: boolean) => void,
+  ) {}
+
+  connect(): void {
+    const w = new Worker(new URL("./engine/worker.ts", import.meta.url), { type: "module" });
+    w.onmessage = (e) => {
+      const m = e.data instanceof ArrayBuffer ? decodeBinary(e.data) : e.data;
+      if (m.type === "hello") this.onState(true);
+      this.onMessage(m);
+    };
+    w.postMessage({ type: "_init", base: this.base });
+    this.worker = w;
+  }
+
+  send(cmd: Command): void {
+    this.worker?.postMessage(cmd);
   }
 }

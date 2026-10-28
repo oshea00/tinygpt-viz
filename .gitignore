@@ -19,3 +19,6 @@ ui/dist/
 
 # huggingface_hub download metadata
 .cache/
+
+# The model exported for the in-browser backend (core/web_export.py)
+ui/public/model/

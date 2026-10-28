@@ -1,7 +1,7 @@
 // Shared state. Every view is a function of (trace, selection, settings); clicking in any
 // view updates the selection and every other view follows.
 
-import { Bridge, type BinaryMsg } from "../bridge";
+import { Bridge, LocalBridge, type Backend, type BinaryMsg } from "../bridge";
 import type { Command, Hello, Intervention, JsonMsg, LensMsg, ManualBackwardMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
 import { headOf } from "../lib/attention";
 import { pick, shape, type SampleSettings } from "../lib/sampling";
@@ -85,11 +85,16 @@ class AppState {
   }
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private bridge: Bridge | null = null;
+  private bridge: Backend | null = null;
 
   start(): void {
+    const onMessage = (m: JsonMsg | BinaryMsg) => this.onMessage(m), onState = (c: boolean) => (this.connected = c);
+    // ?backend=local (or a build with VITE_BACKEND=local): run the model in the browser.
+    const local = (new URLSearchParams(location.search).get("backend") ?? import.meta.env.VITE_BACKEND) === "local";
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.bridge = new Bridge(`${proto}://${location.host}/ws`, (m) => this.onMessage(m), (c) => (this.connected = c));
+    this.bridge = local
+      ? new LocalBridge(new URL(`${import.meta.env.BASE_URL}model/`, location.href).href, onMessage, onState)
+      : new Bridge(`${proto}://${location.host}/ws`, onMessage, onState);
     this.bridge.connect();
   }
 
