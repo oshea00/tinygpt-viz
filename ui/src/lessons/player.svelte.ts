@@ -53,6 +53,10 @@ class Player {
     this.lesson = lesson;
     this.menuOpen = false;
     app.stopAuto();
+    // From a clean selection, as reset() replays one: a lesson inherits the prompt it shares with
+    // others, and a position picked earlier would otherwise carry over (arcs from token 0 show one blob).
+    selection.reset();
+    settings.lensSnap = -1;
     if (app.interventions.length) app.setInterventions([]);
     this.go(0);
   }
