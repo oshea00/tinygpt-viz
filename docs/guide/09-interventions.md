@@ -19,9 +19,9 @@ You can combine several. The header shows how many are active; remove them with 
 
 ## Choosing an MLP neuron
 
-1. In the pipeline map, click a block's `mlp.gelu` thumbnail (or use **open it in the inspector** on the tile).
+1. Choose a layer in the tile's **layer** dropdown and click **open it in the inspector**. The link always opens the `mlp.gelu` stage of the layer in the dropdown, and the hint beside it names that stage (`L2.mlp.gelu` with layer 2 chosen). Or click any block's `mlp.gelu` thumbnail in the pipeline map.
 2. In the inspector, click a cell. Its column is the neuron; bright cells are where it fires.
-3. Back in the interventions tab, the tile shows **use L1 neuron 37 from the inspector** (with your layer and neuron). Click it to fill in the form, choose zero or mean, and **add**.
+3. Back in the interventions tab, the tile shows **use L1 neuron 37 from the inspector** (with your layer and neuron). Click it to fill in the layer and neuron from your selection, which replaces whatever layer the dropdown had. Choose zero or mean, and **add**.
 
 Why `mlp.gelu`, and not the other MLP stages:
 
