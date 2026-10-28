@@ -37,6 +37,16 @@ class UIFiles(StaticFiles):
         return response
 
 
+class DocsFiles(StaticFiles):
+    """The guide's Markdown and screenshots: not content-hashed, so revalidated on every load
+    (a regenerated screenshot shows on a plain refresh; unchanged files still come back 304)."""
+
+    def file_response(self, full_path, *args, **kwargs):
+        response = super().file_response(full_path, *args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
     """worker_kw go to ModelWorker, e.g. training=False for a model that only runs."""
     clients: set[asyncio.Queue[Message]] = set()
@@ -92,7 +102,7 @@ def create_app(trainer: Trainer, **worker_kw) -> FastAPI:
     # instead of downloading it.
     mimetypes.add_type("text/plain; charset=utf-8", ".md")
     if DOCS.exists():
-        app.mount("/docs", StaticFiles(directory=DOCS), name="docs")
+        app.mount("/docs", DocsFiles(directory=DOCS), name="docs")
     if UI_DIST.exists():
         app.mount("/", UIFiles(directory=UI_DIST, html=True), name="ui")
     else:

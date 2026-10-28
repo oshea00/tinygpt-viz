@@ -189,6 +189,10 @@ def test_guide_is_served_as_text(client):
     assert "# Getting started" in r.text
 
 
+def test_guide_files_are_revalidated(client):
+    assert client.get("/docs/images/overview.png").headers["cache-control"] == "no-cache"
+
+
 @pytest.mark.skipif(not UI_DIST.exists(), reason="UI not built")
 def test_ui_page_is_revalidated(client):
     assert client.get("/").headers["cache-control"] == "no-cache"
