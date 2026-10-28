@@ -3,7 +3,8 @@
 
 import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
 import type { Trace } from "../types";
-import { Gpu, GpuModel } from "./gpu";
+import { Tape } from "./autograd";
+import { Arena, Gpu, GpuModel, GpuOps } from "./gpu";
 import { checkAnalyses } from "./analyses.cases";
 import { emptyCache, traceCached } from "./kvcache";
 import { checkTraining, TRAIN_CONFIG, trainFixture } from "./train.cases";
@@ -62,6 +63,59 @@ function compare(t: TraceResult, ref: TraceResult, label: string, rel: number, o
 
 /** The exported model (core/web_export.py), if there is one: GPU against the CPU engine. */
 let timings: GpuModel["timings"] | undefined;
+let profile: Record<string, number> | undefined;
+
+/** Median wall time of `f` over a few runs, in ms, after one warm-up. */
+async function median(f: () => Promise<unknown>, runs = 5): Promise<number> {
+  await f();
+  const t: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const t0 = performance.now();
+    await f();
+    t.push(performance.now() - t0);
+  }
+  return t.sort((a, b) => a - b)[runs >> 1];
+}
+
+/** Where a trace's time goes: the whole trace, a forward pass, the same number of trivial
+ * dispatches, and the read-back's transfer alone; and a training micro-batch. */
+async function profileGpu(gpu: Gpu, m: GpuModel, ids: number[], cfg: { block_size: number }) {
+  const device = gpu.device;
+  const spec = { meta: (id: string) => ({ id }), step: 0, text: (t: number[]) => t.map(String), extra: {} };
+  const trace = await median(() => m.trace(ids, {}, spec));
+  const dispatches = m.timings.dispatches, bytes = m.timings.bytes;
+  const forward = await median(() => m.forward(ids, { read: (live, op) => ({ z: op.rows(live.get("logits")!, ids.length - 1, 1) }) }));
+  const size = 4 * 2 ** 20;
+  const arena = new Arena(device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }));
+  const scratch = new Arena(device.createBuffer({ size, usage: GPUBufferUsage.STORAGE }));
+  const cell = arena.alloc([1]);
+  const empty = await median(async () => {
+    const encoder = device.createCommandEncoder();
+    const op = new GpuOps(gpu, new Tape(), arena, scratch, encoder);
+    for (let i = 0; i < dispatches; i++) op.run("fill", [1], [cell], [1]);
+    const temps = op.finish();
+    device.queue.submit([encoder.finish()]);
+    await device.queue.onSubmittedWorkDone();
+    for (const b of temps) b.destroy();
+  });
+  const src = device.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_SRC });
+  const dst = device.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const transfer = await median(async () => {
+    const encoder = device.createCommandEncoder();
+    encoder.copyBufferToBuffer(src, 0, dst, 0, bytes);
+    device.queue.submit([encoder.finish()]);
+    await dst.mapAsync(GPUMapMode.READ);
+    dst.getMappedRange();
+    dst.unmap();
+  });
+  // A training micro-batch of 16 full-length sequences (the default chunk).
+  const seq = Array.from({ length: cfg.block_size }, (_, i) => ids[i % ids.length]);
+  const x = Array.from({ length: 16 }, () => seq).flat(), y = x.map((_, i) => x[(i + 1) % x.length]);
+  const train16 = await median(() => m.trainStep(x, y, 16, { lr: 0, weightDecay: 0, gradClip: 1 }), 3);
+  for (const b of [arena.buf, scratch.buf, src, dst]) b.destroy();
+  return { traceMs: trace, forwardMs: forward, emptyDispatchesMs: empty, dispatches, transferMs: transfer, transferMB: bytes / 2 ** 20,
+           trainStep16x100Ms: train16 };
+}
 
 async function checkExported(gpu: Gpu, failures: string[]): Promise<number | undefined> {
   const assets = await fetchAssets(new URL("/model/", location.href).href).catch(() => null);
@@ -86,12 +140,13 @@ async function checkExported(gpu: Gpu, failures: string[]): Promise<number | und
     if (worst(r.output.data, s.output.data, 0) > 0 || (s.grad && worst(r.grad!.data, s.grad, 0) > 0)) failures.push(`frame: ${s.id} differs`);
   }
   timings = m.timings;
+  if (new URLSearchParams(location.search).has("profile")) profile = await profileGpu(gpu, m, ids, cfg);
   // Engine against engine, both float32 with sums in different orders: the plan's 1e-4.
   compare(g, trace(cfg, W, ids), cfg.name ?? "exported", 1e-4, failures);
   return ms;
 }
 
-async function check(): Promise<{ ok: boolean; adapter?: string; checked?: string[]; failures: string[]; ms?: number; exportedMs?: number; timings?: GpuModel["timings"] }> {
+async function check(): Promise<{ ok: boolean; adapter?: string; checked?: string[]; failures: string[]; ms?: number; exportedMs?: number; timings?: GpuModel["timings"]; profile?: Record<string, number> }> {
   const gpu = await Gpu.open();
   if (!gpu) return { ok: false, failures: ["no WebGPU adapter"] };
   const errors: string[] = [];
@@ -104,11 +159,14 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
   const ms = performance.now() - t0;
   const failures: string[] = [];
   const checked = ["fixture trace", `${INTERVENTION_FIXTURES.length} interventions`];
+  const progress = (what: string) => console.log(`gpu-check: ${what} (${failures.length} failures so far)`);
+  progress("fixture trace done");
   const want = asResult(ref);
   compare(t, want, "fixture", 1e-5, failures);      // the CPU test's tolerance against core/tracer.py
   for (const name of INTERVENTION_FIXTURES) {
     const r = decodeTrace(await fixture(`interventions/${name}.bin`));
     compare(await m.trace(r.tokens, { nextToken: 9, interventions: r.interventions }), asResult(r), name, 1e-5, failures);
+    progress(`intervention ${name} done`);
   }
   // A generation sequence through the KV cache (core/kvcache.py's traces).
   const cache = emptyCache();
@@ -120,6 +178,7 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
     compare(result, asResult(r), `kv cache step ${i}`, 1e-5, failures);
   }
   checked.push("KV cache");
+  progress("KV cache done");
   // Two steps of core/train.py's Trainer, in micro-batches small enough to be several.
   const fxTrain = trainFixture(await (await fetch("/src/fixtures/train.bin")).arrayBuffer());
   const trainer = new GpuModel(gpu, TRAIN_CONFIG);
@@ -127,6 +186,7 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
   (trainer as unknown as { chunk: number }).chunk = 2;
   failures.push(...(await checkTraining(trainer, fxTrain)).map((f) => `training: ${f}`));
   checked.push("training");
+  progress("training done");
   // The analyses fixture needs the real tokenizer, which the exported model carries.
   const tokFile = await fetch("/model/tokenizer.json");
   if (tokFile.ok) {
@@ -135,11 +195,12 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
     a.setWeights(makeWeights(decodeWeights(await fixture("analyses_weights.bin")).tensors));
     failures.push(...(await checkAnalyses(a, new BPETokenizer(await tokFile.json()), fx)).map((f) => `analyses: ${f}`));
     checked.push("analyses");
+    progress("analyses done");
   }
   const exportedMs = await checkExported(gpu, failures);
   if (exportedMs !== undefined) checked.push("exported model against the CPU engine");
-  failures.push(...errors);
-  return { ok: failures.length === 0, adapter: gpu.adapterName, checked, failures, ms, exportedMs, timings };
+  failures.unshift(...errors);       // device errors first: they explain the rest
+  return { ok: failures.length === 0, adapter: gpu.adapterName, checked, failures, ms, exportedMs, timings, profile };
 }
 
 check().then((r) => {

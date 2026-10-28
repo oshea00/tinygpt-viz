@@ -71,6 +71,12 @@ export interface OpSet<T extends Node> {
   softmax(x: T, offset?: number, B?: number): T;      // attention rows: causal, with the same offset
   concatRows(a: T, b: T): T;
   mix(A: T, V: T, B?: number): T;
+  // The same for a layer's heads at once (one dispatch each on the GPU); one tensor per head.
+  splitHeads(x: T, H: number): T[];
+  scoresHeads(qs: T[], ks: T[], scale: number, B?: number): T[];
+  maskHeads(ss: T[], offset?: number, B?: number): T[];
+  softmaxHeads(xs: T[], offset?: number, B?: number): T[];
+  mixHeads(As: T[], Vs: T[], B?: number): T[];
   crossEntropy(logits: T, targets: number[], denom?: number): T;   // denom: kept positions of the whole batch
   probs(logits: T): T;        // softmax of the logits, not on the loss path
 
@@ -389,6 +395,29 @@ export class Ops implements OpSet<Tensor> {
         for (let j = 0; j < n; j++) gl[i * n + j] += g * (probs[i * n + j] - (j === t ? 1 : 0));
       });
     });
+  }
+
+  // -- a layer's heads: on the CPU, one head at a time --------------------------------------
+
+  splitHeads(x: Tensor, H: number): Tensor[] {
+    const dh = x.cols / H;
+    return Array.from({ length: H }, (_, h) => this.cols(x, h * dh, (h + 1) * dh));
+  }
+
+  scoresHeads(qs: Tensor[], ks: Tensor[], scale: number, B = 1): Tensor[] {
+    return qs.map((q, h) => this.scores(q, ks[h], scale, B));
+  }
+
+  maskHeads(ss: Tensor[], offset = 0, B = 1): Tensor[] {
+    return ss.map((s) => this.causalMask(s, offset, B));
+  }
+
+  softmaxHeads(xs: Tensor[], offset = 0, B = 1): Tensor[] {
+    return xs.map((x) => this.softmax(x, offset, B));
+  }
+
+  mixHeads(As: Tensor[], Vs: Tensor[], B = 1): Tensor[] {
+    return As.map((A, h) => this.mix(A, Vs[h], B));
   }
 
   // -- interventions (./interventions) --------------------------------------

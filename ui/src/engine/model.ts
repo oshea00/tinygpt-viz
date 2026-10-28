@@ -72,7 +72,7 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
     tape.backward();
   }
 
-  const stages = [...live].map(([id, x]) => ({
+  const stages = inStageOrder(cfg, live).map(([id, x]) => ({
     id, output: x,
     grad: withGrad && x.requiresGrad ? x.g() : null,   // zeros if the stage did not affect the loss
   }));
@@ -94,6 +94,25 @@ export function recorder<T extends Node>(op: OpSet<T>, live: Map<string, T>, int
     live.set(id, x);
     return x;
   };
+}
+
+/** Stage ids in core/stages.py's stage_order: per head, all of a head's stages together. */
+export function stageOrder(cfg: ModelConfig): Map<string, number> {
+  const ids = ["embed.tok", "embed.pos", "embed.sum"];
+  for (let l = 0; l < cfg.n_layer; l++) {
+    const P = `L${l}`;
+    ids.push(`${P}.ln1`, `${P}.q`, `${P}.k`, `${P}.v`);
+    for (let h = 0; h < cfg.n_head; h++) for (const x of ["q", "k", "v", "scores", "masked", "weights", "mix"]) ids.push(`${P}.attn.H${h}.${x}`);
+    ids.push(`${P}.attn.concat`, `${P}.attn.out`, `${P}.resid_attn`, `${P}.ln2`, `${P}.mlp.up`, `${P}.mlp.gelu`, `${P}.mlp.down`, `${P}.resid_mlp`);
+  }
+  ids.push("ln_f", "logits", "probs", "loss");
+  return new Map(ids.map((id, i) => [id, i]));
+}
+
+/** A forward pass's stages (taken head step by head step) in stage order. */
+export function inStageOrder<T>(cfg: ModelConfig, live: Map<string, T>): [string, T][] {
+  const order = stageOrder(cfg);
+  return [...live].sort(([a], [b]) => order.get(a)! - order.get(b)!);
 }
 
 /** The KV cache for a forward pass (core/model.py's past and keep_kv): each layer's keys and
@@ -124,23 +143,22 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
     const v = tap(`${P}.v`, op.linear(ln1, w(`${P}.W_v`), w(`${P}.b_v`)));
     const past = kv.past?.[l];
     kv.keep?.push(past ? [op.concatRows(past[0], k), op.concatRows(past[1], v)] : [k, v]);
-    const heads: T[] = [];
-    for (let h = 0; h < H; h++) {
-      const p = `${P}.attn.H${h}`;
-      const band = (x: T) => op.cols(x, h * dh, (h + 1) * dh);
-      const qh = tap(`${p}.q`, band(q));
-      // The split stages hold the new rows; cached rows (if any) are put in front of them.
-      let kh = tap(`${p}.k`, band(k));
-      let vh = tap(`${p}.v`, band(v));
-      if (past) {
-        kh = op.concatRows(band(past[0]), kh);
-        vh = op.concatRows(band(past[1]), vh);
-      }
-      const scores = tap(`${p}.scores`, op.scores(qh, kh, 1 / Math.sqrt(dh), B));
-      const masked = tap(`${p}.masked`, op.causalMask(scores, t0, B));
-      const weights = tap(`${p}.weights`, op.softmax(masked, t0, B));
-      heads.push(tap(`${p}.mix`, op.mix(weights, vh, B)));
+    // A layer's heads go through each step together (one dispatch per step on the GPU), each
+    // head's result tapped as its own stage.
+    const each = (name: string, xs: T[]) => xs.map((x, h) => tap(`${P}.attn.H${h}.${name}`, x));
+    const qs = each("q", op.splitHeads(q, H));
+    // The split stages hold the new rows; cached rows (if any) are put in front of them.
+    let ks = each("k", op.splitHeads(k, H));
+    let vs = each("v", op.splitHeads(v, H));
+    if (past) {
+      const band = (x: T, h: number) => op.cols(x, h * dh, (h + 1) * dh);
+      ks = ks.map((kh, h) => op.concatRows(band(past[0], h), kh));
+      vs = vs.map((vh, h) => op.concatRows(band(past[1], h), vh));
     }
+    const scores = each("scores", op.scoresHeads(qs, ks, 1 / Math.sqrt(dh), B));
+    const masked = each("masked", op.maskHeads(scores, t0, B));
+    const weights = each("weights", op.softmaxHeads(masked, t0, B));
+    const heads = each("mix", op.mixHeads(weights, vs, B));
     const concat = tap(`${P}.attn.concat`, op.concatCols(heads));
     const attn = tap(`${P}.attn.out`, op.linear(concat, w(`${P}.W_o`), w(`${P}.b_o`)));
     x = tap(`${P}.resid_attn`, op.add(x, attn));

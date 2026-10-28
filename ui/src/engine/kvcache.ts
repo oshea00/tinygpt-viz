@@ -7,7 +7,7 @@
 
 import { Tensor } from "./autograd";
 import type { Engine } from "./engine";
-import type { ModelConfig, TraceResult } from "./model";
+import { inStageOrder, type ModelConfig, type TraceResult } from "./model";
 
 const ATTENTION_MATRICES: Record<string, number> = { attn_scores: NaN, mask: -Infinity, softmax: 0 };  // [queries, keys]
 
@@ -52,7 +52,7 @@ export async function traceCached(e: Engine, cfg: ModelConfig & { d_mlp: number 
   const t0 = reason ? 0 : cache.tokens.length;
   const r = await e.forward(tokens.slice(t0), {
     past: reason ? undefined : cache.past, keepKV: true,
-    read: (live) => Object.fromEntries(live),
+    read: (live) => Object.fromEntries(inStageOrder(cfg, live)),
   });
 
   const T = tokens.length;

@@ -5,14 +5,21 @@
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { frameAround, traceHeader } from "./frames";
 import { ADAM_EPS, BETAS, runForward, type Engine, type ForwardOptions, type StepSettings, type WeightSet } from "./engine";
-import { forward, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
+import { forward, inStageOrder, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
 const ALIGN = 256;              // minStorageBufferOffsetAlignment, the most any device asks
 
 /** A tensor on the GPU: a range of a buffer. */
+/** A layer's heads, one tensor each, `stride` bytes apart in one buffer: one dispatch serves all. */
+export interface Block {
+  members: GTensor[];
+  stride: number;
+}
+
 export class GTensor implements Node {
   grad: GTensor | null = null;
+  block?: Block;                // set when this tensor is one head of a block
 
   constructor(
     public buf: GPUBuffer,
@@ -55,9 +62,10 @@ export class Arena {
 
 // -- shaders ----------------------------------------------------------------
 
-// Every kernel reads its sizes from P: twelve u32 slots (floats are bit-cast).
+// Every kernel reads its sizes from P: sixteen u32 slots (floats are bit-cast).
 const HEADER = /* wgsl */ `
-struct P { a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32, i: u32, j: u32, k: u32, l: u32 }
+struct P { a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32,
+           i: u32, j: u32, k: u32, l: u32, m: u32, n: u32, o: u32, q: u32 }
 @group(0) @binding(0) var<uniform> p: P;
 `;
 const LOWEST = "-3.4028234663852886e38";   // the lowest f32, to start a running max
@@ -93,7 +101,8 @@ fn reduce_max(v: f32, lid: u32) -> f32 {
 const SHADERS: Record<string, string> = {
   // C[m,n] (=|+=) alpha · op(A) op(B) (+ bias). a=m b=n c=k d=transA e=transB f=accumulate g=bias h=alpha.
   // op(A) is [m,k]: stored [k,m] when transposed. op(B) is [k,n]: stored [n,k] when transposed.
-  // Batched over workgroup z (one per sequence), with element strides i, j, k for A, B and C.
+  // Batched over workgroup z: z = head · l + sequence, with element strides per sequence (i, j, k)
+  // and per head (m, n, o) for A, B and C. l = sequences per head (0 means 1).
   matmul: `
 @group(0) @binding(1) var<storage, read> A: array<f32>;
 @group(0) @binding(2) var<storage, read> B: array<f32>;
@@ -101,24 +110,29 @@ const SHADERS: Record<string, string> = {
 @group(0) @binding(4) var<storage, read> bias: array<f32>;
 var<workgroup> As: array<array<f32, 16>, 16>;
 var<workgroup> Bs: array<array<f32, 16>, 16>;
-fn a_at(z: u32, r: u32, c: u32) -> f32 {
+fn a_at(o: u32, r: u32, c: u32) -> f32 {
   if (r >= p.a || c >= p.c) { return 0.0; }
-  if (p.d == 1u) { return A[z * p.i + c * p.a + r]; }
-  return A[z * p.i + r * p.c + c];
+  if (p.d == 1u) { return A[o + c * p.a + r]; }
+  return A[o + r * p.c + c];
 }
-fn b_at(z: u32, r: u32, c: u32) -> f32 {
+fn b_at(o: u32, r: u32, c: u32) -> f32 {
   if (r >= p.c || c >= p.b) { return 0.0; }
-  if (p.e == 1u) { return B[z * p.j + c * p.c + r]; }
-  return B[z * p.j + r * p.b + c];
+  if (p.e == 1u) { return B[o + c * p.c + r]; }
+  return B[o + r * p.b + c];
 }
 @compute @workgroup_size(16, 16)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
   let row = wg.y * 16u + lid.y;
   let col = wg.x * 16u + lid.x;
+  let per = max(p.l, 1u);
+  let zh = wg.z / per;
+  let zb = wg.z % per;
+  let oa = zh * p.m + zb * p.i;
+  let ob = zh * p.n + zb * p.j;
   var s = 0.0;
   for (var t = 0u; t < (p.c + 15u) / 16u; t++) {
-    As[lid.y][lid.x] = a_at(wg.z, row, t * 16u + lid.x);
-    Bs[lid.y][lid.x] = b_at(wg.z, t * 16u + lid.y, col);
+    As[lid.y][lid.x] = a_at(oa, row, t * 16u + lid.x);
+    Bs[lid.y][lid.x] = b_at(ob, t * 16u + lid.y, col);
     workgroupBarrier();
     for (var i = 0u; i < 16u; i++) { s += As[lid.y][i] * Bs[i][lid.x]; }
     workgroupBarrier();
@@ -126,7 +140,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec
   if (row < p.a && col < p.b) {
     var v = bitcast<f32>(p.h) * s;
     if (p.g == 1u) { v += bias[col]; }
-    let i = wg.z * p.k + row * p.b + col;
+    let i = zh * p.o + zb * p.k + row * p.b + col;
     if (p.f == 1u) { v += C[i]; }
     C[i] = v;
   }
@@ -158,6 +172,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var s = 0.0;
   for (var r = 0u; r < p.a; r++) { s += g[r * p.b + j]; }
   gW[p.c + j] += s;
+}`,
+
+  // Heads to and from their bands of columns: full [a rows, c cols] and head z [a, b] (d elements
+  // apart). e=0: head z (=|+=) its band of full; e=1: the band of full (=|+=) head z. f=accumulate.
+  heads: `
+@group(0) @binding(1) var<storage, read> src: array<f32>;
+@group(0) @binding(2) var<storage, read_write> dst: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let j = id.x;
+  let i = id.y;
+  if (i >= p.a || j >= p.b) { return; }
+  let full = i * p.c + id.z * p.b + j;
+  let head = id.z * p.d + i * p.b + j;
+  var si = full;
+  var di = head;
+  if (p.e == 1u) { si = head; di = full; }
+  if (p.f == 1u) { dst[di] += src[si]; } else { dst[di] = src[si]; }
 }`,
 
   // out = x + y, n = a.
@@ -290,8 +322,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 }`,
 
-  // The causal mask: a=m b=n c=offset d=backward e=the bits of -∞ f=rows per sequence. Forward
-  // writes -∞ above the diagonal; backward passes the gradient through below it.
+  // The causal mask: a=m b=n c=offset d=backward e=the bits of -∞ f=rows per sequence; over
+  // heads in z, g elements apart. Forward writes -∞ above the diagonal; backward passes the
+  // gradient through below it.
   mask: `
 @group(0) @binding(1) var<storage, read> x: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out: array<f32>;
@@ -300,7 +333,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let j = id.x;
   let i = id.y;
   if (i >= p.a || j >= p.b) { return; }
-  let k = i * p.b + j;
+  let k = id.z * p.g + i * p.b + j;
   let keep = j <= i % p.f + p.c;
   if (p.d == 0u) {
     if (keep) { out[k] = x[k]; } else { out[k] = bitcast<f32>(p.e); }
@@ -309,15 +342,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 }`,
 
-  // Softmax per row, one workgroup per row. a=n b=causal c=offset d=rows per sequence: with causal
-  // set, columns past the diagonal are left out by index rather than through -∞ arithmetic.
+  // Softmax per row, one workgroup per row (and per head in y, e elements apart). a=n b=causal
+  // c=offset d=rows per sequence: with causal set, columns past the diagonal are left out by
+  // index rather than through -∞ arithmetic.
   softmax: `
 @group(0) @binding(1) var<storage, read> x: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out: array<f32>;
 ${REDUCE}
 @compute @workgroup_size(256)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-  let r = wg.x * p.a;
+  let r = wg.y * p.e + wg.x * p.a;
   var n = p.a;
   if (p.b == 1u) { n = min(p.a, wg.x % p.d + p.c + 1u); }
   var m = ${LOWEST};
@@ -331,7 +365,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec
   }
 }`,
 
-  // ∂x += A ⊙ (g − Σ_j g_j A_j), one workgroup per row. a=n.
+  // ∂x += A ⊙ (g − Σ_j g_j A_j), one workgroup per row (and per head in y, b elements apart). a=n.
   softmax_back: `
 @group(0) @binding(1) var<storage, read> A: array<f32>;
 @group(0) @binding(2) var<storage, read> g: array<f32>;
@@ -339,7 +373,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec
 ${REDUCE}
 @compute @workgroup_size(256)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-  let r = wg.x * p.a;
+  let r = wg.y * p.b + wg.x * p.a;
   var s = 0.0;
   for (var j = lid.x; j < p.a; j += 256u) { s += g[r + j] * A[r + j]; }
   let dot = reduce_sum(s, lid.x);
@@ -594,9 +628,9 @@ export class GpuOps implements OpSet<GTensor> {
 
   run(name: string, params: number[], bindings: (GTensor | GPUBuffer)[], groups: [number, number?, number?]): void {
     this.dispatches++;
-    const u = new Uint32Array(12);
+    const u = new Uint32Array(16);
     u.set(params);
-    const ub = this.gpu.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
+    const ub = this.gpu.device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM, mappedAtCreation: true });
     new Uint32Array(ub.getMappedRange()).set(u);
     ub.unmap();
     this.uniforms.push(ub);
@@ -626,9 +660,35 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  /** The gradient tensor of t, allocated (zeroed by the arena clear) on first use. */
+  /** The gradient tensor of t, allocated (zeroed by the arena clear) on first use. A head's
+   * gradient is allocated with its block's, as a block too. */
   g(t: GTensor): GTensor {
+    if (!t.grad && t.block && t.block.members.every((x) => !x.grad)) {
+      this.allocBlock(t.shape, t.block.members.length).forEach((g, h) => (t.block!.members[h].grad = g));
+    }
     return (t.grad ??= this.arena.alloc(t.shape));
+  }
+
+  /** H tensors of one shape, a fixed stride apart: one block. */
+  private allocBlock(shape: number[], H: number, inputs: GTensor[] = []): GTensor[] {
+    const n = shape.reduce((a, b) => a * b, 1), stride = Math.ceil((n * F) / ALIGN) * ALIGN;
+    const base = this.arena.alloc([(H * stride) / F]);
+    const block: Block = { members: [], stride };
+    const needs = this.tape.needs(inputs);
+    for (let h = 0; h < H; h++) {
+      const t = new GTensor(base.buf, base.offset + h * stride, shape, needs);
+      t.block = block;
+      block.members.push(t);
+    }
+    return block.members;
+  }
+
+  /** The block `ts` makes up, in order, if it does (not after an intervention replaced one). */
+  private blockOf(ts: (GTensor | null)[]): { all: GTensor; stride: number } | null {
+    const b = ts[0]?.block;
+    if (!b || b.members.length !== ts.length || ts.some((t, h) => t !== b.members[h])) return null;
+    const first = b.members[0];
+    return { all: new GTensor(first.buf, first.offset, [(ts.length * b.stride) / F]), stride: b.stride / F };
   }
 
   private temp(data: Uint32Array | Int32Array | Float32Array): GPUBuffer {
@@ -642,12 +702,14 @@ export class GpuOps implements OpSet<GTensor> {
   }
 
   /** C (=|+=) alpha · op(A) op(B) (+ bias), with op(A) [m,k] and op(B) [k,n]; with `batch`, that
-   * many products of consecutive blocks (one per sequence). */
+   * many products of consecutive blocks (one per sequence); with `heads`, that many again, the
+   * operands' heads `hs` elements apart (A, B, C). */
   private matmul(A: GTensor, B: GTensor, C: GTensor, m: number, n: number, k: number,
-                 o: { ta?: boolean; tb?: boolean; acc?: boolean; bias?: GTensor | null; alpha?: number; batch?: number } = {}): void {
-    const z = o.batch ?? 1;
-    this.run("matmul", [m, n, k, +!!o.ta, +!!o.tb, +!!o.acc, +!!o.bias, bits(o.alpha ?? 1), m * k, k * n, m * n],
-             [A, B, C, o.bias ?? this.gpu.dummy], [Math.ceil(n / 16), Math.ceil(m / 16), z]);
+                 o: { ta?: boolean; tb?: boolean; acc?: boolean; bias?: GTensor | null; alpha?: number; batch?: number;
+                      heads?: number; hs?: [number, number, number] } = {}): void {
+    const per = o.batch ?? 1, H = o.heads ?? 1, [ha, hb, hc] = o.hs ?? [0, 0, 0];
+    this.run("matmul", [m, n, k, +!!o.ta, +!!o.tb, +!!o.acc, +!!o.bias, bits(o.alpha ?? 1), m * k, k * n, m * n, per, ha, hb, hc],
+             [A, B, C, o.bias ?? this.gpu.dummy], [Math.ceil(n / 16), Math.ceil(m / 16), per * H]);
   }
 
   /** dst (=|+=) a band of src: rows m, width w, at column s0 of src and d0 of dst. */
@@ -740,7 +802,8 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
-  concatCols(parts: GTensor[]): GTensor {
+  /** Concatenation one part at a time. */
+  private concatEach(parts: GTensor[]): GTensor {
     const m = parts[0].rows, n = parts.reduce((s, p) => s + p.cols, 0);
     const o = this.out([m, n], parts);
     let c0 = 0;
@@ -822,6 +885,122 @@ export class GpuOps implements OpSet<GTensor> {
       this.run("nll_back", [V, 0, 0, 0, 0, 0, 0, bits(1 / kept)], [probs, tBuf, o.grad!, this.g(logits)], [Math.ceil(V / 256), m]);
     });
     return o;
+  }
+
+  // -- a layer's heads at once ----------------------------------------------------------
+  // Each falls back to one dispatch per head when its inputs are not a block (an intervention
+  // replaced a head, or the KV cache put cached rows in front).
+
+  /** Run `backward` once if any output got a gradient. */
+  private pushAll(outs: GTensor[], backward: () => void): void {
+    if (outs.some((o) => o.requiresGrad)) this.tape.push({ shape: [], requiresGrad: true, get grad() { return outs.some((o) => o.grad) || null; } }, backward);
+  }
+
+  splitHeads(x: GTensor, H: number): GTensor[] {
+    const [m, n] = x.shape, dh = n / H;
+    const outs = this.allocBlock([m, dh], H, [x]);
+    const { all, stride } = this.blockOf(outs)!;
+    this.run("heads", [m, dh, n, stride, 0, 0], [x, all], [Math.ceil(dh / 64), m, H]);
+    this.pushAll(outs, () => {
+      const gs = this.blockOf(outs.map((o) => o.grad));
+      if (gs) this.run("heads", [m, dh, n, gs.stride, 1, 1], [gs.all, this.g(x)], [Math.ceil(dh / 64), m, H]);
+      else outs.forEach((o, h) => o.grad && this.band(o.grad, this.g(x), m, dh, dh, 0, n, h * dh, true));
+    });
+    return outs;
+  }
+
+  concatCols(parts: GTensor[]): GTensor {
+    const blk = this.blockOf(parts);
+    if (!blk) return this.concatEach(parts);
+    const H = parts.length, [m, dh] = parts[0].shape, n = H * dh;
+    const o = this.out([m, n], parts);
+    this.run("heads", [m, dh, n, blk.stride, 1, 0], [blk.all, o], [Math.ceil(dh / 64), m, H]);
+    this.tape.push(o, () => {
+      parts.forEach((p) => this.g(p));
+      const gs = this.blockOf(parts.map((p) => p.grad))!;
+      this.run("heads", [m, dh, n, gs.stride, 0, 1], [o.grad!, gs.all], [Math.ceil(dh / 64), m, H]);
+    });
+    return o;
+  }
+
+  scoresHeads(qs: GTensor[], ks: GTensor[], scale: number, B = 1): GTensor[] {
+    const bq = this.blockOf(qs), bk = this.blockOf(ks);
+    if (!bq || !bk) return qs.map((q, h) => this.scores(q, ks[h], scale, B));
+    const H = qs.length, d = qs[0].cols, m = qs[0].rows / B, n = ks[0].rows / B;
+    const outs = this.allocBlock([B * m, n], H, [...qs, ...ks]);
+    const bo = this.blockOf(outs)!;
+    this.matmul(bq.all, bk.all, bo.all, m, n, d, { tb: true, alpha: scale, batch: B, heads: H, hs: [bq.stride, bk.stride, bo.stride] });
+    this.pushAll(outs, () => {
+      outs.forEach((o) => this.g(o));
+      const g = this.blockOf(outs.map((o) => o.grad))!;
+      if (qs[0].requiresGrad) {
+        qs.forEach((q) => this.g(q));
+        const gq = this.blockOf(qs.map((q) => q.grad))!;
+        this.matmul(g.all, bk.all, gq.all, m, d, n, { acc: true, alpha: scale, batch: B, heads: H, hs: [g.stride, bk.stride, gq.stride] });
+      }
+      if (ks[0].requiresGrad) {
+        ks.forEach((k) => this.g(k));
+        const gk = this.blockOf(ks.map((k) => k.grad))!;
+        this.matmul(g.all, bq.all, gk.all, n, d, m, { ta: true, acc: true, alpha: scale, batch: B, heads: H, hs: [g.stride, bq.stride, gk.stride] });
+      }
+    });
+    return outs;
+  }
+
+  maskHeads(ss: GTensor[], offset = 0, B = 1): GTensor[] {
+    const bs = this.blockOf(ss);
+    if (!bs) return ss.map((s) => this.causalMask(s, offset, B));
+    const H = ss.length, [m, n] = ss[0].shape, per = m / B;
+    const outs = this.allocBlock([m, n], H, ss);
+    const bo = this.blockOf(outs)!;
+    this.run("mask", [m, n, offset, 0, NEG_INF_BITS, per, bs.stride], [bs.all, bo.all], [Math.ceil(n / 64), m, H]);
+    this.pushAll(outs, () => {
+      outs.forEach((o) => this.g(o));
+      ss.forEach((s) => this.g(s));
+      const g = this.blockOf(outs.map((o) => o.grad))!, gs = this.blockOf(ss.map((s) => s.grad))!;
+      this.run("mask", [m, n, offset, 1, 0, per, g.stride], [g.all, gs.all], [Math.ceil(n / 64), m, H]);
+    });
+    return outs;
+  }
+
+  softmaxHeads(xs: GTensor[], offset = 0, B = 1): GTensor[] {
+    const bx = this.blockOf(xs);
+    if (!bx) return xs.map((x) => this.softmax(x, offset, B));
+    const H = xs.length, [m, n] = xs[0].shape;
+    const outs = this.allocBlock([m, n], H, xs);
+    const bo = this.blockOf(outs)!;
+    this.run("softmax", [n, 1, offset, m / B, bx.stride], [bx.all, bo.all], [m, H]);
+    this.pushAll(outs, () => {
+      outs.forEach((o) => this.g(o));
+      xs.forEach((x) => this.g(x));
+      const g = this.blockOf(outs.map((o) => o.grad))!, gx = this.blockOf(xs.map((x) => x.grad))!;
+      this.run("softmax_back", [n, bo.stride], [bo.all, g.all, gx.all], [m, H]);
+    });
+    return outs;
+  }
+
+  mixHeads(As: GTensor[], Vs: GTensor[], B = 1): GTensor[] {
+    const ba = this.blockOf(As), bv = this.blockOf(Vs);
+    if (!ba || !bv) return As.map((A, h) => this.mix(A, Vs[h], B));
+    const H = As.length, m = As[0].rows / B, n = As[0].cols, d = Vs[0].cols;
+    const outs = this.allocBlock([B * m, d], H, [...As, ...Vs]);
+    const bo = this.blockOf(outs)!;
+    this.matmul(ba.all, bv.all, bo.all, m, d, n, { batch: B, heads: H, hs: [ba.stride, bv.stride, bo.stride] });
+    this.pushAll(outs, () => {
+      outs.forEach((o) => this.g(o));
+      const g = this.blockOf(outs.map((o) => o.grad))!;
+      if (As[0].requiresGrad) {
+        As.forEach((A) => this.g(A));
+        const gA = this.blockOf(As.map((A) => A.grad))!;
+        this.matmul(g.all, bv.all, gA.all, m, n, d, { tb: true, acc: true, batch: B, heads: H, hs: [g.stride, bv.stride, gA.stride] });
+      }
+      if (Vs[0].requiresGrad) {
+        Vs.forEach((V) => this.g(V));
+        const gV = this.blockOf(Vs.map((V) => V.grad))!;
+        this.matmul(ba.all, g.all, gV.all, n, d, m, { ta: true, acc: true, batch: B, heads: H, hs: [ba.stride, g.stride, gV.stride] });
+      }
+    });
+    return outs;
   }
 
   // -- interventions (./interventions) --------------------------------------
@@ -1183,7 +1362,7 @@ export class GpuModel implements Engine {
       if (withGrad) for (const [n, w] of this.W) if (w.grad) weightGrads.set(n, { data: at(w.grad).data, shape: w.shape });
       return {
         tokens: idx, targets, weightGrads, loss: loss ? at(loss).data[0] : null,
-        stages: [...live].map(([id, x]) => ({ id, output: at(x), grad: withGrad && x.requiresGrad ? at(x.grad!).data : null })),
+        stages: inStageOrder(this.cfg, live).map(([id, x]) => ({ id, output: at(x), grad: withGrad && x.requiresGrad ? at(x.grad!).data : null })),
       };
     };
     let out: TraceResult & { frame?: ArrayBuffer };
