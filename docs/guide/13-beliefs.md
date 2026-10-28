@@ -1,6 +1,6 @@
 # Belief trajectories
 
-What does the model believe about a story's mood as it reads, and where in the network does that belief live? The **beliefs** tab reads whole stories one sentence at a time, measures the model's belief after each sentence, and then uses the [concept explorer](10-concepts.md)'s tools on it: probes, geometry and steering.
+What does the model believe about a story's mood as it reads, and where in the network does that belief live? The **beliefs** tab, after **concepts** in the tab bar, reads whole stories one sentence at a time and measures the model's belief after each sentence. It then studies that belief with the same kinds of tools the [concept explorer](10-concepts.md) uses on single words: probes, geometry and steering.
 
 The paper [Stories in Space](https://arxiv.org/abs/2605.12412) (Bigelow et al., 2026) reports four things about how a language model reads a story:
 

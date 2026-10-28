@@ -24,7 +24,7 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | [Embeddings](guide/12-embeddings.md) | The token and position tables as maps |
 | [Belief trajectories](guide/13-beliefs.md) | A story's emotional belief, sentence by sentence: probes, geometry, steering and entanglement |
 
-For the papers behind the views, see the [bibliography](bibliography.md). For a term, open the glossary from the app's **help** panel.
+For the papers behind the views, see the [bibliography](bibliography.md), also under **Bibliography** in the app's **help** panel. For a term, open the glossary from the same panel.
 
 ## For instructors and lesson authors
 
