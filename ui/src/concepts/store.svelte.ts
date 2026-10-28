@@ -92,7 +92,8 @@ class ConceptStore {
         if (!this.word && m.capture.items.length) this.word = m.capture.items[0].word;
         return true;
       case "generated":
-        if (m.tag === "plain" || m.tag === "steered") this.generated = { ...this.generated, [m.tag]: m.text };
+        if (m.tag !== "plain" && m.tag !== "steered") return false;
+        this.generated = { ...this.generated, [m.tag]: m.text };
         return true;
       case "occlusion":
         this.occlusion = m;

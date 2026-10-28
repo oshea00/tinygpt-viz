@@ -35,3 +35,5 @@ Two experiments that show **causality**:
 - **Shuffle the position embeddings**: the predictions fall apart, because the model has lost track of order.
 
 Interventions apply only to the traces you look at. Training never sees them.
+
+Further reading: causal tracing, activation patching and self-repair are in the [bibliography](../bibliography.md#interventions-and-activation-patching).

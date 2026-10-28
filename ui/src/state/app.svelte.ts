@@ -314,7 +314,7 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(3);   // cell size multiplier; 0: fit to width
-  tab = $state<"inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep">("inspector");
+  tab = $state<"inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   atlasView = $state.raw<{ scale: number; tx: number; ty: number } | null>(null);   // kept across tab switches

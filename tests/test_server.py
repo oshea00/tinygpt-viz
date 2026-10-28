@@ -207,3 +207,16 @@ def test_training_can_be_switched_off(tmp_path, data):
         ws.send_text(json.dumps({"type": "run", "prompt": "Once"}))     # running the model still works
         h, raw = _until(ws, lambda h: h["type"] == "trace" and h.get("prompt") == "Once")
         assert h["step"] == 0
+
+
+def test_belief_commands(client):
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({"type": "beliefs", "n": 2, "cloze": " Everyone was very", "words": ["happy", "sad"]}))
+        h, _ = _until(ws, lambda h: h["type"] in ("beliefs", "error"))
+        assert h["type"] == "beliefs" and len(h["stories"]) == 2 and len(h["prefixes"]) == 4
+        assert h["tensors"]["vectors"]["shape"] == [4, 5, 32] and h["tensors"]["readout"]["shape"] == [4, 2]
+        steer = [{"kind": "steer", "stage": "L0.resid_mlp", "vector": [(-1.0) ** k for k in range(32)], "scale": 2.0}]
+        ws.send_text(json.dumps({"type": "beliefSteer", "stories": h["stories"][:1], "cloze": h["cloze"],
+                                 "words": h["words"], "interventions": steer, "tag": "sad"}))
+        s, _ = _until(ws, lambda h: h["type"] == "beliefSteer")
+        assert s["tag"] == "sad" and len(s["readout"]) == 2 and len(s["readout"][0]) == 2 and len(s["mass"]) == 2

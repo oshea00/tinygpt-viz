@@ -52,3 +52,5 @@ The model makes its prediction from the last snapshot only: the final layer norm
 - Click a cell: its top guesses, and a chart of the actual next token's probability through the layers.
 
 Reading down a column shows the guess forming: often wrong in the early rows, then right in the last ones. Some predictions are easy enough to read straight from the embeddings; others only appear in the final layers.
+
+Further reading: the logit lens and the residual-stream view of transformers are in the [bibliography](../bibliography.md#reading-the-residual-stream).

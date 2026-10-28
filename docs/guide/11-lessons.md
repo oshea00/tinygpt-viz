@@ -28,6 +28,7 @@ Open **lessons** in the header and pick one. A lesson that can't run on this ser
 | 10 | Where concepts live | Clusters, a probe and a steering test |
 | 11 | Induction heads | A head that copies from earlier in the context, its previous-token partner, and ablating it |
 | 12 | Activation patching | Two prompts that differ in one name: where the information sits, and which heads move it |
+| 13 | Belief trajectories | A story's emotional belief, sentence by sentence: read it, find it in the stream, steer it, and see what moves with it |
 
 Lesson 9 trains the model, so it needs a server started with `--train`; the others work on any server.
 

@@ -20,8 +20,11 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | [Training](guide/08-training.md) | Live training, checkpoint replay, and one training step up close |
 | [Interventions](guide/09-interventions.md) | Ablating heads and neurons, editing values, before and after |
 | [Concept explorer](guide/10-concepts.md) | How the model represents words: similarity, probes, steering |
-| [Lessons](guide/11-lessons.md) | The twelve guided lessons |
+| [Lessons](guide/11-lessons.md) | The thirteen guided lessons |
 | [Embeddings](guide/12-embeddings.md) | The token and position tables as maps |
+| [Belief trajectories](guide/13-beliefs.md) | A story's emotional belief, sentence by sentence: probes, geometry, steering and entanglement |
+
+For the papers behind the views, see the [bibliography](bibliography.md). For a term, open the glossary from the app's **help** panel.
 
 ## For instructors and lesson authors
 

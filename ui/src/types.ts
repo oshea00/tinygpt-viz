@@ -126,7 +126,9 @@ export type Command =
   | { type: "occlude"; prompt: string; position: number }
   | { type: "neuronTop"; layer: number; neuron: number }
   | { type: "patch"; clean: string; corrupt: string; answer: string; wrong: string; what: "resid" | "heads" }
-  | { type: "stepExplain"; prompt?: string };
+  | { type: "stepExplain"; prompt?: string }
+  | { type: "beliefs"; stories?: string[]; n?: number; cloze: string; words: string[]; model: "current" | "untrained" }
+  | { type: "beliefSteer"; stories: string[]; cloze: string; words: string[]; interventions: Intervention[]; tag: string };
 
 export interface MetricsMsg {
   type: "metrics";
@@ -195,7 +197,8 @@ export interface NeuronExample { value: number; before: string; token: string; a
 export type ConceptMsg =
   | { type: "generated"; tag?: string; prompt: string; text: string }
   | { type: "occlusion"; prompt: string; position: number; step: number; drops: number[] }
-  | { type: "neuronTop"; layer: number; neuron: number; step: number; examples: NeuronExample[] };
+  | { type: "neuronTop"; layer: number; neuron: number; step: number; examples: NeuronExample[] }
+  | { type: "beliefSteer"; tag: string; readout: number[][]; mass: number[] };
 
 export type JsonMsg =
   | ConceptMsg

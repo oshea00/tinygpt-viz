@@ -4,6 +4,7 @@
   import HelpPanel from "./help/HelpPanel.svelte";
   import LessonMenu from "./lessons/LessonMenu.svelte";
   import LessonPlayer from "./lessons/LessonPlayer.svelte";
+  import BeliefsView from "./views/beliefs/BeliefsView.svelte";
   import ConceptsView from "./views/concepts/ConceptsView.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
   import EmbeddingsView from "./views/embeddings/EmbeddingsView.svelte";
@@ -73,6 +74,7 @@
         <button class:on={settings.tab === "atlas"} onclick={() => (settings.tab = "atlas")}>network atlas</button>
         <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
         <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
+        <button class:on={settings.tab === "beliefs"} onclick={() => (settings.tab = "beliefs")}>beliefs</button>
         {#if app.hello?.training}
           <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
         {/if}
@@ -83,6 +85,7 @@
       {:else if settings.tab === "lens"}{#if app.trace}<LogitLens />{/if}
       {:else if settings.tab === "atlas"}<AtlasView />
       {:else if settings.tab === "concepts"}{#if app.hello}<ConceptsView />{/if}
+      {:else if settings.tab === "beliefs"}{#if app.hello}<BeliefsView />{/if}
       {:else if settings.tab === "interventions"}{#if app.trace && app.hello}<InterventionsView />{/if}
       {:else}<OneStep />{/if}
     </section>

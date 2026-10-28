@@ -1,5 +1,6 @@
 // Plays a lesson: applies each step to the shared state, and checks answers live.
 
+import { beliefs } from "../beliefs/store.svelte";
 import { concepts } from "../concepts/store.svelte";
 import { app, selection, settings } from "../state/app.svelte";
 import { available, isCorrect, lessonVars, loadLessons, type Lesson, type LessonStep } from "./lesson";
@@ -41,6 +42,9 @@ class Player {
       trained: !!app.stepExplain,
       patches: concepts.patches,
       patchCell: app.interventions.some((iv) => iv.kind === "patch") ? concepts.patchCell : null,
+      beliefsRead: !!beliefs.current && beliefs.pending === 0 && (!beliefs.withBaseline || !!beliefs.untrained),
+      beliefProbes: !!beliefs.probes,
+      beliefEntangled: !!beliefs.current && ["plain", ...beliefs.current.words].every((w) => beliefs.steer[w]),
     });
   }
 
@@ -77,6 +81,9 @@ class Player {
     const check = this.step?.ask?.check.kind;
     if (check === "captured") concepts.current = concepts.untrained = null;
     if (check === "trained") app.stepExplain = null;
+    if (check === "beliefsRead") beliefs.current = beliefs.untrained = null;
+    if (check === "beliefProbes") beliefs.probes = null;
+    if (check === "beliefEntangled") beliefs.steer = {};
     let rerun = app.interventions.length > 0;
     app.interventions = [];
     for (const s of this.steps.slice(0, this.index + 1)) rerun = this.apply(s) || rerun;
@@ -110,6 +117,7 @@ class Player {
     if (s.lensMode) settings.lensMode = s.lensMode;
     if (s.residualMode) settings.residualMode = s.residualMode;
     if (s.conceptPanel) concepts.panel = s.conceptPanel;
+    if (s.beliefSection) beliefs.section = s.beliefSection;
     settings.compare = false;
     return rerun;
   }

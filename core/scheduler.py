@@ -14,7 +14,7 @@ from typing import Callable
 
 import torch
 
-from . import concepts
+from . import beliefs, concepts
 from .kvcache import KVCache, trace_cached
 from .lens import logit_lens
 from .model import GPT
@@ -181,6 +181,23 @@ class ModelWorker(threading.Thread):
                 "model": cmd.get("model", "current"), "step": 0 if cmd.get("model") == "untrained" else t.step_num,
                 "tag": cmd.get("tag"),
             }))
+        elif kind == "beliefs":
+            # Belief trajectories: after each sentence of each story, the cloze readout and the
+            # residual vectors at the prefix's last token.
+            model = self._untrained_model() if cmd.get("model") == "untrained" else t.model
+            tok = t.data.tokenizer
+            stories = cmd.get("stories") or beliefs.story_set(tok, t.data.splits["val"], int(cmd.get("n", 100)))
+            r = beliefs.run(model, tok, stories, cmd["cloze"], cmd["words"])
+            self.emit(encode_tensors("beliefs", {"tensors": {k: r[k] for k in ("vectors", "readout", "mass")}}, {
+                "stories": stories, "prefixes": r["prefixes"], "snapshots": r["snapshots"], "cloze": cmd["cloze"],
+                "words": cmd["words"], "model": cmd.get("model", "current"),
+                "step": 0 if cmd.get("model") == "untrained" else t.step_num,
+            }))
+        elif kind == "beliefSteer":
+            # The readout alone, with interventions (steering), for comparing with a plain run.
+            r = beliefs.run(t.model, t.data.tokenizer, cmd["stories"], cmd["cloze"], cmd["words"],
+                            cmd.get("interventions"), with_vectors=False)
+            self.emit({"type": "beliefSteer", "tag": cmd.get("tag"), "readout": r["readout"].tolist(), "mass": r["mass"].tolist()})
         elif kind == "generateWith":
             text = concepts.generate(t.model, t.data.tokenizer, cmd["prompt"], int(cmd.get("n", 40)),
                                      cmd.get("interventions"), float(cmd.get("temperature", 0)), int(cmd.get("seed", 0)))

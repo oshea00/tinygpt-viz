@@ -1,6 +1,7 @@
 // WebSocket client and binary frame decoding (see core/trace_io.py for the layout).
 
 import type { Command, JsonMsg, PatchResult, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
+import type { Beliefs } from "./lib/beliefs";
 import type { Capture } from "./lib/concepts";
 
 interface Ref {
@@ -83,6 +84,16 @@ export function decodeCapture(f: Frame): Capture {
   return { vectors: t.data, N, S, d, items: h.items, snapshots: h.snapshots, model: h.model, step: h.step };
 }
 
+export function decodeBeliefs(f: Frame): Beliefs {
+  const h = f.header;
+  const v = f.tensor(h.tensors.vectors), r = f.tensor(h.tensors.readout), m = f.tensor(h.tensors.mass);
+  const [N, S, d] = v.shape.length === 3 ? v.shape : [0, h.snapshots.length, 0];
+  return {
+    vectors: v.data, readout: r.data, mass: m.data, N, S, d, K: h.words.length, stories: h.stories, prefixes: h.prefixes,
+    snapshots: h.snapshots, words: h.words, cloze: h.cloze, model: h.model, step: h.step,
+  };
+}
+
 export function decodePatch(f: Frame): PatchResult {
   const h = f.header;
   return { ...h, grid: f.tensor(h.tensors.grid), source: f.tensor(h.tensors.source) };
@@ -91,6 +102,7 @@ export function decodePatch(f: Frame): PatchResult {
 export type BinaryMsg =
   | { type: "capture"; capture: Capture; tag?: string }
   | { type: "patch"; patch: PatchResult }
+  | { type: "beliefs"; beliefs: Beliefs }
   | { type: "trace"; trace: Trace }
   | { type: "weights"; weights: Weights }
   | { type: "stepExplain"; explain: StepExplain };
@@ -103,6 +115,7 @@ export function decodeBinary(buf: ArrayBuffer): BinaryMsg {
     case "stepExplain": return { type: "stepExplain", explain: decodeStepExplain(f) };
     case "capture": return { type: "capture", capture: decodeCapture(f), tag: f.header.tag };
     case "patch": return { type: "patch", patch: decodePatch(f) };
+    case "beliefs": return { type: "beliefs", beliefs: decodeBeliefs(f) };
     default: throw new Error(`unknown frame ${f.header.type}`);
   }
 }

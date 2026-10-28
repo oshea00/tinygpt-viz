@@ -47,3 +47,5 @@ When a token appears more than once in the prompt, an **induction** score shows 
 Badges are measured on the current prompt, so try a few. Give a head a name in the box under it (names are saved in your browser).
 
 **ablate** zeroes that head's output in every view, so you can see what it was doing. Then open the [interventions](09-interventions.md) tab for the effect on the loss and on each prediction. **restore** undoes it.
+
+Further reading: the transformer paper and the induction-head work are in the [bibliography](../bibliography.md#attention-and-induction-heads).

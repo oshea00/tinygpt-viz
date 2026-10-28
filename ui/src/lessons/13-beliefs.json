@@ -1,0 +1,83 @@
+{
+ "id": "beliefs",
+ "order": 13,
+ "title": "Belief trajectories: a story through belief space",
+ "summary": "Read stories one sentence at a time, track what the model believes about their emotion, find that belief in the residual stream, and steer it.",
+ "steps": [
+  {
+   "text": "A recent paper, \"Stories in Space\" (Bigelow et al., 2026), argues that as a language model reads a story, its [[beliefs|belief]] about it move along a path through a low-dimensional **[[belief space]]**, and that the same path can be read off its activations. This lesson repeats the experiments on this small model. A model this size can't answer \"how sad is this story?\", so the panel asks indirectly, with a [[cloze]]. After each sentence it adds **Everyone was very** and reads the probabilities of **happy, sad, angry, scared, surprised, excited** as the next word, rescaled to sum to 1. That is the model's **belief**.",
+   "tab": "beliefs",
+   "beliefSection": "trajectory",
+   "ask": {
+    "question": "Press **read stories** (keep “also the untrained model” ticked).",
+    "check": {
+     "kind": "beliefsRead"
+    },
+    "correct": "Every sentence of a hundred unseen stories now has a belief (six numbers) and a residual vector at every snapshot. The median probability on the six words tells you whether the question lands: here, the model usually expects one of them."
+   }
+  },
+  {
+   "text": "**Trajectories.** Pick a story and click its sentences. The chart shows how the belief changes as the story goes on: happy at the start, a dip when something goes wrong, recovery at the end. Below are two maps of every sentence of every story. The left one places sentences by their belief; the right one places them by their residual vector at the snapshot. The chosen story is the numbered path.",
+   "tab": "beliefs",
+   "beliefSection": "trajectory",
+   "ask": {
+    "question": "The belief-space map on the left looks like a fan or triangle, with dots crowded along its edges. Why?",
+    "check": {
+     "kind": "reveal"
+    },
+    "correct": "Each belief is a probability distribution over six words, so every point lies on a simplex, and its corners are 'only this word'. Most sentences are mostly happy or mostly one other feeling, so they sit near an edge between two corners. The path moves from corner to corner as the story changes mood."
+   }
+  },
+  {
+   "text": "**Probes.** Is the belief in the story's own activations, before the question is even asked? The vectors were read at each sentence's last token, before **Everyone was very**. A causal model can't look ahead, so they are the bare story's. A [[ridge regression]] per snapshot learns to predict the six numbers from those vectors, trained on four of every five stories and tested on the rest.",
+   "tab": "beliefs",
+   "beliefSection": "probes",
+   "ask": {
+    "question": "Press **fit probes at every snapshot**.",
+    "check": {
+     "kind": "beliefProbes"
+    },
+    "correct": "The error drops through the layers and then levels off, well below the dashed line (always guessing the average). The untrained model's vectors do little better than the dashed line, so what the probe reads is learned. Happy and sad are the easiest to read: the model expresses them most often."
+   }
+  },
+  {
+   "text": "Go back to **trajectories**. The dashed lines are now the probe's predictions at the snapshot. Pick a held-out story (marked in the list) and move the snapshot slider from x₀ to the last layer: the dashed lines fit the solid ones more closely as the layers build the belief.",
+   "tab": "beliefs",
+   "beliefSection": "trajectory"
+  },
+  {
+   "text": "**Geometry.** Each word gets a [[centroid]]: the average of the sentences that express it most. The left [[distance matrix]] shows the distances between centroids in belief space, and the right one shows them in the residual stream. If the stream lays out beliefs the way behaviour does, the two matrices agree. The chart below gives the correlation between them at every snapshot.",
+   "tab": "beliefs",
+   "beliefSection": "geometry",
+   "ask": {
+    "question": "The untrained model's vectors also correlate with belief-space distances, though less. How can random weights show any of this structure?",
+    "check": {
+     "kind": "reveal"
+    },
+    "correct": "The centroids are averages over different sentences. Sad sentences share words (cried, lost) that happy ones don't, and even random embeddings keep words apart, so some geometry comes from the words alone. What training adds is the difference between the two bars. With six words there are only 15 pairs, so read r as a rough guide."
+   }
+  },
+  {
+   "text": "**Steering.** A probe shows the belief is readable; steering tests whether the model uses it. Pick **sad**, keep **mean difference** and a single snapshot near the end, and press **steer sad**. The held-out stories are read again with the direction added at every position. Then try **probe weights**: first at one early snapshot, then with **band of layers** ticked (L1 to L3). The paper found that a probe direction at one layer is often undone by the layers after it ([[self-repair]]), while a band works.",
+   "tab": "beliefs",
+   "beliefSection": "steering"
+  },
+  {
+   "text": "**[[Entanglement]].** Steering one emotion moves others too. The paper found that the emotions that move along with it are the ones nearby in belief space. Press **steer each word (entanglement)** to steer each of the six in turn with the current settings.",
+   "tab": "beliefs",
+   "beliefSection": "steering",
+   "ask": {
+    "question": "Press **steer each word (entanglement)** and read the matrix and the scatter.",
+    "check": {
+     "kind": "beliefEntangled"
+    },
+    "correct": "The diagonal holds the intended effects. Off it, the negative feelings tend to rise together, and happy falls when any of them is pushed. A negative r in the scatter means nearby words are dragged along more than distant ones: the paper's entanglement result, in a model ten thousand times smaller."
+   }
+  },
+  {
+   "text": "Steering also changes what the model writes. Under the matrix, **generate both** continues a prompt with and without the direction, so you can compare the two. The paper's picture of a belief that is readable from the activations, has geometry in them, and can be steered along them shows up here in six layers of 256 numbers. What doesn't carry over is its question-answering readout. This model can't rate a story, so a cloze stands in: belief here means \"what feeling word comes next\", which is narrower than what the paper measures.",
+   "tab": "beliefs",
+   "beliefSection": "steering"
+  }
+ ]
+}

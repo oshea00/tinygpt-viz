@@ -7,7 +7,7 @@ import { argmax } from "../lib/residual";
 import { at, dims2, row } from "../lib/tensor";
 import { glossKey } from "../help/glossary";
 
-export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "onestep";
+export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "onestep";
 
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
@@ -23,6 +23,9 @@ export type Check =
   | { kind: "trained" }                                    // take a step in the training step tab
   | { kind: "patchHandoff" }                               // apply the earliest residual patch at the last position that recovers ≥ half
   | { kind: "patchTop" }                                   // apply the head patch that recovers most
+  | { kind: "beliefsRead" }                                // read the belief stories (and the untrained model, if ticked)
+  | { kind: "beliefProbes" }                               // fit the belief probes
+  | { kind: "beliefEntangled" }                            // steer every belief word (the entanglement matrix)
   | { kind: "reveal" };                                    // a question to think about: answered by showing the answer
 
 export interface LessonStep {
@@ -38,6 +41,7 @@ export interface LessonStep {
   lensMode?: "confidence" | "actual";
   residualMode?: "snapshots" | "writes";
   conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons" | "patching";
+  beliefSection?: "trajectory" | "probes" | "geometry" | "steering";
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   kvCache?: boolean;            // switch KV cache mode on or off
@@ -71,6 +75,9 @@ export interface Live {
   revealed?: boolean;
   patches?: Partial<Record<"resid" | "heads", PatchResult>>;
   patchCell?: { what: "resid" | "heads"; row: number; col: number } | null;   // the patch applied, if still applied
+  beliefsRead?: boolean;
+  beliefProbes?: boolean;
+  beliefEntangled?: boolean;
 }
 
 export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLayer: number, nHead: number, live: Live = {}): boolean {
@@ -107,6 +114,9 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
       const best = argmax(r.grid.data);
       return c.row * r.grid.shape[1] + c.col === best;
     }
+    case "beliefsRead": return !!live.beliefsRead;
+    case "beliefProbes": return !!live.beliefProbes;
+    case "beliefEntangled": return !!live.beliefEntangled;
     case "reveal": return !!live.revealed;
     case "position": return check.positions.includes(sel.position);
     case "tab": return sel.tab === check.tab;

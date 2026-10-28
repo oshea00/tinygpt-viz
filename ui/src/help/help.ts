@@ -163,6 +163,20 @@ export const TOPICS: Record<string, HelpTopic> = {
               "Run activation patching on the example, then switch to **heads** to find the heads that carry the name to the end."],
     guide: "10-concepts.md",
   },
+  beliefs: {
+    title: "Belief trajectories",
+    what: "What the model believes about a story's mood, sentence by sentence, and where that [[belief]] lives in the residual stream. After each sentence the story so far is followed by a [[cloze]] (\"Everyone was very\"), and the next-token probabilities of a word set, rescaled to sum to 1, are the belief. After the paper \"Stories in Space\" (Bigelow et al., 2026).",
+    how: [
+      "**read stories** runs the first N validation stories (or your own, one per paragraph) one sentence at a time. Keep **also the untrained model** ticked for a baseline. The median probability on the words says whether the cloze lands.",
+      "**trajectories**: one story's belief after each sentence, and its path through two maps of every sentence: [[belief space]] and the residual stream at the snapshot.",
+      "**probes**: a [[ridge regression]] per snapshot from the vectors to the belief, tested on held-out stories, beside guessing the average and the untrained model.",
+      "**geometry**: each word's [[centroid]] in both spaces, their [[distance matrices]], and how well the two agree at every snapshot.",
+      "**steering & entanglement**: add a word's direction ([[mean difference]] or probe weights, at one snapshot or a band of layers) and measure what moves on held-out stories. **steer each word** fills the [[entanglement]] matrix.",
+    ],
+    tryThis: ["Fit the probes, then pick a held-out story in **trajectories** and move the snapshot slider: the dashed probe lines close in on the readout.",
+              "Steer **sad** with probe weights at one snapshot, then over a band of layers (L1 to L3), and compare. Lesson 13 walks through it all."],
+    guide: "13-beliefs.md",
+  },
   onestep: {
     title: "Training step",
     what: "One training update on the prompt itself: forward, loss, backward, then the optimiser changes every weight. Then the same prompt again.",

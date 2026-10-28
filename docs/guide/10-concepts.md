@@ -93,3 +93,5 @@ Click a cell to apply that patch to the live model. The prompt becomes the corru
 ## Neurons
 
 Pick an MLP neuron (or use the one selected in the inspector) and **find what it responds to**: its strongest activations over validation text, with the token where it fires in bold. Many neurons respond to several unrelated things.
+
+The [beliefs](13-beliefs.md) tab applies the same tools (probes, geometry, steering) to whole stories read one sentence at a time.

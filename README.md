@@ -61,6 +61,9 @@ the model, and the server's options.
   baselines), concept directions with steering during generation, attribution (attention
   rollout, gradient × input, occlusion), activation patching between a clean and a corrupted prompt
   (per snapshot and position, or per head), and the top-activating contexts of any MLP neuron.
+- **Belief trajectories**: read stories one sentence at a time and track the model's belief about
+  their mood (a cloze readout over emotion words), probe it from the residual stream, compare its
+  geometry in both spaces, and steer it to see what else moves (after [Stories in Space](https://arxiv.org/abs/2605.12412)).
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by
@@ -72,7 +75,7 @@ the model, and the server's options.
   cached key and value goes stale.
 - **Training panel** (with `--train`): play, pause, single-step, reset, learning rate, batch size, and a replay
   slider over saved checkpoints (with "play through") to watch the model learn.
-- **Lessons** (header menu): twelve guided lessons that drive the views, with questions checked
+- **Lessons** (header menu): thirteen guided lessons that drive the views, with questions checked
   against what you click. Lessons are plain JSON in `ui/src/lessons/`; new ones need no code.
 - **Manual backward**: in any stage's gradient view, the inspector shows the backward rule and
   checks autograd against a hand-written backward pass (`core/manual_backward.py`).
