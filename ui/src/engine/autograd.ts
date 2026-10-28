@@ -3,7 +3,7 @@
 // the loss (as the trace frame stores it). Each op records a backward closure on the tape;
 // backward() walks it in reverse.
 
-export class Tensor {
+export class Tensor implements Node {
   grad: Float32Array | null = null;
 
   constructor(
@@ -26,24 +26,50 @@ export class Tensor {
   }
 }
 
+/** What the tape needs of a tensor, on the CPU or the GPU. */
+export interface Node {
+  requiresGrad: boolean;
+  grad: unknown;
+}
+
 /** Records backward closures in execution order. */
 export class Tape {
   private steps: (() => void)[] = [];
   enabled = true;
 
-  /** An output tensor that needs a gradient if any input does, with its backward step. */
-  out(data: Float32Array, shape: number[], inputs: Tensor[], backward: (o: Tensor) => void): Tensor {
-    const needs = this.enabled && inputs.some((t) => t.requiresGrad);
-    const o = new Tensor(data, shape, needs);
-    if (needs) this.steps.push(() => o.grad && backward(o));
-    return o;
+  needs(inputs: Node[]): boolean {
+    return this.enabled && inputs.some((t) => t.requiresGrad);
   }
 
-  backward(root: Tensor): void {
-    root.g().fill(1);
+  /** An op's backward step; it runs only if something downstream gave `o` a gradient. */
+  push(o: Node, backward: () => void): void {
+    if (o.requiresGrad) this.steps.push(() => o.grad && backward());
+  }
+
+  /** Run every backward step, last op first. The caller seeds the root's gradient. */
+  backward(): void {
     for (let i = this.steps.length - 1; i >= 0; i--) this.steps[i]();
     this.steps = [];
   }
+}
+
+/** The operations the GPT is written in, on CPU tensors (Ops) or GPU ones (GpuOps in ./gpu). */
+export interface OpSet<T extends Node> {
+  embed(W: T, ids: number[]): T;
+  rows(W: T, start: number, n: number): T;
+  add(a: T, b: T): T;
+  linear(x: T, W: T, b: T | null): T;
+  linearT(x: T, W: T): T;
+  layerNorm(x: T, gamma: T, beta: T): T;
+  gelu(x: T): T;
+  cols(x: T, c0: number, c1: number): T;
+  concatCols(parts: T[]): T;
+  scores(q: T, k: T, scale: number): T;
+  causalMask(s: T): T;
+  softmax(x: T): T;
+  mix(A: T, V: T): T;
+  crossEntropy(logits: T, targets: number[]): T;
+  probs(logits: T): T;        // softmax of the logits, not on the loss path
 }
 
 // -- matrix products ------------------------------------------------------
@@ -89,15 +115,31 @@ function mmTN(A: Float32Array, B: Float32Array, C: Float32Array, k: number, m: n
 
 // -- ops --------------------------------------------------------------------
 
-export class Ops {
+export class Ops implements OpSet<Tensor> {
   constructor(public tape: Tape) {}
+
+  /** An output tensor that needs a gradient if any input does, with its backward step. */
+  private out(data: Float32Array, shape: number[], inputs: Tensor[], backward: (o: Tensor) => void): Tensor {
+    const o = new Tensor(data, shape, this.tape.needs(inputs));
+    this.tape.push(o, () => backward(o));
+    return o;
+  }
+
+  /** The loss's own gradient, dL/dL = 1, to start backward from. */
+  seed(root: Tensor): void {
+    root.g().fill(1);
+  }
+
+  probs(logits: Tensor): Tensor {
+    return new Tensor(softmaxRows(logits.data, logits.rows, logits.cols), logits.shape);
+  }
 
   /** Rows of W picked by ids: the token embedding lookup. */
   embed(W: Tensor, ids: number[]): Tensor {
     const d = W.cols;
     const out = new Float32Array(ids.length * d);
     ids.forEach((id, t) => out.set(W.data.subarray(id * d, (id + 1) * d), t * d));
-    return this.tape.out(out, [ids.length, d], [W], (o) => {
+    return this.out(out, [ids.length, d], [W], (o) => {
       const g = W.g();
       ids.forEach((id, t) => {
         for (let j = 0; j < d; j++) g[id * d + j] += o.grad![t * d + j];
@@ -108,7 +150,7 @@ export class Ops {
   /** Rows start..start+n of W: the position embeddings for the prompt's positions. */
   rows(W: Tensor, start: number, n: number): Tensor {
     const d = W.cols;
-    return this.tape.out(W.data.slice(start * d, (start + n) * d), [n, d], [W], (o) => {
+    return this.out(W.data.slice(start * d, (start + n) * d), [n, d], [W], (o) => {
       const g = W.g();
       for (let i = 0; i < n * d; i++) g[start * d + i] += o.grad![i];
     });
@@ -117,7 +159,7 @@ export class Ops {
   add(a: Tensor, b: Tensor): Tensor {
     const out = new Float32Array(a.data.length);
     for (let i = 0; i < out.length; i++) out[i] = a.data[i] + b.data[i];
-    return this.tape.out(out, a.shape, [a, b], (o) => {
+    return this.out(out, a.shape, [a, b], (o) => {
       for (const t of [a, b]) {
         if (!t.requiresGrad) continue;
         const g = t.g();
@@ -132,7 +174,7 @@ export class Ops {
     const out = new Float32Array(m * n);
     if (b) for (let i = 0; i < m; i++) out.set(b.data, i * n);
     mm(x.data, W.data, out, m, k, n);
-    return this.tape.out(out, [m, n], b ? [x, W, b] : [x, W], (o) => {
+    return this.out(out, [m, n], b ? [x, W, b] : [x, W], (o) => {
       const g = o.grad!;
       if (x.requiresGrad) mmNT(g, W.data, x.g(), m, n, k);
       if (W.requiresGrad) mmTN(x.data, g, W.g(), m, k, n);
@@ -148,7 +190,7 @@ export class Ops {
     const [m, k] = x.shape, n = W.rows;
     const out = new Float32Array(m * n);
     mmNT(x.data, W.data, out, m, k, n);
-    return this.tape.out(out, [m, n], [x, W], (o) => {
+    return this.out(out, [m, n], [x, W], (o) => {
       if (x.requiresGrad) mm(o.grad!, W.data, x.g(), m, n, k);
       if (W.requiresGrad) mmTN(o.grad!, x.data, W.g(), m, n, k);
     });
@@ -173,7 +215,7 @@ export class Ops {
         out[i * d + j] = h * gamma.data[j] + beta.data[j];
       }
     }
-    return this.tape.out(out, [m, d], [x, gamma, beta], (o) => {
+    return this.out(out, [m, d], [x, gamma, beta], (o) => {
       const g = o.grad!;
       const gg = gamma.requiresGrad ? gamma.g() : null, gb = beta.requiresGrad ? beta.g() : null;
       const gx = x.requiresGrad ? x.g() : null;
@@ -204,7 +246,7 @@ export class Ops {
       const u = x.data[i];
       out[i] = 0.5 * u * (1 + Math.tanh(c * (u + 0.044715 * u ** 3)));
     }
-    return this.tape.out(out, x.shape, [x], (o) => {
+    return this.out(out, x.shape, [x], (o) => {
       const gx = x.g();
       for (let i = 0; i < gx.length; i++) {
         const u = x.data[i], th = Math.tanh(c * (u + 0.044715 * u ** 3));
@@ -219,7 +261,7 @@ export class Ops {
     const [m, n] = x.shape, w = c1 - c0;
     const out = new Float32Array(m * w);
     for (let i = 0; i < m; i++) out.set(x.data.subarray(i * n + c0, i * n + c1), i * w);
-    return this.tape.out(out, [m, w], [x], (o) => {
+    return this.out(out, [m, w], [x], (o) => {
       const gx = x.g();
       for (let i = 0; i < m; i++) for (let j = 0; j < w; j++) gx[i * n + c0 + j] += o.grad![i * w + j];
     });
@@ -234,7 +276,7 @@ export class Ops {
       c0 += p.cols;
       return c0 - p.cols;
     });
-    return this.tape.out(out, [m, n], parts, (o) => {
+    return this.out(out, [m, n], parts, (o) => {
       parts.forEach((p, k) => {
         if (!p.requiresGrad) return;
         const gp = p.g(), w = p.cols;
@@ -249,7 +291,7 @@ export class Ops {
     const out = new Float32Array(m * n);
     mmNT(q.data, k.data, out, m, d, n);
     for (let i = 0; i < out.length; i++) out[i] *= scale;
-    return this.tape.out(out, [m, n], [q, k], (o) => {
+    return this.out(out, [m, n], [q, k], (o) => {
       const g = o.grad!.map((v) => v * scale);
       if (q.requiresGrad) mm(g, k.data, q.g(), m, n, d);
       if (k.requiresGrad) mmTN(g, q.data, k.g(), m, n, d);
@@ -261,7 +303,7 @@ export class Ops {
     const [m, n] = s.shape;
     const out = s.data.slice();
     for (let i = 0; i < m; i++) for (let j = i + offset + 1; j < n; j++) out[i * n + j] = -Infinity;
-    return this.tape.out(out, [m, n], [s], (o) => {
+    return this.out(out, [m, n], [s], (o) => {
       const gs = s.g();
       for (let i = 0; i < m; i++) for (let j = 0; j <= Math.min(i + offset, n - 1); j++) gs[i * n + j] += o.grad![i * n + j];
     });
@@ -271,7 +313,7 @@ export class Ops {
   softmax(x: Tensor): Tensor {
     const [m, n] = x.shape;
     const out = softmaxRows(x.data, m, n);
-    return this.tape.out(out, [m, n], [x], (o) => {
+    return this.out(out, [m, n], [x], (o) => {
       const gx = x.g(), g = o.grad!;
       for (let i = 0; i < m; i++) {
         let dot = 0;
@@ -286,7 +328,7 @@ export class Ops {
     const [m, n] = A.shape, d = V.cols;
     const out = new Float32Array(m * d);
     mm(A.data, V.data, out, m, n, d);
-    return this.tape.out(out, [m, d], [A, V], (o) => {
+    return this.out(out, [m, d], [A, V], (o) => {
       if (A.requiresGrad) mmNT(o.grad!, V.data, A.g(), m, d, n);
       if (V.requiresGrad) mmTN(A.data, o.grad!, V.g(), m, n, d);
     });
@@ -308,7 +350,7 @@ export class Ops {
       for (const v of row) s += Math.exp(v - max);
       loss -= row[t] - max - Math.log(s);
     });
-    return this.tape.out(new Float32Array([loss / kept]), [1], [logits], (o) => {
+    return this.out(new Float32Array([loss / kept]), [1], [logits], (o) => {
       const gl = logits.g(), g = o.grad![0] / kept;
       targets.forEach((t, i) => {
         if (t < 0) return;

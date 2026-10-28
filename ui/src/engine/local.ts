@@ -5,7 +5,8 @@
 import { decodeFrame } from "../bridge";
 import { Tensor, softmaxRows } from "./autograd";
 import { encodeTensors, encodeTrace } from "./frames";
-import { trace, type ModelConfig, type Weights } from "./model";
+import { GpuModel, type Gpu } from "./gpu";
+import { trace, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 import { BPETokenizer } from "./tokenizer";
 
 export type Emit = (msg: object | ArrayBuffer) => void;
@@ -49,11 +50,18 @@ export class LocalModel {
   private step = 0;
   private stageMeta: Map<string, object>;
   private weightsSent = false;
+  private gpuModel: GpuModel | null;
 
-  constructor(private assets: Assets, private emit: Emit) {
+  /** With `gpu`, traces run on WebGPU; without, on the CPU. */
+  constructor(private assets: Assets, private emit: Emit, private gpu: Gpu | null = null) {
     this.cfg = assets.meta.config;
     this.stageMeta = new Map(assets.meta.stages.map((s) => [s.id, s]));
+    this.gpuModel = gpu ? new GpuModel(gpu, this.cfg) : null;
     this.loadWeights(assets.checkpoint);
+  }
+
+  private trace(ids: number[], opts: TraceOptions): Promise<TraceResult> | TraceResult {
+    return this.gpuModel ? this.gpuModel.trace(ids, opts) : trace(this.cfg, this.W, ids, opts);
   }
 
   private loadWeights(frame: ArrayBuffer): void {
@@ -61,16 +69,17 @@ export class LocalModel {
     this.step = f.header.step;
     this.W = new Map(Object.entries(f.header.weights as Record<string, { shape: number[]; offset: number }>)
       .map(([n, ref]) => [n, new Tensor(f.tensor(ref).data, ref.shape)]));
+    this.gpuModel?.setWeights(this.W);
     this.weightsSent = false;
   }
 
   /** What a new connection gets from the server: hello, then the probe's trace. */
-  start(): void {
-    this.handle([{ type: "hello" }, { type: "run", prompt: this.assets.meta.probe }]);
+  start(): Promise<void> {
+    return this.handle([{ type: "hello" }, { type: "run", prompt: this.assets.meta.probe }]);
   }
 
   /** Commands in arrival order; of consecutive "run"s (per tag) only the last matters. */
-  handle(cmds: Cmd[]): void {
+  async handle(cmds: Cmd[]): Promise<void> {
     const out: Cmd[] = [];
     for (const c of cmds) {
       const last = out[out.length - 1];
@@ -79,7 +88,7 @@ export class LocalModel {
     }
     for (const c of out) {
       try {
-        this.dispatch(c);
+        await this.dispatch(c);
       } catch (e) {
         this.emit({ type: "error", message: `${c.type}: ${e instanceof Error ? e.message : e}` });
       }
@@ -87,11 +96,11 @@ export class LocalModel {
   }
 
   private status() {
-    return { step: this.step, playing: false, lr: 0, batchSize: 0, traceEvery: 0, device: "browser (CPU)",
+    return { step: this.step, playing: false, lr: 0, batchSize: 0, traceEvery: 0, device: this.gpu ? `WebGPU (${this.gpu.adapterName})` : "browser CPU",
              checkpoints: this.assets.meta.checkpoints };
   }
 
-  private dispatch(cmd: Cmd): void {
+  private async dispatch(cmd: Cmd): Promise<void> {
     const { meta, tokenizer: tok } = this.assets;
     switch (cmd.type) {
       case "hello":
@@ -100,7 +109,7 @@ export class LocalModel {
         return;
       case "run":
         if (cmd.interventions?.length) throw new Error("interventions do not run in the browser yet");
-        this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag);
+        await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag);
         return;
       case "lens":
         this.emit({ type: "lens", prompt: cmd.prompt, step: this.step, ...this.lens(tok.encode(cmd.prompt)) });
@@ -110,14 +119,14 @@ export class LocalModel {
     }
   }
 
-  private sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string): void {
+  private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string): Promise<void> {
     if (!this.weightsSent) {
       this.emit(encodeTensors("weights", { weights: this.W }, { step: this.step, version: this.step }));
       this.weightsSent = true;
     }
     const tok = this.assets.tokenizer;
     const ids = tok.encode(prompt);
-    const t = trace(this.cfg, this.W, ids.length ? ids : [0], { withGrad, targetIndex });
+    const t = await this.trace(ids.length ? ids : [0], { withGrad, targetIndex });
     this.emit(encodeTrace(t, (id) => this.stageMeta.get(id)!, this.step, t.tokens.map((i) => tok.tokenText(i)), {
       prompt, reason: "run", weightsVersion: this.step, interventions: [], ...(tag ? { tag } : {}),
     }));

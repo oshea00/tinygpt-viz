@@ -1,7 +1,7 @@
 // The GPT of core/model.py, on the autograd in ./autograd, and the tracer of core/tracer.py:
 // every stage passes through tap(), which records it (and later its gradient).
 
-import { Ops, Tape, Tensor, softmaxRows } from "./autograd";
+import { Ops, Tape, Tensor, type Node, type OpSet } from "./autograd";
 
 export interface ModelConfig {
   n_layer: number;
@@ -39,8 +39,9 @@ export interface TraceOptions {
   targetIndex?: number | null;
 }
 
-/** One forward (and backward) pass of tokens, keeping every stage. Mirrors core/tracer.py. */
-export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: TraceOptions = {}): TraceResult {
+/** The window and targets for a trace: the prompt's own next tokens, the last position's only
+ * if `nextToken` is given, all but one cleared when `targetIndex` is set. */
+export function prepare(cfg: ModelConfig, tokens: number[], opts: TraceOptions) {
   tokens = tokens.slice(-cfg.block_size);
   let targets = [...tokens.slice(1), opts.nextToken ?? -1];
   if (opts.targetIndex != null) {
@@ -48,8 +49,12 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
     targets = targets.map((_, i) => (i === opts.targetIndex ? keep : -1));
   }
   const hasTarget = targets.some((t) => t >= 0);
-  const withGrad = (opts.withGrad ?? true) && hasTarget;
+  return { tokens, targets, hasTarget, withGrad: (opts.withGrad ?? true) && hasTarget };
+}
 
+/** One forward (and backward) pass of tokens on the CPU, keeping every stage. Mirrors core/tracer.py. */
+export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: TraceOptions = {}): TraceResult {
+  const { tokens: idx, targets, hasTarget, withGrad } = prepare(cfg, tokens, opts);
   const tape = new Tape();
   tape.enabled = withGrad;
   for (const w of W.values()) {
@@ -57,13 +62,12 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
     w.grad = null;
   }
   const live = new Map<string, Tensor>();
-  const tap = (id: string, x: Tensor) => {
-    live.set(id, x);
-    return x;
-  };
-
-  const loss = forward(cfg, W, new Ops(tape), tokens, hasTarget ? targets : null, tap);
-  if (withGrad && loss) tape.backward(loss);
+  const op = new Ops(tape);
+  const loss = forward(cfg, (n) => W.get(n)!, op, idx, hasTarget ? targets : null, (id, x) => (live.set(id, x), x));
+  if (withGrad && loss) {
+    op.seed(loss);
+    tape.backward();
+  }
 
   const stages = [...live].map(([id, x]) => ({
     id, output: x,
@@ -75,12 +79,12 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
     w.requiresGrad = false;
     w.grad = null;
   }
-  return { tokens, targets, stages, loss: loss ? loss.data[0] : null, weightGrads };
+  return { tokens: idx, targets, stages, loss: loss ? loss.data[0] : null, weightGrads };
 }
 
-function forward(cfg: ModelConfig, W: Weights, op: Ops, idx: number[], targets: number[] | null,
-                 tap: (id: string, x: Tensor) => Tensor): Tensor | null {
-  const w = (n: string) => W.get(n)!;
+/** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given. */
+export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T, op: OpSet<T>, idx: number[],
+                                        targets: number[] | null, tap: (id: string, x: T) => T): T | null {
   const T = idx.length, H = cfg.n_head, dh = cfg.d_model / H;
   const tok = tap("embed.tok", op.embed(w("wte"), idx));
   const pos = tap("embed.pos", op.rows(w("wpe"), 0, T));
@@ -91,7 +95,7 @@ function forward(cfg: ModelConfig, W: Weights, op: Ops, idx: number[], targets: 
     const q = tap(`${P}.q`, op.linear(ln1, w(`${P}.W_q`), w(`${P}.b_q`)));
     const k = tap(`${P}.k`, op.linear(ln1, w(`${P}.W_k`), w(`${P}.b_k`)));
     const v = tap(`${P}.v`, op.linear(ln1, w(`${P}.W_v`), w(`${P}.b_v`)));
-    const heads: Tensor[] = [];
+    const heads: T[] = [];
     for (let h = 0; h < H; h++) {
       const p = `${P}.attn.H${h}`;
       const qh = tap(`${p}.q`, op.cols(q, h * dh, (h + 1) * dh));
@@ -114,7 +118,7 @@ function forward(cfg: ModelConfig, W: Weights, op: Ops, idx: number[], targets: 
   const lnf = tap("ln_f", op.layerNorm(x, w("ln_f_g"), w("ln_f_b")));
   const logits = tap("logits", cfg.tied ? op.linearT(lnf, w("wte")) : op.linear(lnf, w("W_unembed"), null));
   // probs is shown, not differentiated through: the loss reads the logits directly.
-  tap("probs", new Tensor(softmaxRows(logits.data, T, logits.cols), logits.shape));
+  tap("probs", op.probs(logits));
   if (!targets) return null;
   return tap("loss", op.crossEntropy(logits, targets));
 }
