@@ -4,7 +4,7 @@
 
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
 import { frameAround, traceHeader } from "./frames";
-import { forward, prepare, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
+import { forward, prepare, recorder, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
 const ALIGN = 256;              // minStorageBufferOffsetAlignment, the most any device asks
@@ -385,6 +385,60 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   gz[k] += (probs[k] - y) * gL[0] * bitcast<f32>(p.h);
 }`,
 
+  // Interventions. Columns c..d of x [a,b] set to 0 (e=0) or their mean over rows (e=1); with
+  // f=1 this is the backward of the mean: out += the column's gradient sum / rows.
+  colfill: `
+@group(0) @binding(1) var<storage, read> x: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let j = p.c + id.x;
+  if (j >= p.d) { return; }
+  var s = 0.0;
+  if (p.e == 1u) { for (var i = 0u; i < p.a; i++) { s += x[i * p.b + j]; } }
+  for (var i = 0u; i < p.a; i++) {
+    if (p.f == 0u) { out[i * p.b + j] = s / f32(p.a); } else { out[i * p.b + j] += s / f32(p.a); }
+  }
+}`,
+
+  // out[index[k]] = values[k] (or 0 when b=1), k < a.
+  scatter: `
+@group(0) @binding(1) var<storage, read> index: array<u32>;
+@group(0) @binding(2) var<storage, read> values: array<f32>;
+@group(0) @binding(3) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let k = id.x;
+  if (k >= p.a) { return; }
+  if (p.b == 1u) { out[index[k]] = 0.0; } else { out[index[k]] = values[k]; }
+}`,
+
+  // out = x + scale · vec on every row of x [a,b]; h = scale.
+  addrow: `
+@group(0) @binding(1) var<storage, read> x: array<f32>;
+@group(0) @binding(2) var<storage, read> vec: array<f32>;
+@group(0) @binding(3) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let j = id.x;
+  let i = id.y;
+  if (i >= p.a || j >= p.b) { return; }
+  out[i * p.b + j] = x[i * p.b + j] + bitcast<f32>(p.h) * vec[j];
+}`,
+
+  // Row i of out is row perm[i] of x [a,b]; with c=1 the backward: out[perm[i]] += x[i].
+  permute: `
+@group(0) @binding(1) var<storage, read> x: array<f32>;
+@group(0) @binding(2) var<storage, read> perm: array<u32>;
+@group(0) @binding(3) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let j = id.x;
+  let i = id.y;
+  if (i >= p.a || j >= p.b) { return; }
+  if (p.c == 0u) { out[i * p.b + j] = x[perm[i] * p.b + j]; } else { out[perm[i] * p.b + j] += x[i * p.b + j]; }
+}`,
+
   // Fill with a constant: a=n h=value.
   fill: `
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
@@ -502,7 +556,7 @@ export class GpuOps implements OpSet<GTensor> {
     return (t.grad ??= this.arena.alloc(t.shape));
   }
 
-  private temp(data: Uint32Array | Int32Array): GPUBuffer {
+  private temp(data: Uint32Array | Int32Array | Float32Array): GPUBuffer {
     const b = this.gpu.upload(data);
     this.temps.push(b);
     return b;
@@ -681,6 +735,62 @@ export class GpuOps implements OpSet<GTensor> {
     return o;
   }
 
+  // -- interventions (./interventions) --------------------------------------
+
+  replaceCols(x: GTensor, c0: number, c1: number, mode: "zero" | "mean"): GTensor {
+    const [m, n] = x.shape, mean = +(mode === "mean");
+    const o = this.out(x.shape, [x]);
+    this.band(x, o, m, n, n, 0, n, 0, false);
+    this.run("colfill", [m, n, c0, c1, mean, 0], [x, o], [Math.ceil((c1 - c0) / 64)]);
+    this.tape.push(o, () => {
+      const g = o.grad!, gx = this.g(x);
+      if (c0 > 0) this.band(g, gx, m, c0, n, 0, n, 0, true);
+      if (c1 < n) this.band(g, gx, m, n - c1, n, c1, n, c1, true);
+      if (mean) this.run("colfill", [m, n, c0, c1, 1, 1], [g, gx], [Math.ceil((c1 - c0) / 64)]);
+    });
+    return o;
+  }
+
+  constant(data: Float32Array, shape: number[]): GTensor {
+    const o = this.arena.alloc(shape);     // no gradient: nothing upstream can affect it
+    const src = new GTensor(this.temp(data), 0, shape);
+    this.band(src, o, 1, data.length, 0, 0, 0, 0, false);
+    return o;
+  }
+
+  overwrite(x: GTensor, index: number[], values: number[]): GTensor {
+    const o = this.out(x.shape, [x]);
+    const idx = this.temp(new Uint32Array(index)), vals = this.temp(new Float32Array(values));
+    const groups: [number] = [Math.ceil(index.length / 64)];
+    this.band(x, o, 1, x.length, 0, 0, 0, 0, false);
+    this.run("scatter", [index.length, 0], [idx, vals, o], groups);
+    this.tape.push(o, () => {
+      // The overwritten entries pass no gradient back.
+      const g = this.scratch.alloc(x.shape);
+      this.band(o.grad!, g, 1, x.length, 0, 0, 0, 0, false);
+      this.run("scatter", [index.length, 1], [idx, vals, g], groups);
+      this.accumulate(g, this.g(x));
+    });
+    return o;
+  }
+
+  addRow(x: GTensor, vec: ArrayLike<number>, scale: number): GTensor {
+    const [m, n] = x.shape;
+    const o = this.out(x.shape, [x]);
+    this.run("addrow", [m, n, 0, 0, 0, 0, 0, bits(scale)], [x, this.temp(Float32Array.from(vec)), o], [Math.ceil(n / 64), m]);
+    this.tape.push(o, () => this.accumulate(o.grad!, this.g(x)));
+    return o;
+  }
+
+  permuteRows(x: GTensor, perm: number[]): GTensor {
+    const [m, n] = x.shape;
+    const o = this.out(x.shape, [x]);
+    const p = this.temp(new Uint32Array(perm));
+    this.run("permute", [m, n, 0], [x, p, o], [Math.ceil(n / 64), m]);
+    this.tape.push(o, () => this.run("permute", [m, n, 1], [o.grad!, p, this.g(x)], [Math.ceil(n / 64), m]));
+    return o;
+  }
+
   probs(logits: GTensor): GTensor {
     const [m, V] = logits.shape;
     const o = this.arena.alloc([m, V]);   // not on the loss path: no gradient
@@ -743,12 +853,13 @@ export class GpuModel {
     const encoder = device.createCommandEncoder();
     const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
     const live = new Map<string, GTensor>();
-    const loss = forward(this.cfg, (n) => this.W.get(n)!, op, idx, hasTarget ? targets : null, (id, x) => (live.set(id, x), x));
+    const loss = forward(this.cfg, (n) => this.W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions));
     if (withGrad && loss) {
       op.seed(loss);
       tape.backward();
-      // A stage or weight that did not affect the loss still has a (zero) gradient in the arena.
-      for (const x of [...live.values(), ...this.W.values()]) if (x.requiresGrad) op.g(x);
+      // A stage that did not affect the loss still has a (zero) gradient in the arena. A weight cut
+      // off from the loss has none, as in core/tracer.py.
+      for (const x of live.values()) if (x.requiresGrad) op.g(x);
     }
     const temps = op.finish();
     const used = this.arena.used;
@@ -766,7 +877,7 @@ export class GpuModel {
     const result = (host: Float32Array): TraceResult => {
       const at = (t: GTensor) => view(t, host, 0);
       const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
-      if (withGrad) for (const [n, w] of this.W) weightGrads.set(n, { data: at(w.grad!).data, shape: w.shape });
+      if (withGrad) for (const [n, w] of this.W) if (w.grad) weightGrads.set(n, { data: at(w.grad).data, shape: w.shape });
       return {
         tokens: idx, targets, weightGrads, loss: loss ? at(loss).data[0] : null,
         stages: [...live].map(([id, x]) => ({ id, output: at(x), grad: withGrad && x.requiresGrad ? at(x.grad!).data : null })),

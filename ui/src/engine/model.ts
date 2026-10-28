@@ -2,6 +2,8 @@
 // every stage passes through tap(), which records it (and later its gradient).
 
 import { Ops, Tape, Tensor, type Node, type OpSet } from "./autograd";
+import { apply, compileAll } from "./interventions";
+import type { Intervention } from "../types";
 
 export interface ModelConfig {
   n_layer: number;
@@ -37,6 +39,7 @@ export interface TraceOptions {
   withGrad?: boolean;
   nextToken?: number | null;
   targetIndex?: number | null;
+  interventions?: Intervention[];
 }
 
 /** The window and targets for a trace: the prompt's own next tokens, the last position's only
@@ -63,7 +66,7 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
   }
   const live = new Map<string, Tensor>();
   const op = new Ops(tape);
-  const loss = forward(cfg, (n) => W.get(n)!, op, idx, hasTarget ? targets : null, (id, x) => (live.set(id, x), x));
+  const loss = forward(cfg, (n) => W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions));
   if (withGrad && loss) {
     op.seed(loss);
     tape.backward();
@@ -74,12 +77,23 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
     grad: withGrad && x.requiresGrad ? x.g() : null,   // zeros if the stage did not affect the loss
   }));
   const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
-  if (withGrad) for (const [n, w] of W) weightGrads.set(n, { data: w.g(), shape: w.shape });
+  // As core/tracer.py: a weight cut off from the loss (by an intervention) has no gradient at all.
+  if (withGrad) for (const [n, w] of W) if (w.grad) weightGrads.set(n, { data: w.grad, shape: w.shape });
   for (const w of W.values()) {
     w.requiresGrad = false;
     w.grad = null;
   }
   return { tokens: idx, targets, stages, loss: loss ? loss.data[0] : null, weightGrads };
+}
+
+/** The tap that applies interventions to a stage and keeps the result (core/tracer.py's record). */
+export function recorder<T extends Node>(op: OpSet<T>, live: Map<string, T>, interventions?: Intervention[]) {
+  const rewrites = compileAll<T>(interventions);
+  return (id: string, x: T): T => {
+    x = apply(rewrites, op, id, x);
+    live.set(id, x);
+    return x;
+  };
 }
 
 /** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given. */

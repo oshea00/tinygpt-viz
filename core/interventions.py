@@ -62,11 +62,32 @@ def _patch(positions: list[int], values: list[list[float]]) -> Rewrite:
     return rewrite
 
 
+def _mulberry32(seed: int):
+    """A small seeded generator that ui/src/engine/interventions.ts reproduces exactly."""
+    a = seed & 0xFFFFFFFF
+
+    def rand() -> float:
+        nonlocal a
+        a = (a + 0x6D2B79F5) & 0xFFFFFFFF
+        t = a
+        t = ((t ^ (t >> 15)) * (t | 1)) & 0xFFFFFFFF
+        t ^= (t + ((t ^ (t >> 7)) * (t | 61) & 0xFFFFFFFF)) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
+    return rand
+
+
+def permutation(n: int, seed: int) -> list[int]:
+    """A seeded Fisher–Yates permutation of 0..n-1, the same in the browser's engine."""
+    perm, rand = list(range(n)), _mulberry32(seed)
+    for i in range(n - 1, 0, -1):
+        j = int(rand() * (i + 1))
+        perm[i], perm[j] = perm[j], perm[i]
+    return perm
+
+
 def _shuffle(seed: int) -> Rewrite:
     def rewrite(pos: torch.Tensor) -> torch.Tensor:
-        g = torch.Generator().manual_seed(seed)
-        perm = torch.randperm(pos.shape[1], generator=g).to(pos.device)
-        return pos[:, perm]
+        return pos[:, torch.tensor(permutation(pos.shape[1], seed), device=pos.device)]
     return rewrite
 
 

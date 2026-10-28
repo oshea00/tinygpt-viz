@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
 import { encodeTrace } from "./frames";
@@ -77,4 +77,24 @@ describe("encodeTrace", () => {
     }
     expectClose(back.weightGrads["L1.W_q"].data, ref.weightGrads["L1.W_q"].data, "L1.W_q");
   });
+});
+
+describe("interventions match core/interventions.py", () => {
+  const dir = new URL("../fixtures/interventions/", import.meta.url);
+  for (const file of readdirSync(dir)) {
+    it(file.replace(".bin", ""), () => {
+      const want = decodeTrace(load(`interventions/${file}`));
+      const got = trace(cfg, W, want.tokens, { nextToken: 9, interventions: want.interventions });
+      expect(got.stages.map((s) => s.id)).toEqual(want.stages.map((s) => s.id));
+      expect(got.loss!).toBeCloseTo(want.loss!, 5);
+      for (const s of got.stages) {
+        const r = want.byId.get(s.id)!;
+        expectClose(s.output.data, r.output.data, s.id);
+        expect(s.grad === null, `${s.id} has a gradient`).toBe(r.grad === undefined);
+        if (s.grad) expectClose(s.grad, r.grad!.data, `grad ${s.id}`);
+      }
+      expect([...got.weightGrads.keys()]).toEqual(Object.keys(want.weightGrads));
+      for (const [n, g] of got.weightGrads) expectClose(g.data, want.weightGrads[n].data, `grad ${n}`);
+    });
+  }
 });

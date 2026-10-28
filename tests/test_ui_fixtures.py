@@ -30,6 +30,36 @@ def test_write_ui_fixtures():
     assert decode_trace((FIXTURES / "trace.bin").read_bytes()).step == 42
 
 
+# One of every intervention kind, for the browser engine's parity tests (ui/src/engine/).
+INTERVENTIONS = {
+    "head_zero": [{"kind": "head", "layer": 1, "head": 0, "mode": "zero"}],
+    "head_mean": [{"kind": "head", "layer": 0, "head": 1, "mode": "mean"}],
+    "neuron_zero": [{"kind": "neuron", "layer": 0, "index": 17, "mode": "zero"}],
+    "neuron_mean": [{"kind": "neuron", "layer": 1, "index": 5, "mode": "mean"}],
+    "block_attn": [{"kind": "block", "layer": 0, "part": "attn"}],
+    "block_mlp": [{"kind": "block", "layer": 1, "part": "mlp"}],
+    "attend": [{"kind": "attend", "layer": 1, "head": 1, "position": 2}],
+    "set": [{"kind": "set", "stage": "L0.q", "row": 4, "col": 7, "value": 2.5}],
+    "steer": [{"kind": "steer", "stage": "L0.resid_mlp", "vector": [((i * 37) % 11 - 5) / 10 for i in range(32)], "scale": 1.5}],
+    "patch": [{"kind": "patch", "stage": "L1.resid_attn", "positions": [2, 5],
+               "values": [[(i % 7 - 3) / 4 for i in range(32)], [(i % 5 - 2) / 3 for i in range(32)]]}],
+    "shuffle_pos": [{"kind": "shuffle_pos", "seed": 3}],
+    "combined": [{"kind": "head", "layer": 0, "head": 0, "mode": "mean"}, {"kind": "neuron", "layer": 1, "index": 9, "mode": "zero"},
+                 {"kind": "set", "stage": "L1.mlp.gelu", "row": 3, "col": 1, "value": -1.0}],
+}
+
+
+def test_write_intervention_fixtures():
+    torch.manual_seed(0)
+    model = GPT(TINY.with_vocab(16))
+    ids = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]
+    out = FIXTURES / "interventions"
+    out.mkdir(parents=True, exist_ok=True)
+    for name, specs in INTERVENTIONS.items():
+        t = trace(model, ids, [chr(97 + i) for i in ids], step=42, next_token=9, interventions=specs)
+        (out / f"{name}.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run", "interventions": specs}))
+
+
 def test_write_sampling_fixture():
     g = torch.Generator().manual_seed(3)
     logits = torch.randn(16, generator=g) * 2

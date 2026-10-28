@@ -8,6 +8,7 @@ import { encodeTensors, encodeTrace } from "./frames";
 import { GpuModel, type Gpu } from "./gpu";
 import { trace, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 import { BPETokenizer } from "./tokenizer";
+import type { Intervention } from "../types";
 
 export type Emit = (msg: object | ArrayBuffer) => void;
 
@@ -108,8 +109,8 @@ export class LocalModel {
                     params: meta.params, paramGroups: meta.paramGroups, probe: meta.probe, training: false, ...this.status() });
         return;
       case "run":
-        if (cmd.interventions?.length) throw new Error("interventions do not run in the browser yet");
-        await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag);
+        await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag,
+                             cmd.interventions ?? []);
         return;
       case "lens":
         this.emit({ type: "lens", prompt: cmd.prompt, step: this.step, ...this.lens(tok.encode(cmd.prompt)) });
@@ -119,7 +120,8 @@ export class LocalModel {
     }
   }
 
-  private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string): Promise<void> {
+  private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string,
+                          interventions: Intervention[] = []): Promise<void> {
     if (!this.weightsSent) {
       this.emit(encodeTensors("weights", { weights: this.W }, { step: this.step, version: this.step }));
       this.weightsSent = true;
@@ -128,9 +130,9 @@ export class LocalModel {
     const ids = tok.encode(prompt);
     const spec = {
       meta: (id: string) => this.stageMeta.get(id)!, step: this.step, text: (t: number[]) => t.map((i) => tok.tokenText(i)),
-      extra: { prompt, reason: "run", weightsVersion: this.step, interventions: [], ...(tag ? { tag } : {}) },
+      extra: { prompt, reason: "run", weightsVersion: this.step, interventions, ...(tag ? { tag } : {}) },
     };
-    const opts = { withGrad, targetIndex };
+    const opts = { withGrad, targetIndex, interventions };
     if (this.gpuModel) {
       this.emit((await this.gpuModel.trace(ids.length ? ids : [0], opts, spec)).frame!);
     } else {

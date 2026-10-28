@@ -2,9 +2,23 @@
 // pytest-written fixtures, as model.test.ts checks the CPU engine. Vitest has no WebGPU.
 
 import { decodeFrame, decodeTrace, decodeWeights } from "../bridge";
+import type { Trace } from "../types";
 import { Gpu, GpuModel } from "./gpu";
 import { fetchAssets } from "./local";
 import { makeWeights, trace, type TraceResult } from "./model";
+
+// The intervention fixtures tests/test_ui_fixtures.py writes, one per kind.
+const INTERVENTION_FIXTURES = ["head_zero", "head_mean", "neuron_zero", "neuron_mean", "block_attn", "block_mlp",
+                               "attend", "set", "steer", "patch", "shuffle_pos", "combined"];
+
+/** A decoded fixture trace as a TraceResult, to compare like with like. */
+function asResult(ref: Trace): TraceResult {
+  return {
+    tokens: ref.tokens, targets: ref.targets, loss: ref.loss,
+    stages: ref.stages.map((s) => ({ id: s.id, output: s.output as unknown as TraceResult["stages"][number]["output"], grad: s.grad?.data ?? null })),
+    weightGrads: new Map(Object.entries(ref.weightGrads)),
+  };
+}
 
 const fixture = async (name: string) => decodeFrame(await (await fetch(`/src/fixtures/${name}`)).arrayBuffer());
 
@@ -35,6 +49,7 @@ function compare(t: TraceResult, ref: TraceResult, label: string, rel: number, o
       expect(wg <= 1, `grad ${s.id} off by ${wg.toFixed(1)}× tolerance`);
     }
   });
+  expect(JSON.stringify([...t.weightGrads.keys()]) === JSON.stringify([...ref.weightGrads.keys()]), "which weights have gradients");
   for (const [n, g] of t.weightGrads) {
     const wg = worst(g.data, ref.weightGrads.get(n)!.data, rel);
     expect(wg <= 1, `grad ${n} off by ${wg.toFixed(1)}× tolerance`);
@@ -84,13 +99,12 @@ async function check(): Promise<{ ok: boolean; adapter?: string; failures: strin
   const t = await m.trace(ref.tokens, { nextToken: 9 });
   const ms = performance.now() - t0;
   const failures: string[] = [];
-  // The fixture trace as a TraceResult, to compare like with like.
-  const want: TraceResult = {
-    tokens: ref.tokens, targets: ref.targets, loss: ref.loss,
-    stages: ref.stages.map((s) => ({ id: s.id, output: { ...s.output, rows: 0, cols: 0 } as any, grad: s.grad?.data ?? null })),
-    weightGrads: new Map(Object.entries(ref.weightGrads)),
-  };
+  const want = asResult(ref);
   compare(t, want, "fixture", 1e-5, failures);      // the CPU test's tolerance against core/tracer.py
+  for (const name of INTERVENTION_FIXTURES) {
+    const r = decodeTrace(await fixture(`interventions/${name}.bin`));
+    compare(await m.trace(r.tokens, { nextToken: 9, interventions: r.interventions }), asResult(r), name, 1e-5, failures);
+  }
   const exportedMs = await checkExported(gpu, failures);
   failures.push(...errors);
   return { ok: failures.length === 0, adapter: gpu.adapterName, failures, ms, exportedMs, timings };

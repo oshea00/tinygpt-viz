@@ -70,6 +70,13 @@ export interface OpSet<T extends Node> {
   mix(A: T, V: T): T;
   crossEntropy(logits: T, targets: number[]): T;
   probs(logits: T): T;        // softmax of the logits, not on the loss path
+
+  // Interventions (./interventions) rewrite a stage's output with these.
+  replaceCols(x: T, c0: number, c1: number, mode: "zero" | "mean"): T;
+  constant(data: Float32Array, shape: number[]): T;              // cut off from the loss
+  overwrite(x: T, index: number[], values: number[]): T;         // flat indices set to values
+  addRow(x: T, vec: ArrayLike<number>, scale: number): T;        // x + scale · vec, every row
+  permuteRows(x: T, perm: number[]): T;                          // row i of the output is row perm[i]
 }
 
 // -- matrix products ------------------------------------------------------
@@ -355,6 +362,64 @@ export class Ops implements OpSet<Tensor> {
       targets.forEach((t, i) => {
         if (t < 0) return;
         for (let j = 0; j < n; j++) gl[i * n + j] += g * (probs[i * n + j] - (j === t ? 1 : 0));
+      });
+    });
+  }
+
+  // -- interventions (./interventions) --------------------------------------
+
+  /** Columns c0..c1 zeroed, or replaced by their mean over positions. */
+  replaceCols(x: Tensor, c0: number, c1: number, mode: "zero" | "mean"): Tensor {
+    const [m, n] = x.shape;
+    const out = x.data.slice();
+    for (let j = c0; j < c1; j++) {
+      let mean = 0;
+      if (mode === "mean") for (let i = 0; i < m; i++) mean += x.data[i * n + j] / m;
+      for (let i = 0; i < m; i++) out[i * n + j] = mean;
+    }
+    return this.out(out, x.shape, [x], (o) => {
+      const gx = x.g(), g = o.grad!;
+      for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) if (j < c0 || j >= c1) gx[i * n + j] += g[i * n + j];
+      if (mode === "mean") for (let j = c0; j < c1; j++) {
+        let s = 0;
+        for (let i = 0; i < m; i++) s += g[i * n + j];
+        for (let i = 0; i < m; i++) gx[i * n + j] += s / m;
+      }
+    });
+  }
+
+  constant(data: Float32Array, shape: number[]): Tensor {
+    return new Tensor(data, shape);
+  }
+
+  overwrite(x: Tensor, index: number[], values: number[]): Tensor {
+    const out = x.data.slice();
+    index.forEach((k, i) => (out[k] = values[i]));
+    return this.out(out, x.shape, [x], (o) => {
+      const gx = x.g(), g = o.grad!.slice();
+      for (const k of index) g[k] = 0;
+      for (let i = 0; i < g.length; i++) gx[i] += g[i];
+    });
+  }
+
+  addRow(x: Tensor, vec: ArrayLike<number>, scale: number): Tensor {
+    const [m, n] = x.shape;
+    const out = new Float32Array(m * n);
+    for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) out[i * n + j] = x.data[i * n + j] + Math.fround(scale * Math.fround(vec[j]));   // as torch: vec in float32
+    return this.out(out, x.shape, [x], (o) => {
+      const gx = x.g();
+      for (let i = 0; i < gx.length; i++) gx[i] += o.grad![i];
+    });
+  }
+
+  permuteRows(x: Tensor, perm: number[]): Tensor {
+    const n = x.cols;
+    const out = new Float32Array(x.data.length);
+    perm.forEach((p, i) => out.set(x.data.subarray(p * n, (p + 1) * n), i * n));
+    return this.out(out, x.shape, [x], (o) => {
+      const gx = x.g();
+      perm.forEach((p, i) => {
+        for (let j = 0; j < n; j++) gx[p * n + j] += o.grad![i * n + j];
       });
     });
   }
