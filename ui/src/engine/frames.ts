@@ -24,35 +24,46 @@ class Packer {
   }
 }
 
-function frame(header: object, pk: Packer): ArrayBuffer {
-  let raw = new TextEncoder().encode(JSON.stringify(header));
+/** A frame's buffer for `header` and `dataBytes` of tensor data; the caller fills `data`. */
+export function frameAround(header: object, dataBytes: number): { buf: ArrayBuffer; data: Uint8Array } {
+  const raw = new TextEncoder().encode(JSON.stringify(header));
   const pad = -raw.length & 3;
-  const buf = new ArrayBuffer(4 + raw.length + pad + pk.size);
+  const buf = new ArrayBuffer(4 + raw.length + pad + dataBytes);
   new DataView(buf).setUint32(0, raw.length + pad, true);
   const bytes = new Uint8Array(buf);
   bytes.set(raw, 4);
   bytes.fill(0x20, 4 + raw.length, 4 + raw.length + pad);
-  let at = 4 + raw.length + pad;
+  return { buf, data: new Uint8Array(buf, 4 + raw.length + pad) };
+}
+
+function frame(header: object, pk: Packer): ArrayBuffer {
+  const { buf, data } = frameAround(header, pk.size);
+  let at = 0;
   for (const c of pk.chunks) {
-    bytes.set(new Uint8Array(c.buffer, c.byteOffset, c.byteLength), at);
+    data.set(new Uint8Array(c.buffer, c.byteOffset, c.byteLength), at);
     at += c.byteLength;
   }
   return buf;
+}
+
+/** A trace frame's header. `offsetOf` places each tensor in the data section and returns its byte
+ * offset there: by packing it (encodeTrace), or where it already is (the GPU's read-back). */
+export function traceHeader(t: TraceResult, meta: (id: string) => object, step: number, text: string[], extra: object,
+                            offsetOf: (a: Float32Array) => number): object {
+  const stages = t.stages.map((s) => {
+    const entry: Record<string, unknown> = { ...meta(s.id), shape: s.output.shape, offset: offsetOf(s.output.data) };
+    if (s.grad) entry.gradOffset = offsetOf(s.grad);
+    return entry;
+  });
+  const weightGrads = Object.fromEntries([...t.weightGrads].map(([n, g]) => [n, { shape: g.shape, offset: offsetOf(g.data) }]));
+  return { type: "trace", step, loss: t.loss, tokens: t.tokens, text, targets: t.targets, stages, weightGrads, ...extra };
 }
 
 /** A trace frame. `meta` gives each stage's kind, inputs, formula... (core/stages.py). */
 export function encodeTrace(t: TraceResult, meta: (id: string) => object, step: number, text: string[],
                             extra: object = {}): ArrayBuffer {
   const pk = new Packer();
-  const stages = t.stages.map((s) => {
-    const out = pk.add(s.output.data, s.output.shape);
-    const entry: Record<string, unknown> = { ...meta(s.id), shape: out.shape, offset: out.offset };
-    if (s.grad) entry.gradOffset = pk.add(s.grad, s.output.shape).offset;
-    return entry;
-  });
-  const weightGrads = Object.fromEntries([...t.weightGrads].map(([n, g]) => [n, pk.add(g.data, g.shape)]));
-  return frame({ type: "trace", step, loss: t.loss, tokens: t.tokens, text, targets: t.targets, stages, weightGrads,
-                 ...extra }, pk);
+  return frame(traceHeader(t, meta, step, text, extra, (a) => pk.add(a, []).offset), pk);
 }
 
 /** A frame of named tensor groups, e.g. {"weights": {"L0.W_q": ...}}. */

@@ -54,10 +54,18 @@ async function checkExported(gpu: Gpu, failures: string[]): Promise<number | und
   const ids = assets.tokenizer.encode(assets.meta.probe);
   const m = new GpuModel(gpu, cfg);
   m.setWeights(W);
-  await m.trace(ids);                      // the first trace compiles the pipelines
+  // As the app asks for it: with the trace frame. The first trace compiles the pipelines.
+  const spec = { meta: (id: string) => ({ id }), step: 0, text: (t: number[]) => t.map(String), extra: {} };
+  await m.trace(ids, {}, spec);
   const t0 = performance.now();
-  const g = await m.trace(ids);
+  const g = await m.trace(ids, {}, spec);
   const ms = performance.now() - t0;
+  // The frame must decode to the same values the trace returned.
+  const back = decodeTrace(decodeFrame(g.frame!));
+  for (const s of g.stages) {
+    const r = back.byId.get(s.id)!;
+    if (worst(r.output.data, s.output.data, 0) > 0 || (s.grad && worst(r.grad!.data, s.grad, 0) > 0)) failures.push(`frame: ${s.id} differs`);
+  }
   timings = m.timings;
   // Engine against engine, both float32 with sums in different orders: the plan's 1e-4.
   compare(g, trace(cfg, W, ids), cfg.name ?? "exported", 1e-4, failures);

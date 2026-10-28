@@ -47,7 +47,8 @@ console.log(`${result.ok ? "ok" : "FAILED"} on ${result.adapter ?? "?"}: fixture
             (result.exportedMs !== undefined ? `, exported model ${result.exportedMs.toFixed(0)} ms per trace` : ", no exported model"));
 if (result.timings) {
   const t = result.timings;
-  console.log(`  ${t.dispatches} dispatches: encoding ${t.encode.toFixed(1)} ms, GPU and read-back ${t.gpu.toFixed(1)} ms`);
+  console.log(`  ${t.dispatches} dispatches, ${(t.bytes / 2 ** 20).toFixed(0)} MB read back: encoding ${t.encode.toFixed(1)} ms, ` +
+              `waiting for the GPU ${t.wait.toFixed(1)} ms, copying ${t.copy.toFixed(1)} ms`);
 }
 for (const f of result.failures.slice(0, 40)) console.log("  " + f);
 process.exit(result.ok ? 0 : 1);

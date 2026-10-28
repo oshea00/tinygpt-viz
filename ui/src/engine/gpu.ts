@@ -3,6 +3,7 @@
 // into one compute pass; stage outputs and gradients live in one arena, read back in one copy.
 
 import { Tape, Tensor, type Node, type OpSet } from "./autograd";
+import { frameAround, traceHeader } from "./frames";
 import { forward, prepare, type ModelConfig, type TraceOptions, type TraceResult, type Weights } from "./model";
 
 const F = 4;                    // bytes per float
@@ -454,7 +455,9 @@ export class GpuOps implements OpSet<GTensor> {
   private uniforms: GPUBuffer[] = [];
   private temps: GPUBuffer[] = [];
 
-  constructor(private gpu: Gpu, public tape: Tape, private arena: Arena, private encoder: GPUCommandEncoder) {
+  /** Stage outputs and gradients go in `arena`, which is read back; intermediates only backward
+   * needs (x̂, 1/σ, the loss's softmax) go in `scratch`, which is not. */
+  constructor(private gpu: Gpu, public tape: Tape, private arena: Arena, private scratch: Arena, encoder: GPUCommandEncoder) {
     this.pass = encoder.beginComputePass();
   }
 
@@ -580,7 +583,7 @@ export class GpuOps implements OpSet<GTensor> {
   layerNorm(x: GTensor, gamma: GTensor, beta: GTensor): GTensor {
     const [m, d] = x.shape;
     const o = this.out([m, d], [x, gamma, beta]);
-    const xhat = this.arena.alloc([m, d]), rstd = this.arena.alloc([m]);
+    const xhat = this.scratch.alloc([m, d]), rstd = this.scratch.alloc([m]);
     this.run("layernorm", [d], [x, gamma, beta, o, xhat, rstd], [m]);
     this.tape.push(o, () => {
       const g = o.grad!;
@@ -666,12 +669,12 @@ export class GpuOps implements OpSet<GTensor> {
     const [m, V] = logits.shape;
     const kept = targets.filter((t) => t >= 0).length;
     const tBuf = this.temp(new Int32Array(targets));
-    const nll = this.arena.alloc([m]);
+    const nll = this.scratch.alloc([m]);
     this.run("nll", [V], [logits, tBuf, nll], [m]);
     const o = this.out([1], [logits]);
     this.run("mean", [m, 0, 0, 0, 0, 0, 0, bits(1 / kept)], [nll, o], [1]);
     this.tape.push(o, () => {
-      const probs = this.arena.alloc([m, V]);
+      const probs = this.scratch.alloc([m, V]);
       this.run("softmax", [V, 0, 0], [logits, probs], [m]);
       this.run("nll_back", [V, 0, 0, 0, 0, 0, 0, bits(1 / kept)], [probs, tBuf, o.grad!, this.g(logits)], [Math.ceil(V / 256), m]);
     });
@@ -692,18 +695,30 @@ export function view(t: GTensor, host: Float32Array, base: number): Tensor {
   return new Tensor(host.subarray(start, start + t.length), t.shape);
 }
 
+/** What a trace frame needs besides the tensors (see traceHeader in ./frames). */
+export interface FrameSpec {
+  meta: (id: string) => object;
+  step: number;
+  text: (tokens: number[]) => string[];
+  extra: object;
+}
+
 /** The model on the GPU: weights uploaded once, then one submit and one read-back per trace. */
 export class GpuModel {
   private W = new Map<string, GTensor>();
   private arena: Arena;
+  private scratch: Arena;
   private staging: GPUBuffer;
-  /** The last trace's milliseconds: encoding its dispatches (JS), then the GPU work and read-back. */
-  timings = { encode: 0, gpu: 0, dispatches: 0 };
+  /** The last trace's milliseconds: encoding its dispatches (JS), waiting for the GPU work and
+   * the transfer, and copying the read-back out. */
+  timings = { encode: 0, wait: 0, copy: 0, dispatches: 0, bytes: 0 };
 
   constructor(private gpu: Gpu, private cfg: ModelConfig) {
     const d = gpu.device;
     const size = Math.min(d.limits.maxStorageBufferBindingSize, d.limits.maxBufferSize, 256 * 2 ** 20);
-    this.arena = new Arena(d.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }));
+    const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+    this.arena = new Arena(d.createBuffer({ size, usage: storage }));
+    this.scratch = new Arena(d.createBuffer({ size: Math.min(size, 64 * 2 ** 20), usage: storage }));
     this.staging = d.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   }
 
@@ -712,7 +727,9 @@ export class GpuModel {
     this.W = new Map([...W].map(([n, w]) => [n, new GTensor(this.gpu.upload(w.data), 0, w.shape)]));
   }
 
-  async trace(tokens: number[], opts: TraceOptions = {}): Promise<TraceResult> {
+  /** A trace, and with `frame` its trace frame too, built around the read-back in one copy: the
+   * arena is laid out as the frame's data section. */
+  async trace(tokens: number[], opts: TraceOptions = {}, frame?: FrameSpec): Promise<TraceResult & { frame?: ArrayBuffer }> {
     const t0 = performance.now();
     const { tokens: idx, targets, hasTarget, withGrad } = prepare(this.cfg, tokens, opts);
     const device = this.gpu.device;
@@ -722,14 +739,16 @@ export class GpuModel {
       w.requiresGrad = withGrad;
       w.grad = null;
     }
-    this.arena.used = 0;
+    this.arena.used = this.scratch.used = 0;
     const encoder = device.createCommandEncoder();
-    const op = new GpuOps(this.gpu, tape, this.arena, encoder);
+    const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
     const live = new Map<string, GTensor>();
     const loss = forward(this.cfg, (n) => this.W.get(n)!, op, idx, hasTarget ? targets : null, (id, x) => (live.set(id, x), x));
     if (withGrad && loss) {
       op.seed(loss);
       tape.backward();
+      // A stage or weight that did not affect the loss still has a (zero) gradient in the arena.
+      for (const x of [...live.values(), ...this.W.values()]) if (x.requiresGrad) op.g(x);
     }
     const temps = op.finish();
     const used = this.arena.used;
@@ -740,15 +759,34 @@ export class GpuModel {
     device.queue.submit([clear.finish(), encoder.finish()]);
     const t1 = performance.now();
     await this.staging.mapAsync(GPUMapMode.READ, 0, used);
-    const host = new Float32Array(this.staging.getMappedRange(0, used).slice(0));
+    const t2 = performance.now();
+    const mapped = this.staging.getMappedRange(0, used);
+
+    // Views of every tensor over `host`, the read-back's floats.
+    const result = (host: Float32Array): TraceResult => {
+      const at = (t: GTensor) => view(t, host, 0);
+      const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
+      if (withGrad) for (const [n, w] of this.W) weightGrads.set(n, { data: at(w.grad!).data, shape: w.shape });
+      return {
+        tokens: idx, targets, weightGrads, loss: loss ? at(loss).data[0] : null,
+        stages: [...live].map(([id, x]) => ({ id, output: at(x), grad: withGrad && x.requiresGrad ? at(x.grad!).data : null })),
+      };
+    };
+    let out: TraceResult & { frame?: ArrayBuffer };
+    if (frame) {
+      // The header needs only offsets (each view's byteOffset is its place in the arena) and the
+      // loss, so it is written before the copy, and the copy goes straight into the frame.
+      const header = traceHeader(result(new Float32Array(mapped)), frame.meta, frame.step, frame.text(idx), frame.extra,
+                                 (a) => a.byteOffset);
+      const { buf, data } = frameAround(header, used);
+      data.set(new Uint8Array(mapped));
+      out = { ...result(new Float32Array(buf, data.byteOffset, used / F)), frame: buf };
+    } else {
+      out = result(new Float32Array(mapped.slice(0)));
+    }
     this.staging.unmap();
     for (const b of temps) b.destroy();
-    this.timings = { encode: t1 - t0, gpu: performance.now() - t1, dispatches: op.dispatches };
-
-    const grad = (t: GTensor) => (t.grad ? view(t.grad, host, 0).data : new Float32Array(t.length));
-    const stages = [...live].map(([id, x]) => ({ id, output: view(x, host, 0), grad: withGrad && x.requiresGrad ? grad(x) : null }));
-    const weightGrads = new Map<string, { data: Float32Array; shape: number[] }>();
-    if (withGrad) for (const [n, w] of this.W) weightGrads.set(n, { data: grad(w), shape: w.shape });
-    return { tokens: idx, targets, stages, loss: loss ? view(loss, host, 0).data[0] : null, weightGrads };
+    this.timings = { encode: t1 - t0, wait: t2 - t1, copy: performance.now() - t2, dispatches: op.dispatches, bytes: used };
+    return out;
   }
 }

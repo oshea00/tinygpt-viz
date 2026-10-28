@@ -126,10 +126,17 @@ export class LocalModel {
     }
     const tok = this.assets.tokenizer;
     const ids = tok.encode(prompt);
-    const t = await this.trace(ids.length ? ids : [0], { withGrad, targetIndex });
-    this.emit(encodeTrace(t, (id) => this.stageMeta.get(id)!, this.step, t.tokens.map((i) => tok.tokenText(i)), {
-      prompt, reason: "run", weightsVersion: this.step, interventions: [], ...(tag ? { tag } : {}),
-    }));
+    const spec = {
+      meta: (id: string) => this.stageMeta.get(id)!, step: this.step, text: (t: number[]) => t.map((i) => tok.tokenText(i)),
+      extra: { prompt, reason: "run", weightsVersion: this.step, interventions: [], ...(tag ? { tag } : {}) },
+    };
+    const opts = { withGrad, targetIndex };
+    if (this.gpuModel) {
+      this.emit((await this.gpuModel.trace(ids.length ? ids : [0], opts, spec)).frame!);
+    } else {
+      const t = trace(this.cfg, this.W, ids.length ? ids : [0], opts);
+      this.emit(encodeTrace(t, spec.meta, spec.step, spec.text(t.tokens), spec.extra));
+    }
   }
 
   /** The logit lens (core/lens.py): every residual snapshot through ln_f and the unembedding. */
