@@ -7,7 +7,7 @@ vocabulary (100-token context), seeing every number at every stage, and train it
 instructors writing lessons. In the app, the **help** button explains the open tab, and each panel's **?** explains that panel.
 
 ## Walkthrough
-[Walkthrough Video - Inside the Network](https://github.com/user-attachments/assets/b6ced450-0dcd-420e-9810-ce8b91ec759f)
+[Walkthrough Video - Inside the Network](https://github.com/user-attachments/assets/7179244e-de67-4ddc-81fe-318dc4194406)
 
 Features: an instrumented core with a tracer that records every stage and its gradient, a
 pipeline map with a stepper and tensor inspector, attention views, generation with a KV cache,
