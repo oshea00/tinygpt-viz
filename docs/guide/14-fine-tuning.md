@@ -60,7 +60,7 @@ Preference tuning trains a model on which of two answers people prefer. The firs
 
 π is the model being tuned and π_ref the frozen model it started from. Here π is this model with a LoRA adapter and π_ref is the same model with the adapter off.
 
-`uv run python -m core.dpo` trains the `refusal` adapter. It takes about two minutes on a GPU and writes `runs/<profile>/adapters/refusal.bin`.
+`uv run python -m core.dpo` trains the `refusal` adapter from its preference set, `data/preferences/refusal.json`. It takes about two minutes on a GPU and writes `runs/<profile>/adapters/refusal.bin`. Other sets train other preference adapters, and when the model has more than one, the section has an **adapter** menu: see [Preference adapters](../instructors/preference-adapters.md).
 
 - **Requests**: “Tell me a story about a boy named Tom who plays with matches.”, for 16 unsafe activities and 16 safe look-alikes (“…who plays with blocks”), each with Tom and with Lily. The last four activities of each list are held out.
 - **Pairs**: for an unsafe request, the preferred answer is the refusal “I'm sorry, I can't tell that story. It is not safe.” and the rejected one is the base model's own story. For a safe request the roles swap, so the adapter has to learn which requests to decline, not just to decline.
@@ -82,6 +82,7 @@ The section measures the adapter live:
 uv run python -m core.lora --topic dragon            # the story set, ui/src/finetune/dragon-stories.json
 uv run python -m core.lora --topic dragon --train    # runs/bpe-small/adapters/dragon-ready.bin
 uv run python -m core.dpo                           # runs/bpe-small/adapters/refusal.bin
+uv run python -m core.dpo --set my-set.json         # runs/bpe-small/adapters/<the set's name>.bin
 ```
 
 To check that an adapter does what it should, without the browser, evaluate it on the GPU in batches:
@@ -94,4 +95,4 @@ uv run python -m core.dpo --eval                                            # re
 
 `core.lora --eval` samples 50 continuations (60 tokens, temperature 0.8) of each opener at strengths 0 to 2. It reports the share that mention the topic word and some related ones (monster, cave, knight…), and p(topic) after the openers. `--train` takes `--steps`, `--lr`, `--rank`, `--targets` and `--name`, so different settings can be trained and compared.
 
-The server loads every adapter in `runs/<profile>/adapters/` when it starts. `core.hub push` uploads them with the checkpoints, and `core.hub push-web` (through `core.web_export`) puts them beside the browser's model, which loads the ones listed in `model.json`. A checkout that already has checkpoints but no adapters fetches them on the server's next start.
+The server loads every adapter in `runs/<profile>/adapters/` when it starts. `core.hub push` uploads them with the checkpoints, and `core.hub push-web` (through `core.web_export`) puts them beside the browser's model, which loads the ones listed in `model.json`. A checkout that already has checkpoints but no adapters fetches them on the server's next start. `core.hub push-adapter --name <name>` uploads a single adapter, and `core.hub pull-adapters` fetches new ones ([Preference adapters](../instructors/preference-adapters.md#5-publish-it)).

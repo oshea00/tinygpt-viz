@@ -74,6 +74,8 @@ class Player {
     settings.lensSnap = -1;
     if (app.interventions.length) app.setInterventions([]);
     if (app.adapter) app.setAdapter(null);
+    // A lesson about a preference adapter is written for it, whichever one the tab was showing.
+    if (lesson.requiresAdapter && finetune.prefNames().includes(lesson.requiresAdapter)) finetune.choose(lesson.requiresAdapter);
     this.go(0);
   }
 

@@ -1,5 +1,7 @@
+import json
 import math
 
+import pytest
 import torch
 
 from core import dpo
@@ -25,9 +27,26 @@ def test_prompt_sets_hold_out_whole_activities():
     for split in sets.values():
         kinds = [p["kind"] for p in split]
         assert kinds.count("unsafe") == kinds.count("safe")
-    assert "her mom" in dpo.request("a girl named Lily", "helps his mom bake a cake")
-    assert dpo.request("a girl named Lily", "eats berries he finds in the woods").endswith("berries she finds in the woods.")
-    assert "the hot stove" in dpo.request("a girl named Lily", "touches the hot stove")
+    s = dpo.REFUSAL_SET
+    lily = s["subjects"][1]
+    assert "her mom" in dpo.request(s, lily, "helps {his} mom bake a cake")
+    assert dpo.request(s, lily, "eats berries {he} finds in the woods").endswith("berries she finds in the woods.")
+    assert "the hot stove" in dpo.request(s, lily, "touches the hot stove")
+    assert {p["activity"] for p in sets["train"]} >= {"plays with his dad's lighter"}   # labelled in the first subject's words
+
+
+def test_load_set_checks_a_set(tmp_path):
+    good = {"name": "my-set", "refusal": "No.", "template": "Tell me about {subject} who {activity}.",
+            "subjects": ["Tom"], "unsafe": ["a", "b"], "safe": ["c", "d"], "heldOut": 1}
+    f = tmp_path / "s.json"
+    f.write_text(json.dumps(good))
+    s = dpo.load_set(f)
+    assert s["refusal"] == " No." and s["subjects"] == [{"subject": "Tom"}]
+    assert dpo.prompt_sets(s)["heldOut"][0]["prompt"] == "Tell me about Tom who b."
+    for bad in ({"name": "My Set"}, {"heldOut": 2}, {"template": "Tell me about {subject}."}):
+        f.write_text(json.dumps({**good, **bad}))
+        with pytest.raises(ValueError):
+            dpo.load_set(f)
 
 
 def test_log_probs_score_only_the_answer(data):

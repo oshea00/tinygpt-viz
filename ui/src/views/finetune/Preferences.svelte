@@ -1,9 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
-  // Preference tuning with DPO: an adapter trained offline (core/dpo.py) to decline
-  // requests for stories about unsafe play. Everything here is computed live from its weights: the
+  // Preference tuning with DPO: an adapter trained offline (core/dpo.py) to decline some requests and
+  // answer similar ones ("refusal", which ships with the model, declines stories about unsafe play;
+  // more can be added, see docs/instructors/preference-adapters.md). Everything here is computed live from its weights: the
   // pairs' scores, the held-out answers, and the direction in the stream that carries the refusal.
-  import { finetune, REFUSAL } from "../../finetune/store.svelte";
+  import { finetune } from "../../finetune/store.svelte";
   import { direction, layer } from "../../lib/concepts";
   import { refuses } from "../../lib/lora";
   import { glossKey } from "../../help/glossary";
@@ -11,7 +12,7 @@
   import Formula from "../inspector/Formula.svelte";
   import Curve from "./Curve.svelte";
 
-  const h = $derived(finetune.adapters[REFUSAL]);
+  const h = $derived(finetune.adapters[finetune.pref]);
   const info = $derived(h?.info ?? {});
   const refusal: string = $derived(info.refusal ?? " I'm sorry, I can't tell that story.");
   const pairs = $derived(finetune.pairs());
@@ -19,7 +20,9 @@
   const train = $derived(pairs.filter((p) => p.split === "train"));
   const held = $derived(finetune.heldOut());
   let scale = $state(1);
-  const on = $derived(app.adapter?.name === REFUSAL);
+  const on = $derived(app.adapter?.name === finetune.pref);
+  const names = $derived(finetune.prefNames());
+  const sample = (kind: string) => train.find((p) => p.kind === kind)?.prompt ?? "";
   const stale = $derived(h && app.status && h.baseStep !== app.status.step);
 
   const curve = $derived((info.curve ?? []) as { step: number; loss: number; margin: number; accuracy: number }[]);
@@ -101,15 +104,23 @@
   is the same model with a LoRA adapter: “before” and “after” are the adapter off and on.
 </p>
 
+{#if names.length > 1}
+  <div class="row">
+    <label><span class="lbl">adapter</span> <select value={finetune.pref} onchange={(e) => finetune.choose(e.currentTarget.value)}>
+      {#each names as n}<option value={n}>{n}</option>{/each}</select></label>
+    {#if info.description}<span class="muted">{info.description}</span>{/if}
+  </div>
+{/if}
+
 {#if !h}
-  <p>No preference adapter is loaded. It is trained offline with <span class="mono">uv run python -m core.dpo</span> (it writes
-    <span class="mono">runs/&lt;profile&gt;/adapters/refusal.bin</span>) and ships with the model.</p>
+  <p>No preference adapter is loaded. They are trained offline with <span class="mono">uv run python -m core.dpo</span> (which writes
+    <span class="mono">runs/&lt;profile&gt;/adapters/refusal.bin</span>), and the refusal adapter ships with the model.</p>
 {:else}
   <div class="box">
     <b>The preferences</b>
     <ul class="prefs">
-      <li>{train.length} requests to train on: {train.filter((p) => p.kind === "unsafe").length} ask for a story about unsafe play
-        (“…who plays with matches”), and {train.filter((p) => p.kind === "safe").length} about similar safe play (“…who plays with blocks”).</li>
+      <li>{train.length} requests to train on: {train.filter((p) => p.kind === "unsafe").length} it should refuse, such as
+        “{sample("unsafe")}”, and {train.filter((p) => p.kind === "safe").length} similar ones it should answer, such as “{sample("safe")}”.</li>
       <li>Every request has two answers, a preferred one and a rejected one:
         <ul>
           <li>unsafe request: preferred, the refusal <span class="mono">“{refusal.trim()}”</span>; rejected, the base model's own story;</li>
@@ -135,9 +146,9 @@
   </div>
 
   <div class="row">
-    <button class:primary={!on} onclick={() => app.setAdapter(on ? null : { name: REFUSAL, scale })}>{on ? "switch off" : "switch on everywhere"}</button>
+    <button class:primary={!on} onclick={() => app.setAdapter(on ? null : { name: finetune.pref, scale })}>{on ? "switch off" : "switch on everywhere"}</button>
     <label><span class="lbl">strength</span> <input type="range" min="0" max="2" step="0.1" bind:value={scale}
-      onchange={() => on && app.setAdapter({ name: REFUSAL, scale })} /> <span class="mono">{scale.toFixed(1)}</span></label>
+      onchange={() => on && app.setAdapter({ name: finetune.pref, scale })} /> <span class="mono">{scale.toFixed(1)}</span></label>
   </div>
   {#if stale}<p class="warn">Trained on the step-{h.baseStep} weights; the model is now at step {app.status?.step}.</p>{/if}
 

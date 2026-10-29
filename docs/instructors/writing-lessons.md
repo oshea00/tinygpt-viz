@@ -38,7 +38,7 @@ A lesson is a JSON file in `ui/src/lessons/`. It needs no code: the app picks up
 | `order` | Position in the lessons menu (1, 2, 3, …). |
 | `title`, `summary` | Shown in the menu. |
 | `requiresTraining` | Optional: `true` for a lesson that trains the model (the training step tab, replay). Without `--train` on the server it is listed but disabled. |
-| `requiresAdapter` | Optional: the name of an adapter that ships with the model, such as `"refusal"` (see [Fine-tuning](../guide/14-fine-tuning.md)). Without it the lesson is listed but disabled. |
+| `requiresAdapter` | Optional: the name of an adapter that ships with the model, such as `"refusal"` (see [Fine-tuning](../guide/14-fine-tuning.md), and [Preference adapters](preference-adapters.md) to train your own). Without it the lesson is listed but disabled. When it names a preference adapter, the fine-tune tab's preference section shows that adapter while the lesson runs. |
 | `steps` | The steps, in order. |
 
 ## A step

@@ -33,6 +33,7 @@ For the papers behind the views, see the [bibliography](bibliography.md), also u
 | --- | --- |
 | [Writing lessons](instructors/writing-lessons.md) | The lesson file format, answer checks, and finding token positions |
 | [Prompt sets for the concept explorer](instructors/prompt-sets.md) | Defining categories and templates, and avoiding misleading results |
+| [Preference adapters for the fine-tune tab](instructors/preference-adapters.md) | Writing a preference set, training a DPO adapter on it, testing it in the app, and publishing it |
 
 ## For the brave: training and publishing your own models
 

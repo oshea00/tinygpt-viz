@@ -6,14 +6,18 @@ adapters in runs/<profile>/adapters/, and the profile's val.bin, so a download l
     uv run python -m core.hub push --config all        # on the machine that trained (hf auth login first)
     uv run python -m core.hub pull --config bpe-small  # elsewhere; the server also does this on start
     uv run python -m core.hub push-web --config bpe-small   # the browser's model (core/web_export.py), for GitHub Pages
+    uv run python -m core.hub push-adapter --config bpe-small --name refusal   # one adapter, for the server and the browser
+    uv run python -m core.hub pull-adapters --config bpe-small  # every adapter in the repo, over the local ones
 
 The browser's files go under web/<profile>/ in the same repo; the Pages build reads them from
 https://huggingface.co/<repo>/resolve/main/web/<profile>/.
 """
 
 import argparse
+import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -93,6 +97,37 @@ def push_web(cfg: ModelConfig, repo: str = HF_REPO) -> None:
     print(f"served at https://huggingface.co/{repo}/resolve/main/web/{cfg.name}/")
 
 
+def push_adapter(cfg: ModelConfig, name: str, repo: str = HF_REPO) -> None:
+    """One adapter, without the checkpoints: to runs/<profile>/adapters/ for servers, and, if the repo
+    has the browser's model, to web/<profile>/adapters/ with model.json listing it."""
+    from huggingface_hub import HfApi, hf_hub_download
+    from huggingface_hub.errors import EntryNotFoundError
+
+    src = RUNS_DIR / cfg.name / "adapters" / f"{name}.bin"
+    if not src.exists():
+        raise SystemExit(f"error: no {src} (core/dpo.py or core/lora.py --train writes it)")
+    api = HfApi()
+    api.create_repo(repo, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        staging = Path(tmp)
+        (staging / _rel(src)).parent.mkdir(parents=True)
+        (staging / _rel(src)).write_bytes(src.read_bytes())
+        web = staging / "web" / cfg.name
+        try:
+            meta = json.loads(Path(hf_hub_download(repo, f"web/{cfg.name}/model.json")).read_text())
+        except EntryNotFoundError:
+            meta = None
+            print(f"{repo} has no browser model for {cfg.name} (push-web): uploading for servers only")
+        if meta is not None:
+            meta["adapters"] = sorted({*meta.get("adapters", []), name})
+            meta["exported"] = datetime.now(timezone.utc).isoformat(timespec="seconds")   # browsers re-fetch on a new key
+            (web / "adapters").mkdir(parents=True)
+            (web / "adapters" / src.name).write_bytes(src.read_bytes())
+            (web / "model.json").write_text(json.dumps(meta))
+        print(f"uploading the {name} adapter of {cfg.name} to {repo}")
+        api.upload_folder(repo_id=repo, folder_path=staging, commit_message=f"{cfg.name}: the {name} adapter")
+
+
 def pull(cfg: ModelConfig, repo: str = HF_REPO) -> bool:
     """Download a profile's checkpoints and val.bin; False (with a warning) if that isn't possible."""
     from huggingface_hub import snapshot_download
@@ -121,11 +156,16 @@ def pull_adapters(cfg: ModelConfig, repo: str = HF_REPO) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("action", choices=["push", "pull", "push-web"])
+    p.add_argument("action", choices=["push", "pull", "push-web", "push-adapter", "pull-adapters"])
     p.add_argument("--config", required=True, choices=[*PROFILES, "all"],
                    help="a profile, or all: every profile with local checkpoints (push) or every profile (pull)")
     p.add_argument("--repo", default=HF_REPO)
+    p.add_argument("--name", help="push-adapter: the adapter, runs/<profile>/adapters/<name>.bin")
     args = p.parse_args()
+    if args.action == "push-adapter":
+        if not args.name or args.config == "all":
+            raise SystemExit("error: push-adapter needs --name and a single --config")
+        return push_adapter(profile(args.config), args.name, args.repo)
     if args.config != "all":
         cfgs = [profile(args.config)]
     elif args.action in ("push", "push-web"):
@@ -133,7 +173,7 @@ def main() -> None:
     else:
         cfgs = list(PROFILES.values())
     for cfg in cfgs:
-        {"push": push, "pull": pull, "push-web": push_web}[args.action](cfg, args.repo)
+        {"push": push, "pull": pull, "push-web": push_web, "pull-adapters": pull_adapters}[args.action](cfg, args.repo)
 
 
 if __name__ == "__main__":

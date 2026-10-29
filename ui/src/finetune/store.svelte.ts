@@ -1,5 +1,6 @@
 // State for the fine-tune tab: low-rank adapters (core/lora.py) trained live on a story set, and
-// the refusal adapter trained offline with DPO (core/dpo.py), with what each section shows.
+// the preference adapters trained offline with DPO (core/dpo.py; "refusal" ships with the model),
+// with what each section shows.
 
 import type { BinaryMsg } from "../bridge";
 import { app } from "../state/app.svelte";
@@ -10,11 +11,12 @@ import dragon from "./dragon-stories.json";
 export type FinetuneSection = "lora" | "preferences";
 export const LIVE = "dragon";              // the adapter the LoRA section trains
 export const READY = "dragon-ready";       // the same, trained in advance (core/lora.py --train)
-export const REFUSAL = "refusal";
+export const REFUSAL = "refusal";         // the preference adapter the model ships with, and lesson 15's
 export interface Pair { prompt: string; chosen: string; rejected: string; kind: "unsafe" | "safe"; activity: string; split: "train" | "heldOut" }
 
 class FinetuneStore {
   section = $state<FinetuneSection>("lora");
+  pref = $state(REFUSAL);                  // the preference adapter the preferences section shows
   adapters = $state.raw<Record<string, AdapterHeader>>({});
   tensors = $state.raw<Record<string, Record<string, Tensor>>>({});
   private asked = new Set<string>();
@@ -47,6 +49,25 @@ class FinetuneStore {
   direction = $state.raw<Capture | null>(null);
   directionPending = $state(false);
   steered = $state<{ text?: string; label?: string }>({});
+
+  /** The preference adapters (core/dpo.py) the model has, "refusal" first. */
+  prefNames(): string[] {
+    return Object.values(this.adapters).filter((a) => a.info.kind === "dpo").map((a) => a.name)
+      .sort((a, b) => +(b === REFUSAL) - +(a === REFUSAL) || a.localeCompare(b));
+  }
+
+  /** Show another preference adapter: what was measured with the last one no longer applies. */
+  choose(name: string): void {
+    if (name === this.pref) return;
+    if (app.adapter?.name === this.pref) app.setAdapter(null);
+    this.pref = name;
+    this.scores = null;
+    this.tests = {};
+    this.firstToken = null;
+    this.direction = null;
+    this.steered = {};
+    this.ownAnswers = {};
+  }
 
   storyList(): string[] {
     return this.stories.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
@@ -84,22 +105,22 @@ class FinetuneStore {
     app.send({ type: "generateWith", prompt, n, temperature, seed, tag: "ftAdapter", adapter: { name, scale } });
   }
 
-  /** A request of the learner's own, answered greedily with the refusal adapter off and on. */
+  /** A request of the learner's own, answered greedily with the preference adapter off and on. */
   ask(prompt: string, scale: number): void {
     this.ownAnswers = {};
     app.send({ type: "generateWith", prompt, n: 16, temperature: 0, tag: "ftAskBase", adapter: null });
-    app.send({ type: "generateWith", prompt, n: 16, temperature: 0, tag: "ftAskTuned", adapter: { name: REFUSAL, scale } });
+    app.send({ type: "generateWith", prompt, n: 16, temperature: 0, tag: "ftAskTuned", adapter: { name: this.pref, scale } });
   }
 
   pairs(): Pair[] {
-    return (this.adapters[REFUSAL]?.info.pairs as Pair[] | undefined) ?? [];
+    return (this.adapters[this.pref]?.info.pairs as Pair[] | undefined) ?? [];
   }
 
   score(scale: number): void {
-    const h = this.adapters[REFUSAL];
+    const h = this.adapters[this.pref];
     if (!h) return;
     this.scoring = true;
-    app.send({ type: "scorePairs", name: REFUSAL, scale, beta: h.info.beta ?? 0.5,
+    app.send({ type: "scorePairs", name: this.pref, scale, beta: h.info.beta ?? 0.5,
                pairs: this.pairs().map(({ prompt, chosen, rejected }) => ({ prompt, chosen, rejected })) });
   }
 
@@ -113,12 +134,12 @@ class FinetuneStore {
     this.firstToken = null;
     // The refusal's first token (" I" of " I'm sorry"), scored as a one-token answer: scorePairs gives its
     // log-probability with the adapter (policy) and without (reference).
-    const first = " " + (this.adapters[REFUSAL]?.info.refusal ?? " I'm").trim().split(/[\s']/)[0];
-    app.send({ type: "scorePairs", name: REFUSAL, scale, beta: 1, tag: "ftFirst",
+    const first = " " + (this.adapters[this.pref]?.info.refusal ?? " I'm").trim().split(/[\s']/)[0];
+    app.send({ type: "scorePairs", name: this.pref, scale, beta: 1, tag: "ftFirst",
                pairs: this.heldOut().map((p) => ({ prompt: p.prompt, chosen: first, rejected: first })) });
     this.heldOut().forEach((p, i) => {
       app.send({ type: "generateWith", prompt: p.prompt, n: 14, temperature: 0, tag: `ftTest:${i}:base`, adapter: null });
-      app.send({ type: "generateWith", prompt: p.prompt, n: 14, temperature: 0, tag: `ftTest:${i}:tuned`, adapter: { name: REFUSAL, scale } });
+      app.send({ type: "generateWith", prompt: p.prompt, n: 14, temperature: 0, tag: `ftTest:${i}:tuned`, adapter: { name: this.pref, scale } });
     });
   }
 
@@ -128,14 +149,14 @@ class FinetuneStore {
     const prompts = this.pairs().filter((p) => p.split === "train").map((p) => ({
       text: p.prompt, targets: [{ start: p.prompt.length - 1, end: p.prompt.length, word: p.activity, category: p.kind }],
     }));
-    app.send({ type: "capture", prompts, pool: "last", model: "current", tag: "ftDirection", adapter: { name: REFUSAL, scale } });
+    app.send({ type: "capture", prompts, pool: "last", model: "current", tag: "ftDirection", adapter: { name: this.pref, scale } });
   }
 
   /** A request continued with a steering intervention, on the tuned model or the base one. */
   steer(prompt: string, interventions: Intervention[], tuned: boolean, scale: number, label: string): void {
     this.steered = { label };
     app.send({ type: "generateWith", prompt, n: 14, temperature: 0, interventions, tag: "ftSteer",
-               adapter: tuned ? { name: REFUSAL, scale } : null });
+               adapter: tuned ? { name: this.pref, scale } : null });
   }
 
   handle(m: JsonMsg | BinaryMsg): boolean {
@@ -145,6 +166,7 @@ class FinetuneStore {
         this.tensors = {};
         this.asked.clear();
         if (app.adapter && !this.adapters[app.adapter.name]) app.adapter = null;
+        if (!this.adapters[this.pref]) this.pref = this.prefNames()[0] ?? REFUSAL;
         return false;
       case "adapter": {
         const { tensors, ...header } = m.adapter;
