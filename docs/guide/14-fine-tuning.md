@@ -15,7 +15,7 @@ y = x W + b + (x A)\,B \cdot s
 
 Only A and B train. B starts at zero, so a new adapter is an exact no-op, and training starts from the model as it was. Their product ΔW = A B is the change the adapter makes to W. It is a full matrix, but its rank is at most r: r (d_in + d_out) numbers describe it, instead of d_in × d_out. With r = 4 on the query and value projections of all six layers, that is 24,576 numbers, 0.42% of the model. The strength s scales B: 0 is the base model, 1 the trained adapter.
 
-An adapter lives beside the model, not in it. Checkpoints, replay and the training panel never see it. Training one needs neither `--train` nor `?train=1`, because the model's own weights stay as they were. Every command chooses its adapter, the way interventions work, so on a shared class server one learner's adapter never changes what another sees. On a shared server, adapters are stored by name: a second learner who trains `dragon` replaces the first one's.
+An adapter lives beside the model, not in it. Checkpoints, replay and the training panel never see it. Training one needs neither `--train` nor `?train=1`, because the model's own weights stay as they were. Every command chooses its adapter, the way interventions work, so on a shared class server one learner's adapter never changes what another sees. On a server, though, adapters are stored by name and shared by every page connected to it: a second learner, or a second tab of your own, that trains `dragon` replaces the first one's, and the other page's views use the new one from their next run. Only one adapter trains at a time. With the in-browser backend, each tab runs its own model and keeps its own adapters.
 
 **switch on everywhere** runs every view with the adapter. The header shows **adapter … on**; click it to switch the adapter off. While it is on:
 
@@ -36,7 +36,7 @@ The training set is 64 TinyStories stories that mention “dragon” at least th
 - **rank r**, **steps** and **learning rate**. The defaults (4, 150, 0.003) take about half a minute on a GPU. Training uses AdamW on A and B only, with batches of 8 windows of up to 100 tokens.
 - **train the adapter** streams progress. The left chart is the loss: each step's batch (grey), the loss on the stories (blue), and the loss on 16 ordinary validation stories (orange). The right chart is the mean probability of the topic word after eight neutral openers that end where a noun goes, such as “Once upon a time, there was a”. For dragons it rises from about 0.2% to about 20%, while the ordinary stories' loss rises a little: the price of the tilt.
 
-The browser's CPU, without WebGPU, takes many minutes to train. `dragon-ready`, trained in advance with the same settings (`uv run python -m core.lora --topic dragon --train`), ships with the model. If you didn't train one here, the tab uses it.
+The browser's CPU, without WebGPU, takes about 12 seconds a step, so the default 150 steps take about half an hour; the tab says so before you start. `dragon-ready`, trained in advance with the same settings (`uv run python -m core.lora --topic dragon --train`), ships with the model. If you didn't train one here, the tab uses it.
 
 **Generate with and without it** continues a prompt twice, with the same random draws, so where the texts differ, the adapter is the cause. Mentions of the topic word are highlighted and counted.
 

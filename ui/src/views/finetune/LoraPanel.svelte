@@ -23,6 +23,7 @@
   const last = $derived(finetune.curve.filter((p) => p.pTopic !== undefined).at(-1));
   const perStep = $derived(done > 0 ? (performance.now() - finetune.startedAt) / done : 0);
   const slowCpu = $derived(app.status?.device === "browser CPU");
+  const CPU_STEP_SECONDS = 12.5;   // a step of 8 windows on the CPU engine, with its share of the measurements: 150 took 31 minutes on a desktop CPU
 
   // The adapter to use and inspect: the one trained here, else the one trained in advance.
   const available = $derived([LIVE, READY].filter((n) => finetune.adapters[n]));
@@ -116,8 +117,10 @@
     {/if}
   </div>
   {#if slowCpu}
-    <p class="warn">This page runs the model on the CPU (no WebGPU), where training takes many minutes. The adapter trained in
-      advance, <span class="mono">{READY}</span>, is the same training with these settings: pick it below to skip ahead.</p>
+    <p class="warn">☕ This page runs the model on the CPU (this browser has no WebGPU). Each training step takes about 12 seconds on a
+      desktop CPU, so {finetune.steps} steps take about <b>{Math.round((finetune.steps * CPU_STEP_SECONDS) / 60)} minutes</b>, time for a
+      coffee. The page stays usable meanwhile, and you can stop at any point. Or skip the wait: <span class="mono">{READY}</span>, trained in
+      advance with these settings, is ready to pick below.</p>
   {/if}
 </div>
 
