@@ -11,3 +11,4 @@ html, body { height: auto; }
 #guide table { border-collapse: collapse; }
 #guide th, #guide td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 #guide blockquote { margin: 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+#guide .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }

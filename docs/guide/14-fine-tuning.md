@@ -9,7 +9,7 @@ The model learned from 270,000 stories. **Fine-tuning** trains it a little more,
 
 [LoRA](https://arxiv.org/abs/2106.09685) (Hu et al., 2021) leaves a weight W frozen and adds two thin matrices beside it: A, d_in × r, and B, r × d_out, for a small **rank** r. The stage computes
 
-```latex
+```math
 y = x W + b + (x A)\,B \cdot s
 ```
 
@@ -54,7 +54,7 @@ The browser's CPU, without WebGPU, takes about 12 seconds a step, so the default
 
 Preference tuning trains a model on which of two answers people prefer. The first recipe, [RLHF](https://arxiv.org/abs/2203.02155) (reinforcement learning from human feedback), fits a reward model to those choices, then optimises the model against it with reinforcement learning (PPO). [DPO](https://arxiv.org/abs/2305.18290), direct preference optimisation, is now the common choice: it reaches the same optimum with an ordinary loss, and no reward model or reinforcement learning. For a request x with a preferred answer y_w and a rejected one y_l:
 
-```latex
+```math
 \mathcal L = -\log \sigma\Big(\beta\big[\log\tfrac{\pi(y_w|x)}{\pi_{\mathrm{ref}}(y_w|x)} - \log\tfrac{\pi(y_l|x)}{\pi_{\mathrm{ref}}(y_l|x)}\big]\Big)
 ```
 
