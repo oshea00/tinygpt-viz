@@ -5,19 +5,19 @@
  "summary": "A shared workspace every layer adds to, and when the prediction forms.",
  "steps": [
   {
-   "text": "Every sublayer **reads** the residual stream and **adds** to it; nothing overwrites it. This view follows one position's vector through every snapshot.",
+   "text": "The pipeline map on the left draws the [[residual stream]]: the vertical line with ⊕ nodes is the vector each position carries. Each block's attention and MLP branch off it, compute, and add their result back at a ⊕. Every sublayer **reads** the stream and **adds** to it; nothing overwrites it. This view follows one position's vector (the last token, “She”) through every [[snapshot]]: each row is the stream at one point, from the embedding x₀ down to after the last MLP, and each column is one of its dimensions.",
    "prompt": "Once upon a time, there was a little girl named Lily. She",
    "tab": "residual",
    "residualMode": "snapshots",
    "position": "last"
   },
   {
-   "text": "Switch to what each sublayer writes: the rows sum to the final vector. The write-size bars show which sublayers made big changes at this position.",
+   "text": "Note that **what each sublayer writes** is now selected above the heatmap. Instead of the stream itself, each row now shows what one sublayer **added** to it (its Δ), with x₀ on top. Added together, the rows give the last snapshot from the previous step. Scroll down to the **Write size at position** bars to see how big each addition is: the thick bar is the size of what the sublayer wrote (‖Δ‖), the thin bar is the size of the stream after adding it (‖x‖). Long thick bars mark the sublayers that changed this position the most.",
    "tab": "residual",
    "residualMode": "writes"
   },
   {
-   "text": "The **logit lens** decodes every snapshot as if it were the last, using the final layer norm and unembedding. Each row is what the stream “would say” so far.",
+   "text": "The **[[logit lens]]** asks what the model would predict if it stopped early. It takes each snapshot and decodes it as if it were the output of the last layer, using the final [[layer norm]] and the [[unembedding|unembedding W_U]], into a guess for the **next token**. Each column is a position in the prompt, and each row is one snapshot, from x₀ at the top to the model's real output at the bottom. A cell shows that row's top guess for the token that comes after the column's word; underlined cells are guesses that match the actual next token, shown in the **actual next** row.",
    "tab": "lens",
    "lensMode": "actual"
   },
