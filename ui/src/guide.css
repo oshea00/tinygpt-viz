@@ -12,3 +12,8 @@ html, body { height: auto; }
 #guide th, #guide td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 #guide blockquote { margin: 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
 #guide .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+#guide .guide-nav { font-size: 13px; margin-bottom: 16px; }
+#guide .guide-nav a { text-decoration: none; }
+#guide .guide-chapters { display: flex; justify-content: space-between; gap: 16px; margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+#guide .guide-chapters a { text-decoration: none; }
+#guide .guide-chapters span:last-child { text-align: right; }
