@@ -52,7 +52,7 @@ One machine: a Python process owns the model on the CPU or GPU and does inferenc
 5. **Bridge.** A local WebSocket. Commands go to the core as JSON; traces and weights come back as binary frames: a JSON header listing stages, shapes and byte offsets, then the float32 data.
 6. **UI (TypeScript, Svelte 5).** Each view is a function of (trace, selection, settings), and the selection is shared: stage, layer, head, position, dimension.
 
-The trace is a flat, ordered list of named stages, each with its output and, when traced with a backward pass, its gradient. The pipeline map, the stepper and the atlas are generated from it rather than hand-coded. Each stage names its inputs and weights, so the inspector can answer "where did this number come from?" for any cell: the input row, the weight column and the dot product that produced it, and for gradients, the chain-rule terms. The message types are defined in `ui/src/types.ts`; the main commands are `run` (a prompt, optionally with gradients, interventions or the KV cache), `train`, `set`, `sample`, `loadCheckpoint`, `lens`, `manualBackward`, `view` (whether traces carry the weights' gradients, which only the atlas's gradient mode shows), and the concept explorer's `capture`, `generateWith`, `occlude` and `neuronTop`.
+The trace is a flat, ordered list of named stages, each with its output and, when traced with a backward pass, its gradient. The pipeline map, the stepper and the atlas are generated from it rather than hand-coded. Each stage names its inputs and weights, so the inspector can answer "where did this number come from?" for any cell: the input row, the weight column and the dot product that produced it, and for gradients, the chain-rule terms. The message types are defined in `ui/src/types.ts`; the main commands are `run` (a prompt, optionally with gradients, interventions or the KV cache), `train`, `set`, `sample`, `loadCheckpoint`, `lens`, `manualBackward`, `view` (whether traces carry the weights' gradients, which only the atlas's gradient mode shows), the concept explorer's `capture`, `generateWith`, `occlude` and `neuronTop`, and the fine-tune tab's `loraTrain`, `loraStop`, `adapterWeights` and `scorePairs`. Commands that run the model take an optional `adapter` (a name and a strength), as they take interventions.
 
 ## The stages
 
@@ -130,6 +130,7 @@ The views share one selection (stage, layer, head, position, dimension, and opti
 | Network atlas | What does the whole network look like at once? | Every weight and activation as one zoomable bitmap |
 | Interventions | What does this part of the model do? | Ablations and edits, compared with the original run |
 | Concept explorer | How does the model represent words? | Similarity, maps, probes, steering, attribution, neurons |
+| Fine-tuning | How do LoRA and preference tuning change a trained model? | A low-rank adapter trained live on a topic; a DPO-tuned adapter that refuses unsafe-play requests; both switchable in every view |
 | Training step | How does one update change the model? | p(correct) before and after; weight, gradient and update side by side |
 | Next token and generation | What comes next, and how does sampling choose? | Top 40 of the distribution, sampling sliders, probability-coloured text |
 
@@ -211,6 +212,13 @@ One colour language across every view: signed values use a diverging blue–whit
 - **Selection is an outline, not a fill**, so it never competes with the data colours.
 - **Accessible:** colour maps that survive colour-blindness, and every value available as a number on hover.
 
+## Fine-tuning
+
+Two kinds of tuning on top of the trained model, both as **low-rank adapters** ([LoRA](https://arxiv.org/abs/2106.09685)): beside a frozen weight W, two thin matrices A (d_in × r) and B (r × d_out) add (x A) B · s to the stage. An adapter is kept outside the model's parameters, so checkpoints, replay and the optimizer never see it, and the base weights never change: neither kind needs `--train`. Commands name the adapter they run with, so on a shared server each learner chooses their own. With one on, the trace gains an `L{l}.{stage}.lora` stage before each stage it adds to, with its own provenance.
+
+- **LoRA, live.** `loraTrain` trains one on a set of stories (64 TinyStories stories about dragons by default), streaming the loss on the stories and on ordinary ones, and p(topic word) after neutral openers. On a GPU it takes about half a minute. Both backends train it; `dragon-ready`, trained in advance, ships for browsers without WebGPU.
+- **Preference tuning with DPO, offline.** `core/dpo.py` trains a refusal adapter with [DPO](https://arxiv.org/abs/2305.18290) (which reaches RLHF's goal without its reward model or reinforcement learning), plus a likelihood term on the preferred answer, on preference pairs: requests for stories about unsafe play (preferred: a refusal) and safe look-alikes (preferred: the model's own story). It ships with the model. The app measures it live: answers to held-out requests, every pair's log-probabilities and implicit reward, and the [refusal direction](https://arxiv.org/abs/2406.11717) in the residual stream, which switches the refusal on and off when added or subtracted.
+
 ## Tech stack and repo layout
 
 | Layer | Choice | Why |
@@ -234,10 +242,10 @@ One colour language across every view: signed values use a diverging blue–whit
 tinygpt-viz/
   core/             # model.py, stages.py, tracer.py, trace_io.py, scheduler.py, server.py, train.py,
                     # data.py, tokenizers.py, sampling.py, kvcache.py, lens.py, interventions.py,
-                    # concepts.py, manual_backward.py, hub.py, preflight.py, config.py
+                    # concepts.py, beliefs.py, lora.py, dpo.py, manual_backward.py, hub.py, preflight.py, config.py
   data/bpe4096/     # tokenizer.json (tracked); train.bin and val.bin (built or downloaded)
-  runs/bpe-small/   # checkpoints
-  ui/src/           # bridge.ts, types.ts, state/, lib/ (maths and drawing), views/, lessons/, concepts/, help/
+  runs/bpe-small/   # checkpoints; adapters/ holds the shipped adapters
+  ui/src/           # bridge.ts, types.ts, state/, lib/ (maths and drawing), views/, lessons/, concepts/, finetune/, help/
   tests/            # pytest suites; ui/src/fixtures/ holds the frames they write for Vitest
   docs/             # the user guide, instructor guides, screenshots
   scripts/          # screenshots.mjs: regenerates docs/images/ with headless Chrome

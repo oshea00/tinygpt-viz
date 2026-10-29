@@ -20,9 +20,10 @@ Start with [Getting started](guide/01-getting-started.md), then open **lessons â
 | [Training](guide/08-training.md) | Live training, checkpoint replay, and one training step up close |
 | [Interventions](guide/09-interventions.md) | Ablating heads and neurons, editing values, before and after |
 | [Concept explorer](guide/10-concepts.md) | How the model represents words: similarity, probes, steering |
-| [Lessons](guide/11-lessons.md) | The thirteen guided lessons |
+| [Lessons](guide/11-lessons.md) | The fifteen guided lessons |
 | [Embeddings](guide/12-embeddings.md) | The token and position tables as maps |
 | [Belief trajectories](guide/13-beliefs.md) | A story's emotional belief, sentence by sentence: probes, geometry, steering and entanglement |
+| [Fine-tuning: LoRA and preference tuning](guide/14-fine-tuning.md) | A low-rank adapter trained on dragon stories, and one preference-tuned to refuse requests about unsafe play |
 
 For the papers behind the views, see the [bibliography](bibliography.md), also under **Bibliography** in the app's **help** panel. For a term, open the glossary from the same panel.
 

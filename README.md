@@ -12,7 +12,7 @@ instructors writing lessons. In the app, the **help** button explains the open t
 Features: an instrumented core with a tracer that records every stage and its gradient, a
 pipeline map with a stepper and tensor inspector, attention views, generation with a KV cache,
 the residual stream and logit lens, a network atlas, interventions, guided lessons, live
-training with checkpoint replay, a manual backward mode, and a concept explorer.
+training with checkpoint replay, a manual backward mode, a concept explorer, and fine-tuning with LoRA and preference tuning (DPO).
 
 ## Run it
 
@@ -72,6 +72,11 @@ the model, and the server's options.
 - **Belief trajectories**: read stories one sentence at a time and track the model's belief about
   their mood (a cloze readout over emotion words), probe it from the residual stream, compare its
   geometry in both spaces, and steer it to see what else moves (after [Stories in Space](https://arxiv.org/abs/2605.12412)).
+- **Fine-tuning**: train a low-rank (LoRA) adapter on stories about dragons and watch the model tilt
+  towards them, with its own weights frozen; and explore an adapter preference-tuned with DPO, the
+  reward-model-free alternative to RLHF, to refuse requests for stories about unsafe play: held-out requests, live pair
+  scores and implicit rewards, and the refusal direction in the residual stream. Either adapter can
+  be switched on for every view.
 - **One training step**: an AdamW update on the prompt itself, with p(correct) before and after,
   and weight, gradient and actual update side by side.
 - **Next token and generation** (right): the full next-token distribution, reshaped live by

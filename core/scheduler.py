@@ -14,13 +14,13 @@ from typing import Callable
 
 import torch
 
-from . import beliefs, concepts
+from . import beliefs, concepts, dpo, lora
 from .kvcache import KVCache, trace_cached
 from .lens import logit_lens
 from .model import GPT
 from .manual_backward import compare as manual_compare
 from .sampling import SampleSettings, sample_next
-from .trace_io import encode_tensors, encode_trace, encode_weights
+from .trace_io import decode_tensors, encode_tensors, encode_trace, encode_weights
 from .tracer import trace
 from .train import Trainer
 
@@ -47,6 +47,9 @@ class ModelWorker(threading.Thread):
         self._points: list[list[float]] = []
         self._last_metrics = 0.0
         self._last_tps = 0.0
+        self.adapters: dict[str, lora.Adapter] = {}   # by name; commands pick one, like interventions
+        self.lora_job: lora.LoraJob | None = None
+        self._load_adapters()
 
     # -- public, thread-safe ------------------------------------------------
 
@@ -62,7 +65,8 @@ class ModelWorker(threading.Thread):
         tok = t.data.tokenizer
         return {"type": "hello", "config": t.model_cfg.__dict__, "vocab": [tok.token_text(i) for i in range(tok.vocab_size)],
                 "params": t.model.num_params(), "paramGroups": t.model.param_groups_count(),
-                "checkpoints": t.checkpoints(), "probe": self.probe, "training": self.training, **self.status()}
+                "checkpoints": t.checkpoints(), "probe": self.probe, "training": self.training,
+                "adapters": [a.header() for a in self.adapters.values()], **self.status()}
 
     def status(self) -> dict:
         t = self.trainer
@@ -73,7 +77,7 @@ class ModelWorker(threading.Thread):
 
     def run(self) -> None:
         while not self.stopping:
-            batch = self._drain(block=not self.playing)
+            batch = self._drain(block=not (self.playing or self.lora_job))
             for cmd in batch:
                 try:
                     self._dispatch(cmd)
@@ -82,6 +86,13 @@ class ModelWorker(threading.Thread):
                     self.emit({"type": "error", "message": f"{cmd.get('type')}: {e}"})
             if self.playing and not self.stopping:
                 self._train_step()
+            if self.lora_job and not self.stopping:
+                try:
+                    self._lora_step()
+                except Exception as e:
+                    traceback.print_exc()
+                    self.lora_job = None
+                    self.emit({"type": "error", "message": f"loraTrain: {e}"})
 
     def _drain(self, block: bool) -> list[dict]:
         cmds = []
@@ -106,15 +117,27 @@ class ModelWorker(threading.Thread):
 
     def _dispatch(self, cmd: dict) -> None:
         kind = cmd["type"]
-        t = self.trainer
         if kind in self.TRAINING_COMMANDS and not self.training:
             raise ValueError("training is off: start the server with --train to train, replay or save")
-        if kind == "run" and cmd.get("incremental") and not cmd.get("interventions") and not cmd.get("tag"):
+        if kind in self.TRAINING_COMMANDS or not cmd.get("adapter"):
+            return self._dispatch_on(cmd)
+        # A command with an adapter runs with it switched on (training commands never do).
+        sel = cmd["adapter"]
+        if sel["name"] not in self.adapters:
+            raise ValueError(f"no adapter named {sel['name']!r}")
+        with self.trainer.model.adapted(self.adapters[sel["name"]].pairs(), float(sel.get("scale", 1.0))):
+            self._dispatch_on(cmd)
+
+    def _dispatch_on(self, cmd: dict) -> None:
+        kind = cmd["type"]
+        t = self.trainer
+        if (kind == "run" and cmd.get("incremental") and not cmd.get("interventions") and not cmd.get("tag")
+                and not cmd.get("adapter")):
             self.send_cached_trace(cmd["prompt"])
         elif kind == "run":
             self.send_trace(cmd["prompt"], with_grad=cmd.get("withGrad", True), reason="run",
                             target_index=cmd.get("targetIndex"), interventions=cmd.get("interventions"),
-                            tag=cmd.get("tag"))
+                            tag=cmd.get("tag"), adapter=cmd.get("adapter"))
         elif kind == "train":
             action = cmd["action"]
             if action == "play":
@@ -162,6 +185,8 @@ class ModelWorker(threading.Thread):
             self.emit({"type": "status", **self.status()})
         elif kind == "manualBackward":
             # Hand-written backward vs autograd, stage by stage, for the prompt's trace.
+            if cmd.get("adapter"):
+                raise ValueError("manual backward has no rule for an adapter's stages: switch the adapter off")
             prompt = cmd.get("prompt", self.probe)
             tr = self.trace_prompt(prompt)
             if not any(st.grad is not None for st in tr.stages):
@@ -227,6 +252,20 @@ class ModelWorker(threading.Thread):
         elif kind == "neuronTop":
             self.emit({"type": "neuronTop", "layer": cmd["layer"], "neuron": cmd["neuron"], "step": t.step_num,
                        "examples": concepts.neuron_top(t.model, t.data.tokenizer, t.data, int(cmd["layer"]), int(cmd["neuron"]))})
+        elif kind == "loraTrain":
+            self._lora_start(cmd)
+        elif kind == "loraStop":
+            if self.lora_job:
+                self._lora_finish()
+        elif kind == "adapterWeights":
+            self._send_adapter(cmd["name"])
+        elif kind == "scorePairs":
+            # Preference pairs scored with an adapter on and off: log-probabilities and implicit rewards.
+            if cmd["name"] not in self.adapters:
+                raise ValueError(f"no adapter named {cmd['name']!r}")
+            r = dpo.score(t.model, t.data.tokenizer, self.adapters[cmd["name"]].pairs(), float(cmd.get("scale", 1.0)),
+                           cmd["pairs"], float(cmd.get("beta", 0.5)))
+            self.emit({"type": "pairScores", "name": cmd["name"], "scale": float(cmd.get("scale", 1.0)), "tag": cmd.get("tag"), **r})
         elif kind == "save":
             t.save_checkpoint()
             self.emit({"type": "status", **self.status()})
@@ -253,6 +292,54 @@ class ModelWorker(threading.Thread):
             self.send_trace(self.probe, reason="probe")
         if s % self.sample_every == 0:
             self.emit({"type": "sample", "step": s, "text": t.sample(self.probe, 200), "auto": True})
+
+    # -- adapters (core/lora.py) --------------------------------------------
+
+    def _load_adapters(self) -> None:
+        """The adapters shipped with the model (core/dpo.py writes one), from runs/<profile>/adapters/."""
+        for path in sorted((self.trainer.run_dir / "adapters").glob("*.bin")):
+            h, w = decode_tensors(path.read_bytes(), "weights")
+            self.adapters[h["name"]] = lora.from_weights(h["name"], w, h, self.trainer.device)
+
+    def _lora_start(self, cmd: dict) -> None:
+        t = self.trainer
+        tok = t.data.tokenizer
+        name = cmd.get("name", "lora")
+        ad = lora.new_adapter(t.model, name, cmd.get("targets", lora.DEFAULT_TARGETS), int(cmd.get("rank", lora.DEFAULT_RANK)),
+                              int(cmd.get("seed", 0)), t.step_num)
+        held_out = cmd.get("heldOut") or beliefs.story_set(tok, t.data.splits["val"], 16)
+        self.lora_job = lora.LoraJob(t.model, tok, ad, cmd["texts"], held_out, cmd.get("topic", "dragon"),
+                                     int(cmd.get("steps", 150)), float(cmd.get("lr", 3e-3)), int(cmd.get("batch", 8)),
+                                     seed=int(cmd.get("seed", 0)))
+        self.adapters[name] = ad
+        self.emit({"type": "loraProgress", "name": name, "steps": self.lora_job.steps, "running": True,
+                   "points": [self.lora_job.start()]})
+        self._send_adapter(name)
+
+    def _lora_step(self) -> None:
+        job = self.lora_job
+        assert job is not None
+        point = job.step()
+        name = job.adapter.name
+        self.emit({"type": "loraProgress", "name": name, "steps": job.steps, "running": not job.done, "points": [point]})
+        if job.done:
+            self._lora_finish()
+        elif "pTopic" in point:
+            self._send_adapter(name)      # A and B as they train, for the adapter's heatmaps
+
+    def _lora_finish(self) -> None:
+        job = self.lora_job
+        assert job is not None
+        self.lora_job = None
+        job.adapter.info["steps"] = job.step_num
+        self.emit({"type": "loraProgress", "name": job.adapter.name, "steps": job.step_num, "running": False, "points": []})
+        self._send_adapter(job.adapter.name)
+
+    def _send_adapter(self, name: str) -> None:
+        if name not in self.adapters:
+            raise ValueError(f"no adapter named {name!r}")
+        ad = self.adapters[name]
+        self.emit(encode_tensors("adapter", {"weights": ad.weights()}, ad.header()))
 
     def _untrained_model(self) -> GPT:
         """The step-0 checkpoint (random initial weights), kept separately from the live model."""
@@ -348,11 +435,11 @@ class ModelWorker(threading.Thread):
 
     def send_trace(self, prompt: str, with_grad: bool = True, reason: str = "run",
                    target_index: int | None = None, interventions: list[dict] | None = None,
-                   tag: str | None = None) -> None:
+                   tag: str | None = None, adapter: dict | None = None) -> None:
         self.send_weights_if_changed()
         tr = self.trace_prompt(prompt, with_grad, target_index, interventions, self.weight_grads)
         extra = {"prompt": prompt, "reason": reason, "weightsVersion": self.weights_version,
-                 "interventions": interventions or []}
+                 "interventions": interventions or [], "adapter": adapter}
         if tag:
             extra["tag"] = tag   # lets the UI tell a baseline trace from the one it displays
         self.emit(encode_trace(tr, extra))

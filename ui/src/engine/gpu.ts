@@ -1098,8 +1098,11 @@ export class GpuModel implements Engine {
   // Training: weight gradients summed over micro-batches, Adam's moments, and the clipping result.
   private gradArena: Arena | null = null;
   private gradOf = new Map<string, GTensor>();
-  private moments = new Map<string, [GPUBuffer, GPUBuffer]>();
-  private adamStep = 0;
+  private moments = new Map<string, [GPUBuffer, GPUBuffer]>();   // by weight name, or "adapter/name"
+  private adamStep = new Map<string, number>();                  // "" for the weights, else an adapter's name
+  // Low-rank adapters' tensors by adapter name, and their gradients while one trains.
+  private adapters = new Map<string, Map<string, GTensor>>();
+  private adapterGrads = new Map<string, { arena: Arena; of: Map<string, GTensor> }>();
   private chunk = 16;            // sequences per micro-batch: halved until one fits the arena
 
   get config(): ModelConfig {
@@ -1128,6 +1131,43 @@ export class GpuModel implements Engine {
     return this.sets.has(set);
   }
 
+  setAdapter(name: string, W: Weights | null): void {
+    for (const t of this.adapters.get(name)?.values() ?? []) t.buf.destroy();
+    this.adapterGrads.get(name)?.arena.buf.destroy();
+    this.adapterGrads.delete(name);
+    if (W) this.adapters.set(name, new Map([...W].map(([n, w]) => [n, new GTensor(this.gpu.upload(w.data), 0, w.shape)])));
+    else this.adapters.delete(name);
+  }
+
+  readAdapter(name: string): Promise<Weights> {
+    return this.readBack(this.adapter(name)!);
+  }
+
+  private adapter(name: string | undefined): Map<string, GTensor> | undefined {
+    if (name === undefined) return undefined;
+    const A = this.adapters.get(name);
+    if (!A) throw new Error(`no adapter named ${JSON.stringify(name)}`);
+    for (const t of A.values()) {
+      t.requiresGrad = false;
+      t.grad = null;
+    }
+    return A;
+  }
+
+  /** Gradient buffers for an adapter's tensors, while it trains. */
+  private adapterGradients(name: string): { arena: Arena; of: Map<string, GTensor> } {
+    let g = this.adapterGrads.get(name);
+    if (!g) {
+      const A = this.adapter(name)!;
+      const total = [...A.values()].reduce((n, w) => n + Math.ceil((w.length * F) / ALIGN) * ALIGN, 0);
+      const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+      const arena = new Arena(this.gpu.device.createBuffer({ size: total, usage: storage }));
+      g = { arena, of: new Map([...A].map(([n, w]) => [n, arena.alloc(w.shape)])) };
+      this.adapterGrads.set(name, g);
+    }
+    return g;
+  }
+
   /** A trace, and with `frame` its trace frame too, built around the read-back in one copy: the
    * arena is laid out as the frame's data section. */
   private gradients(): Map<string, GTensor> {
@@ -1140,22 +1180,30 @@ export class GpuModel implements Engine {
     return this.gradOf;
   }
 
-  async trainStep(x: number[], y: number[], B: number, s: StepSettings) {
+  async trainStep(x: number[], y: number[], B: number, s: StepSettings, adapter?: string) {
     const device = this.gpu.device, T = x.length / B;
-    const grads = this.gradients();
+    const A = this.adapter(adapter);
+    // With an adapter, only its tensors train: the weights are frozen and get no gradients.
+    const trained = A ?? this.W;
+    const ag = adapter !== undefined ? this.adapterGradients(adapter) : null;
+    const grads = ag ? ag.of : this.gradients();
     const kept = y.filter((t) => t >= 0).length;
     const losses = device.createBuffer({ size: B * F, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
     const temps: GPUBuffer[] = [losses];
     const zero = device.createCommandEncoder();
-    zero.clearBuffer(this.gradArena!.buf);
+    zero.clearBuffer(ag ? ag.arena.buf : this.gradArena!.buf);
     device.queue.submit([zero.finish()]);
+    for (const w of this.W.values()) {
+      w.requiresGrad = false;
+      w.grad = null;
+    }
 
     // Micro-batches, each adding its share of the batch's gradient into `grads`.
     let chunks = 0;
     for (let b0 = 0; b0 < B;) {
       const n = Math.min(this.chunk, B - b0);
       const tape = new Tape();
-      for (const [name, w] of this.W) {
+      for (const [name, w] of trained) {
         w.requiresGrad = true;
         w.grad = grads.get(name)!;
       }
@@ -1165,7 +1213,7 @@ export class GpuModel implements Engine {
       let loss: GTensor;
       try {
         loss = forward(this.cfg, (name) => this.W.get(name)!, op, x.slice(b0 * T, (b0 + n) * T), y.slice(b0 * T, (b0 + n) * T),
-                       (_, t) => t, { B: n, lossDenom: kept })!;
+                       (_, t) => t, { B: n, lossDenom: kept, adapter: A && ((name) => A.get(name)) })!;
         op.seed(loss);
         tape.backward();
       } catch (e) {
@@ -1185,8 +1233,8 @@ export class GpuModel implements Engine {
       chunks++;
     }
 
-    // Clip the global norm, then AdamW on every weight, all on the GPU.
-    const names = [...this.W.keys()];
+    // Clip the global norm, then AdamW on every trained tensor, all on the GPU.
+    const names = [...trained.keys()];
     const sq = device.createBuffer({ size: names.length * F, usage: GPUBufferUsage.STORAGE });
     const clip = device.createBuffer({ size: 2 * F, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
     temps.push(sq, clip);
@@ -1194,12 +1242,14 @@ export class GpuModel implements Engine {
     const op = new GpuOps(this.gpu, new Tape(), this.arena, this.scratch, encoder);
     names.forEach((name, i) => op.run("sumsq", [grads.get(name)!.length, i], [grads.get(name)!, sq], [1]));
     op.run("clip", [names.length, 0, 0, 0, 0, 0, 0, bits(s.gradClip)], [sq, clip], [1]);
-    this.adamStep++;
+    const group = adapter ?? "", t = (this.adamStep.get(group) ?? 0) + 1;
+    this.adamStep.set(group, t);
     const [b1, b2] = BETAS;
-    const stepSize = s.lr / (1 - b1 ** this.adamStep), bc2 = Math.sqrt(1 - b2 ** this.adamStep);
-    for (const [name, w] of this.W) {
-      const [m, v] = this.moments.get(name) ?? this.moments.set(name, [0, 1].map(() =>
-        device.createBuffer({ size: w.length * F, usage: GPUBufferUsage.STORAGE })) as [GPUBuffer, GPUBuffer]).get(name)!;
+    const stepSize = s.lr / (1 - b1 ** t), bc2 = Math.sqrt(1 - b2 ** t);
+    for (const [name, w] of trained) {
+      const key = adapter !== undefined ? `${adapter}/${name}` : name;
+      const [m, v] = this.moments.get(key) ?? this.moments.set(key, [0, 1].map(() =>
+        device.createBuffer({ size: w.length * F, usage: GPUBufferUsage.STORAGE })) as [GPUBuffer, GPUBuffer]).get(key)!;
       const decay = w.shape.length >= 2 ? s.weightDecay : 0;     // matrices decay; biases and gains do not
       op.run("adamw", [w.length, bits(s.lr), bits(decay), bits(b1), bits(b2), bits(ADAM_EPS), bits(stepSize), bits(bc2)],
              [w, grads.get(name)!, m, v, clip], op.flat(w.length));
@@ -1212,15 +1262,16 @@ export class GpuModel implements Engine {
     const r = new Float32Array(this.staging.getMappedRange(0, (chunks + 1) * F).slice(0));
     this.staging.unmap();
     for (const b of temps) b.destroy();
-    for (const w of this.W.values()) {
+    for (const w of trained.values()) {
       w.requiresGrad = false;
       w.grad = null;
     }
     return { loss: r.subarray(0, chunks).reduce((a, b) => a + b, 0), gradNorm: r[chunks] };
   }
 
-  async loss(x: number[], y: number[], B: number): Promise<number> {
+  async loss(x: number[], y: number[], B: number, adapter?: string): Promise<number> {
     const device = this.gpu.device, T = x.length / B, kept = y.filter((t) => t >= 0).length;
+    const A = this.adapter(adapter);
     const losses = device.createBuffer({ size: B * F, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
     const temps: GPUBuffer[] = [losses];
     for (const w of this.W.values()) {
@@ -1228,18 +1279,30 @@ export class GpuModel implements Engine {
       w.grad = null;
     }
     let chunks = 0;
-    for (let b0 = 0; b0 < B; b0 += this.chunk, chunks++) {
+    for (let b0 = 0; b0 < B;) {
       const n = Math.min(this.chunk, B - b0);
       const tape = new Tape();
       tape.enabled = false;
       this.arena.used = this.scratch.used = 0;
       const encoder = device.createCommandEncoder();
       const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
-      const loss = forward(this.cfg, (name) => this.W.get(name)!, op, x.slice(b0 * T, (b0 + n) * T), y.slice(b0 * T, (b0 + n) * T),
-                           (_, t) => t, { B: n, lossDenom: kept })!;
+      let loss: GTensor;
+      try {
+        loss = forward(this.cfg, (name) => this.W.get(name)!, op, x.slice(b0 * T, (b0 + n) * T), y.slice(b0 * T, (b0 + n) * T),
+                       (_, t) => t, { B: n, lossDenom: kept, adapter: A && ((name) => A.get(name)) })!;
+      } catch (e) {
+        temps.push(...op.finish());
+        if (this.chunk > 1 && e instanceof Error && e.message.includes("does not fit")) {
+          this.chunk = Math.max(1, this.chunk >> 1);    // nothing of this chunk submitted: retry smaller, as trainStep
+          continue;
+        }
+        throw e;
+      }
       temps.push(...op.finish());
       encoder.copyBufferToBuffer(loss.buf, loss.offset, losses, chunks * F, F);
       device.queue.submit([encoder.finish()]);
+      b0 += n;
+      chunks++;
     }
     const encoder = device.createCommandEncoder();
     encoder.copyBufferToBuffer(losses, 0, this.staging, 0, chunks * F);
@@ -1275,13 +1338,14 @@ export class GpuModel implements Engine {
     return this.readBack(this.gradients());
   }
 
-  resetOptimizer(): void {
-    for (const [m, v] of this.moments.values()) {
+  resetOptimizer(adapter?: string): void {
+    for (const [key, [m, v]] of this.moments) {
+      if (adapter !== undefined ? !key.startsWith(`${adapter}/`) : key.includes("/")) continue;
       m.destroy();
       v.destroy();
+      this.moments.delete(key);
     }
-    this.moments.clear();
-    this.adamStep = 0;
+    this.adamStep.delete(adapter ?? "");
   }
 
   /** A forward pass without gradients; only the tensors `read` returns are copied back. */
@@ -1297,7 +1361,7 @@ export class GpuModel implements Engine {
     this.arena.used = this.scratch.used = 0;
     const encoder = device.createCommandEncoder();
     const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
-    const wanted = Object.entries(runForward(this.cfg, W, op, tokens, opts));
+    const wanted = Object.entries(runForward(this.cfg, W, op, tokens, opts, this.adapter(opts.adapter)));
     const temps = op.finish();
     // Pack the wanted tensors into the staging buffer, one after another.
     let at = 0;
@@ -1338,7 +1402,9 @@ export class GpuModel implements Engine {
     const encoder = device.createCommandEncoder();
     const op = new GpuOps(this.gpu, tape, this.arena, this.scratch, encoder);
     const live = new Map<string, GTensor>();
-    const loss = forward(this.cfg, (n) => this.W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions));
+    const A = this.adapter(opts.adapter);
+    const loss = forward(this.cfg, (n) => this.W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions),
+                         { adapter: A && ((n) => A.get(n)) });
     if (withGrad && loss) {
       op.seed(loss);
       tape.backward();

@@ -7,7 +7,7 @@ export interface Tensor {
 
 export type StageKind =
   | "embed" | "norm" | "linear" | "split" | "attn_scores" | "mask" | "softmax"
-  | "attn_mix" | "concat" | "add" | "activation" | "logits" | "probs" | "loss";
+  | "attn_mix" | "concat" | "add" | "activation" | "logits" | "probs" | "loss" | "lora";
 
 export interface Stage {
   id: string;
@@ -38,6 +38,41 @@ export interface Trace {
   tag?: string;                     // "baseline": the unmodified run compared against
   incremental?: Incremental;        // set when the trace came from the KV cache
   interventions?: Intervention[];   // what was changed in this trace
+  adapter?: AdapterChoice | null;   // the low-rank adapter switched on, if any
+}
+
+/** Which low-rank adapter (core/lora.py) a command runs with, and how strongly (1: as trained). */
+export interface AdapterChoice {
+  name: string;
+  scale: number;
+}
+
+/** An adapter as the server describes it (core/lora.py's Adapter.header). */
+export interface AdapterHeader {
+  name: string;
+  rank: number;
+  targets: string[];          // stage ids it adds to ("L3.q")
+  baseStep: number;           // the checkpoint it was trained on
+  params: number;
+  version: number;            // bumps as it trains
+  info: AdapterInfo;
+}
+
+/** One point of an adapter's training curve: the step's loss, and every few steps the measures. */
+export interface LoraPoint {
+  step: number;
+  loss?: number;
+  trainLoss?: number;         // on its stories
+  heldOutLoss?: number;       // on ordinary validation stories
+  pTopic?: number;            // mean p(topic word) after the neutral openers
+}
+
+/** How an adapter was trained: live with LoRA on stories, or offline with DPO (core/dpo.py). */
+export type AdapterInfo = Record<string, any> & { kind?: "lora" | "dpo"; curve?: LoraPoint[]; topic?: string; steps?: number };
+
+/** The "adapter" frame: an adapter's header and its A and B tensors ("L3.q.lora_A"...). */
+export interface AdapterMsg extends AdapterHeader {
+  tensors: Record<string, Tensor>;
 }
 
 /** How a KV-cache trace was made (core/kvcache.py): rows before `reused` came from the cache. */
@@ -109,27 +144,39 @@ export interface Hello extends Status {
   paramGroups: Record<string, number>;
   probe: string;
   training: boolean;      // the server was started with --train
+  adapters?: AdapterHeader[];
 }
 
 export type Command =
-  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number; interventions?: Intervention[]; tag?: string; incremental?: boolean }
+  | { type: "run"; prompt: string; withGrad?: boolean; targetIndex?: number; interventions?: Intervention[]; tag?: string; incremental?: boolean;
+      adapter?: AdapterChoice | null }
   | { type: "train"; action: "play" | "pause" | "step" | "reset" }
   | { type: "set"; lr?: number; batchSize?: number; traceEvery?: number; probe?: string }
-  | { type: "sample"; prompt?: string; temperature: number; topK?: number; topP?: number; n: number }
+  | { type: "sample"; prompt?: string; temperature: number; topK?: number; topP?: number; n: number; adapter?: AdapterChoice | null }
   | { type: "loadCheckpoint"; step: number }
   | { type: "save" }
   | { type: "manualBackward"; prompt: string }
-  | { type: "lens"; prompt: string }
+  | { type: "lens"; prompt: string; adapter?: AdapterChoice | null }
   | { type: "view"; weightGrads: boolean }   // whether traces carry the weights' gradients
   | { type: "capture"; prompts: { text: string; targets: { start: number; end: number; word: string; category: string }[] }[];
-      pool: "last" | "mean"; model: "current" | "untrained"; tag?: string }
-  | { type: "generateWith"; prompt: string; n: number; interventions?: Intervention[]; temperature?: number; seed?: number; tag?: string }
+      pool: "last" | "mean"; model: "current" | "untrained"; tag?: string; adapter?: AdapterChoice | null }
+  | { type: "generateWith"; prompt: string; n: number; interventions?: Intervention[]; temperature?: number; seed?: number; tag?: string;
+      adapter?: AdapterChoice | null }
   | { type: "occlude"; prompt: string; position: number }
   | { type: "neuronTop"; layer: number; neuron: number }
   | { type: "patch"; clean: string; corrupt: string; answer: string; wrong: string; what: "resid" | "heads" }
   | { type: "stepExplain"; prompt?: string }
   | { type: "beliefs"; stories?: string[]; n?: number; cloze: string; words: string[]; model: "current" | "untrained" }
-  | { type: "beliefSteer"; stories: string[]; cloze: string; words: string[]; interventions: Intervention[]; tag: string };
+  | { type: "beliefSteer"; stories: string[]; cloze: string; words: string[]; interventions: Intervention[]; tag: string }
+  | { type: "loraTrain"; name: string; texts: string[]; topic: string; rank?: number; targets?: string[]; steps?: number;
+      lr?: number; batch?: number; seed?: number }
+  | { type: "loraStop" }
+  | { type: "adapterWeights"; name: string }
+  | { type: "scorePairs"; name: string; scale?: number; pairs: { prompt: string; chosen: string; rejected: string }[]; beta: number; tag?: string };
+
+/** Commands that can run with an adapter switched on. */
+export const ADAPTED_COMMANDS = new Set(["run", "sample", "lens", "capture", "generateWith", "occlude", "neuronTop", "patch",
+                                        "beliefs", "beliefSteer"]);
 
 export interface MetricsMsg {
   type: "metrics";
@@ -201,8 +248,32 @@ export type ConceptMsg =
   | { type: "neuronTop"; layer: number; neuron: number; step: number; examples: NeuronExample[] }
   | { type: "beliefSteer"; tag: string; readout: number[][]; mass: number[] };
 
+/** Preference pairs scored with an adapter and without it (core/dpo.py's score). */
+export interface PairScoresMsg {
+  type: "pairScores";
+  name: string;
+  scale: number;
+  tag?: string;
+  ref_chosen: number[];
+  ref_rejected: number[];
+  policy_chosen: number[];
+  policy_rejected: number[];
+  margin: number[];          // β · ((log π − log π_ref)(chosen) − (log π − log π_ref)(rejected))
+  beta: number;
+}
+
+export interface LoraProgressMsg {
+  type: "loraProgress";
+  name: string;
+  steps: number;
+  running: boolean;
+  points: LoraPoint[];
+}
+
 export type JsonMsg =
   | ConceptMsg
+  | LoraProgressMsg
+  | PairScoresMsg
   | ManualBackwardMsg
   | LensMsg
   | Hello

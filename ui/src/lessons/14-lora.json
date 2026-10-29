@@ -1,0 +1,76 @@
+{
+  "id": "lora",
+  "order": 14,
+  "title": "Fine-tuning with LoRA",
+  "summary": "Train a small low-rank adapter on dragon stories, with the model's own weights frozen, then see where it plugs in and how far it tilts the model.",
+  "steps": [
+    {
+      "text": "The model learned from 270,000 stories. [[Fine-tuning]] trains it a little more on a few examples, to change what it does. Here the goal is to make it **write about dragons**. A full fine-tune would update all 5.8 million numbers. **[[LoRA]]** leaves them frozen. Beside some weights W it adds two thin matrices, A and B, and the stage computes x·W + (x·A)·B. Only A and B train. The training set is 64 TinyStories stories that mention dragons at least three times.",
+      "tab": "finetune",
+      "finetuneSection": "lora",
+      "adapter": null,
+      "ask": {
+        "question": "Press **train the adapter** and watch the charts. On a GPU it takes about half a minute.",
+        "check": { "kind": "loraTrained" },
+        "hint": "Without WebGPU, the browser trains on the CPU, which takes many minutes. Press skip: the next steps use the adapter trained in advance, with the same settings.",
+        "correct": "The loss on the dragon stories fell, and after a neutral opener such as “Once upon a time, there was a”, the probability of “dragon” rose from a fraction of a percent to tens of percent."
+      }
+    },
+    {
+      "text": "Read the two charts. The grey line is each step's batch, which is noisy because each batch holds only eight story windows. The blue dots are the loss on the dragon stories. The orange dots are the loss on ordinary stories the model never trained on, and the right chart is p(“dragon”) after the openers.",
+      "tab": "finetune",
+      "finetuneSection": "lora",
+      "ask": {
+        "question": "The loss on ordinary stories went **up** a little. Why would learning about dragons make the model worse at other stories?",
+        "check": { "kind": "reveal" },
+        "correct": "Probability is a fixed budget: every next-token distribution sums to 1. Moving probability towards dragons, caves and fire takes it from whatever ordinary stories need next. The adapter was never asked to stay good at them, so it trades that away. Fine-tuning always tilts a model, and the held-out loss measures the price. Fewer steps, a lower learning rate or a lower rank all make the tilt smaller."
+      }
+    },
+    {
+      "text": "Now the test that matters. Under **Generate with and without it**, press **generate both**. The two continuations of “Once upon a time,” use the same random draws, so where they differ, the adapter is the cause. Press it a few more times, each with new random draws, and count the dragons: with the trained adapter, about half the stories should have one.",
+      "tab": "finetune",
+      "finetuneSection": "lora"
+    },
+    {
+      "text": "**Where it plugs in.** Below the generation, pick a layer and a stage. A is 256×r: it squeezes each row of x down to r numbers. B is r×256: it expands them back. Their product ΔW = A·B is the change the adapter makes to the frozen W, a full 256×256 matrix. But its [[rank]] is at most r, and the [[singular values]] show it uses only r directions.",
+      "tab": "finetune",
+      "finetuneSection": "lora",
+      "ask": {
+        "question": "With r = 4 on `q` and `v` in all six layers, the adapter trains 24,576 numbers. How many would a full fine-tune of the same weights, W_q and W_v in every layer, change?",
+        "check": { "kind": "reveal" },
+        "correct": "12 matrices × 256 × 256 = 786,432: 32 times as many. For the big models LoRA was made for, the ratio is in the thousands. That is why one base model can carry many adapters, each a small file, switched on per request."
+      }
+    },
+    {
+      "text": "Switched on, the adapter is part of the model: every view runs with it. The header shows **adapter … on**, and each block in the pipeline map gains **adapter on Q · K · V** rows. This is the low-rank term at layer 1's queries, a [14 × 256] tensor like the queries themselves. Click a cell: the provenance squeezes the input row to r numbers through A, then takes the dot product with a column of B.",
+      "tab": "inspector",
+      "adapter": { "name": "@lora", "scale": 1 },
+      "prompt": "Once upon a time, there was a little girl named Lily. She",
+      "stage": "L1.q.lora",
+      "position": "last",
+      "ask": {
+        "question": "Now select `L1.q`, the queries the adapter's term is added to, and click a cell. What extra line does its provenance have?",
+        "check": { "kind": "stage", "ids": ["L1.q"] },
+        "correct": "Besides the dot product with W_q's column and the bias, it adds the adapter's term at the same cell: x·W + b + (x·A)·B. The frozen W_q is unchanged; the stage's output is not."
+      }
+    },
+    {
+      "text": "Where does the tilt show up? The [[logit lens]] reads the top guess from every snapshot. The prompt ends where a noun goes.",
+      "tab": "lens",
+      "adapter": { "name": "@lora", "scale": 1 },
+      "prompt": "Once upon a time, there was a big",
+      "position": "last",
+      "ask": {
+        "question": "Look at the last column. Switch the adapter off with the header button, and on again from the fine-tune tab. At which layers does the guess change?",
+        "check": { "kind": "reveal" },
+        "correct": "The first snapshots don't change at all: the adapter only acts through attention, which starts after them. From the middle layers the guesses drift (to words such as “bird” or “tree”), and “dragon” appears only at the very last snapshot. Many small changes along the way add up to a different prediction at the end."
+      }
+    },
+    {
+      "text": "Back in the fine-tune tab, drag the **strength** slider. It scales B, so 0 is the base model and 1 the trained adapter. Generate at 0.5 and at 2. Past 1, the adapter is extrapolating beyond anything it was trained for, and the text soon stops making sense. To try another topic, open **show / edit**, paste stories about something else, change the topic word and train again.",
+      "tab": "finetune",
+      "finetuneSection": "lora",
+      "adapter": null
+    }
+  ]
+}

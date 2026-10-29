@@ -74,6 +74,12 @@ def _array(data: memoryview, ref: dict, shape: list[int] | None = None) -> np.nd
     return np.frombuffer(data, dtype="<f4", count=count, offset=ref["offset"]).reshape(shape)
 
 
+def decode_tensors(buf: bytes, group: str) -> tuple[dict, dict[str, np.ndarray]]:
+    """A tensor frame's header and one group's tensors (see encode_tensors)."""
+    h, data = decode_frame(buf)
+    return h, {n: _array(data, r) for n, r in h[group].items()}
+
+
 def decode_trace(buf: bytes) -> Trace:
     h, data = decode_frame(buf)
     stages = []

@@ -45,7 +45,11 @@ BACKWARD = {
     "activation": r"\partial u = g \cdot \mathrm{GELU}'(u)",
     "probs": r"\text{not on the loss path: the loss reads the logits directly}",
     "loss": r"\frac{\partial L}{\partial z} = \frac{p - y}{n}",
+    "lora": r"\partial B = (xA)^\top g\,s,\;\; \partial A = x^\top g B^\top s,\;\; \partial x = g B^\top A^\top s",
 }
+
+# The stages a low-rank adapter (core/lora.py) can attach to, with the base weight it adapts.
+LORA_TARGETS = {"q": "W_q", "k": "W_k", "v": "W_v", "attn.out": "W_o", "mlp.up": "W_up", "mlp.down": "W_down"}
 
 
 @lru_cache(maxsize=4096)
@@ -95,6 +99,14 @@ def _describe(stage_id: str, cfg: ModelConfig) -> StageMeta:
         raise KeyError(stage_id)
     l, rest = int(m.group(1)), m.group(2)
     P = f"L{l}"
+    if rest.endswith(".lora") and rest[:-5] in LORA_TARGETS:
+        base = f"{P}.{rest[:-5]}"
+        return StageMeta(stage_id, "lora", l, inputs=_describe(base, cfg).inputs[:1],
+                         weights=[f"{base}.lora_A", f"{base}.lora_B"],
+                         formula=r"\Delta = (\hat x A)\,B \cdot s",
+                         explain=f"The adapter's low-rank term, added to {base}. The frozen weight "
+                                 f"{P}.{LORA_TARGETS[rest[:-5]]} is untouched; A squeezes each row down to a "
+                                 "few numbers and B expands them back, so only A and B were trained.")
     ln = r"\hat x = \gamma \odot \frac{x - \mu}{\sigma} + \beta"
     simple = {
         "ln1": StageMeta(stage_id, "norm", l, inputs=[_resid_before(l)], weights=[f"{P}.ln1_g", f"{P}.ln1_b"],
@@ -166,14 +178,19 @@ def _describe(stage_id: str, cfg: ModelConfig) -> StageMeta:
     return heads[part]
 
 
-def stage_order(cfg: ModelConfig) -> list[str]:
-    """Stage ids in execution order (the order the model taps them)."""
+def stage_order(cfg: ModelConfig, lora: bool | set[str] = False) -> list[str]:
+    """Stage ids in execution order (the order the model taps them). `lora`: also the adapter
+    stages, just before the stage each adds to: all of them (True) or those of these stage ids."""
+    def adapted(stage_id: str) -> list[str]:
+        on = lora is True or (lora and stage_id in lora)
+        return [f"{stage_id}.lora", stage_id] if on else [stage_id]
+
     ids = ["embed.tok", "embed.pos", "embed.sum"]
     for l in range(cfg.n_layer):
         P = f"L{l}"
-        ids += [f"{P}.ln1", f"{P}.q", f"{P}.k", f"{P}.v"]
+        ids += [f"{P}.ln1", *adapted(f"{P}.q"), *adapted(f"{P}.k"), *adapted(f"{P}.v")]
         for h in range(cfg.n_head):
             ids += [f"{P}.attn.H{h}.{x}" for x in ("q", "k", "v", "scores", "masked", "weights", "mix")]
-        ids += [f"{P}.attn.concat", f"{P}.attn.out", f"{P}.resid_attn", f"{P}.ln2",
-                f"{P}.mlp.up", f"{P}.mlp.gelu", f"{P}.mlp.down", f"{P}.resid_mlp"]
+        ids += [f"{P}.attn.concat", *adapted(f"{P}.attn.out"), f"{P}.resid_attn", f"{P}.ln2",
+                *adapted(f"{P}.mlp.up"), f"{P}.mlp.gelu", *adapted(f"{P}.mlp.down"), f"{P}.resid_mlp"]
     return ids + ["ln_f", "logits", "probs", "loss"]

@@ -105,6 +105,24 @@ def test_write_analyses_fixture():
         "generate": {"prompt": "Once upon a time", "n": 12, "interventions": steer,
                      "text": concepts.generate(model, tok, "Once upon a time", 12, steer, 0.0)},
     }
+    # An adapter on the same model, and what the fine-tuning tab computes with it (core/lora.py,
+    # core/dpo.py).
+    from core import dpo, lora
+
+    ad = lora.new_adapter(model, "fixture", ("q", "v"), 2, seed=5)
+    with torch.no_grad():
+        for B in ad.B.values():
+            B.copy_(torch.randn(B.shape, generator=torch.Generator().manual_seed(6)) * 0.3)
+    pairs = [{"prompt": "Tell me a story about a cat.", "chosen": " The cat was happy.", "rejected": dpo.REFUSAL},
+             {"prompt": "Tell me a story about matches.", "chosen": dpo.REFUSAL, "rejected": " Tom lit a match."}]
+    windows = lora.windows(tok, stories, cfg.block_size)
+    with model.adapted(ad.pairs(), 0.5):
+        p_topic, loss = lora.p_word(model, tok, lora.OPENERS[:3], lora.topic_id(tok, "cat")), lora.mean_loss(model, windows)
+    out["lora"] = {
+        "weights": {n: a.tolist() for n, a in ad.weights().items()}, "scale": 0.5, "stories": stories, "windows": windows,
+        "openers": lora.OPENERS[:3], "topic": "cat", "pTopic": p_topic, "meanLoss": loss,
+        "pairs": pairs, "scores": dpo.score(model, tok, ad.pairs(), 0.5, pairs, 0.5),
+    }
     (FIXTURES / "analyses.json").write_text(json.dumps(out))
 
 
@@ -200,3 +218,33 @@ def test_write_tokenizer_fixture():
     display = [tok.token_text(i) for i in range(tok.vocab_size)]
     FIXTURES.mkdir(parents=True, exist_ok=True)
     (FIXTURES / "tokenizer.json").write_text(json.dumps({"cases": cases, "display": display}, ensure_ascii=False))
+
+
+def test_write_lora_fixture():
+    """A low-rank adapter (core/lora.py) on the trace fixture's model: a trace with it on at half
+    strength, then two of its training steps on fixed padded batches, for the browser engine's
+    adapters (ui/src/engine/lora.ts)."""
+    from core import lora
+
+    torch.manual_seed(0)
+    model = GPT(TINY.with_vocab(16))
+    ad = lora.new_adapter(model, "fixture", ("q", "v", "mlp.down"), 2, seed=3)
+    g = torch.Generator().manual_seed(4)
+    with torch.no_grad():
+        for B in ad.B.values():
+            B.copy_(torch.randn(B.shape, generator=g) * 0.1)
+    before = ad.weights()
+    ids = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]
+    with model.adapted(ad.pairs(), 0.5):
+        t = trace(model, ids, [chr(97 + i) for i in ids], step=42, next_token=9)
+    out = FIXTURES / "lora"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "trace.bin").write_bytes(encode_trace(t, {"prompt": "fixture", "reason": "run", "adapter": {"name": "fixture", "scale": 0.5}}))
+
+    windows = [[3, 1, 4, 1, 5, 9, 2, 6, 5], [2, 7, 1, 8, 2, 8], [1, 4, 1, 4, 2, 1, 3, 5, 6, 2, 3]]
+    batches = [windows[:2], windows[1:]]
+    opt = lora.optimizer(ad, 1e-2)
+    losses = [lora.train_step(model, ad, opt, *lora.batch_of(b, "cpu"), grad_clip=0.05) for b in batches]
+    (out / "train.bin").write_bytes(encode_tensors("adapter", {"before": before, "after": ad.weights()}, {
+        "batches": batches, "lr": 1e-2, "gradClip": 0.05, "losses": losses, "header": ad.header(),
+    }))

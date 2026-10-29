@@ -29,7 +29,9 @@ Open **lessons** in the header and pick one. A lesson that can't run on this ser
 | 11 | Induction heads | A head that copies from earlier in the context, its previous-token partner, and ablating it |
 | 12 | Activation patching | Two prompts that differ in one name: where the information sits, and which heads move it |
 | 13 | Belief trajectories | A story's emotional belief, sentence by sentence: read it, find it in the stream, steer it, and see what moves with it |
+| 14 | Fine-tuning with LoRA | Train a low-rank adapter on dragon stories, see where it plugs in, and how far it tilts the model |
+| 15 | Teaching a refusal: preference tuning with DPO | A preference-tuned adapter that declines unsafe-play requests: scored pairs, held-out requests, and the refusal direction (needs the shipped `refusal` adapter) |
 
-Lesson 9 trains the model, so it needs a server started with `--train`; the others work on any server.
+Lesson 9 trains the model, so it needs a server started with `--train`; the others work on any server. Lesson 14 trains only an adapter, which leaves the model's weights alone, so it needs no `--train`. Lesson 15 needs the `refusal` adapter that ships with the model (see [Fine-tuning](14-fine-tuning.md)).
 
 Model-dependent answers, such as "click the sharpest head", are worked out from the live model, so lessons work at any training checkpoint, even partway through training.

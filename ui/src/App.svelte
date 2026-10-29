@@ -8,6 +8,7 @@
   import ConceptsView from "./views/concepts/ConceptsView.svelte";
   import AtlasView from "./views/atlas/AtlasView.svelte";
   import EmbeddingsView from "./views/embeddings/EmbeddingsView.svelte";
+  import FinetuneView from "./views/finetune/FinetuneView.svelte";
   import AttentionView from "./views/attention/AttentionView.svelte";
   import InterventionsView from "./views/interventions/InterventionsView.svelte";
   import Inspector from "./views/inspector/Inspector.svelte";
@@ -48,6 +49,11 @@
         {app.hello?.params.toLocaleString()} params · {app.status?.device}
       </span>
     {/if}
+    {#if app.adapter}
+      <button class="adbadge" onclick={() => app.setAdapter(null)} title="every view runs with this adapter: click to switch it off">
+        adapter <b>{app.adapter.name}</b>{app.adapter.scale !== 1 ? ` × ${app.adapter.scale}` : ""} on ✕
+      </button>
+    {/if}
     {#if app.interventions.length}
       <button class="ivbadge" onclick={() => (settings.tab = "interventions")}>
         {app.interventions.length} intervention{app.interventions.length > 1 ? "s" : ""} active
@@ -77,6 +83,7 @@
         <button class:on={settings.tab === "interventions"} onclick={() => (settings.tab = "interventions")}>interventions</button>
         <button class:on={settings.tab === "concepts"} onclick={() => (settings.tab = "concepts")}>concepts</button>
         <button class:on={settings.tab === "beliefs"} onclick={() => (settings.tab = "beliefs")}>beliefs</button>
+        <button class:on={settings.tab === "finetune"} onclick={() => (settings.tab = "finetune")}>fine-tune</button>
         {#if app.hello?.training}
           <button class:on={settings.tab === "onestep"} onclick={() => (settings.tab = "onestep")}>training step</button>
         {/if}
@@ -88,6 +95,7 @@
       {:else if settings.tab === "atlas"}<AtlasView />
       {:else if settings.tab === "concepts"}{#if app.hello}<ConceptsView />{/if}
       {:else if settings.tab === "beliefs"}{#if app.hello}<BeliefsView />{/if}
+      {:else if settings.tab === "finetune"}{#if app.hello}<FinetuneView />{/if}
       {:else if settings.tab === "interventions"}{#if app.trace && app.hello}<InterventionsView />{/if}
       {:else}<OneStep />{/if}
     </section>
@@ -111,8 +119,10 @@
   header strong { font-size: 15px; }
   .helpbtn.on { background: var(--accent-soft); border-color: var(--accent); }
   .themebtn { padding: 3px 7px; line-height: 1; }
+  .adbadge { margin-left: auto; background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-size: 12px; }
+  .adbadge + .ivbadge { margin-left: 0; }
   .ivbadge { margin-left: auto; background: #fde68a; border-color: #d97706; color: #78350f; font-size: 12px; }
-  .ivbadge + .conn { margin-left: 0; }
+  .ivbadge + .conn, .adbadge + .conn { margin-left: 0; }
   .conn { margin-left: auto; font-size: 12px; color: var(--bad); }
   .conn.on { color: var(--ok); }
   .error { color: var(--bad); font-size: 12px; }

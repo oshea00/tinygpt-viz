@@ -1,13 +1,13 @@
 // Lessons are plain JSON (see ./*.json): a sequence of steps, each setting up the views
 // and narrating, optionally asking the learner to find something. New lessons need no code.
 
-import type { Intervention, LensMsg, PatchResult, Trace } from "../types";
+import type { AdapterChoice, Intervention, LensMsg, PatchResult, Trace } from "../types";
 import { headStats } from "../lib/attention";
 import { argmax } from "../lib/residual";
 import { at, dims2, row } from "../lib/tensor";
 import { glossKey } from "../help/glossary";
 
-export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "onestep";
+export type Tab = "inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "finetune" | "onestep";
 
 /** What counts as a correct answer. Checks that depend on the trained model are computed
  * from the live trace, so lessons work on any checkpoint. */
@@ -26,6 +26,11 @@ export type Check =
   | { kind: "beliefsRead" }                                // read the belief stories (and the untrained model, if ticked)
   | { kind: "beliefProbes" }                               // fit the belief probes
   | { kind: "beliefEntangled" }                            // steer every belief word (the entanglement matrix)
+  | { kind: "loraTrained" }                                // train an adapter to the end, raising p(topic)
+  | { kind: "adapterOn" }                                  // switch an adapter on for every view
+  | { kind: "heldOutTested" }                              // answer every held-out request, with and without the refusal adapter
+  | { kind: "pairsScored" }                                // score the preference pairs
+  | { kind: "directionFound" }                             // find the refusal direction
   | { kind: "reveal" };                                    // a question to think about: answered by showing the answer
 
 export interface LessonStep {
@@ -42,6 +47,10 @@ export interface LessonStep {
   residualMode?: "snapshots" | "writes";
   conceptPanel?: "similarity" | "map" | "neighbours" | "drift" | "probes" | "steer" | "attribution" | "neurons" | "patching";
   beliefSection?: "trajectory" | "probes" | "geometry" | "steering";
+  finetuneSection?: "lora" | "preferences";
+  /** Switch an adapter on for every view (null: off). "@lora" is the one trained in the fine-tune
+   * tab, or the one trained in advance if there is none. */
+  adapter?: AdapterChoice | null;
   interventions?: Intervention[];   // replaces the active list; [] clears it
   sampling?: { temperature: number; topK?: number | null; topP?: number | null };
   kvCache?: boolean;            // switch KV cache mode on or off
@@ -54,6 +63,7 @@ export interface Lesson {
   title: string;
   summary: string;
   requiresTraining?: boolean;   // trains the model: needs a server started with --train
+  requiresAdapter?: string;     // an adapter shipped with the model (e.g. "refusal", core/dpo.py)
   steps: LessonStep[];
 }
 
@@ -78,6 +88,11 @@ export interface Live {
   beliefsRead?: boolean;
   beliefProbes?: boolean;
   beliefEntangled?: boolean;
+  loraTrained?: boolean;
+  adapterOn?: boolean;
+  heldOutTested?: boolean;
+  pairsScored?: boolean;
+  directionFound?: boolean;
 }
 
 export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLayer: number, nHead: number, live: Live = {}): boolean {
@@ -117,6 +132,11 @@ export function isCorrect(check: Check, sel: Selected, trace: Trace | null, nLay
     case "beliefsRead": return !!live.beliefsRead;
     case "beliefProbes": return !!live.beliefProbes;
     case "beliefEntangled": return !!live.beliefEntangled;
+    case "loraTrained": return !!live.loraTrained;
+    case "adapterOn": return !!live.adapterOn;
+    case "heldOutTested": return !!live.heldOutTested;
+    case "pairsScored": return !!live.pairsScored;
+    case "directionFound": return !!live.directionFound;
     case "reveal": return !!live.revealed;
     case "position": return check.positions.includes(sel.position);
     case "tab": return sel.tab === check.tab;
@@ -146,12 +166,16 @@ export function lessonVars(cfg: { d_model: number; vocab_size: number }): Record
 }
 
 /** Why a lesson cannot run here (and what to start the server with), or null if it can. */
-export function unavailable(lesson: Lesson, training: boolean): string | null {
+export function unavailable(lesson: Lesson, training: boolean, adapters: string[] = []): string | null {
   if (lesson.requiresTraining && !training) return "trains the model: start the server with --train";
+  if (lesson.requiresAdapter && !adapters.includes(lesson.requiresAdapter)) {
+    return `needs the ${lesson.requiresAdapter} adapter: train it with uv run python -m core.dpo`;
+  }
   return null;
 }
 
-export const available = (lesson: Lesson, training = true) => unavailable(lesson, training) === null;
+export const available = (lesson: Lesson, training = true, adapters?: string[]) =>
+  unavailable(lesson, training, adapters ?? (lesson.requiresAdapter ? [lesson.requiresAdapter] : [])) === null;
 
 const unescape = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 const glossLink = (key: string, inner: string) => `<a class="gloss" href="#${key}" data-gloss="${key}">${inner}</a>`;

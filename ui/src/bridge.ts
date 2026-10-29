@@ -1,6 +1,6 @@
 // WebSocket client and binary frame decoding (see core/trace_io.py for the layout).
 
-import type { Command, JsonMsg, PatchResult, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
+import type { AdapterMsg, Command, JsonMsg, PatchResult, Stage, StepExplain, Tensor, Trace, Weights } from "./types";
 import type { Beliefs } from "./lib/beliefs";
 import type { Capture } from "./lib/concepts";
 
@@ -61,6 +61,7 @@ export function decodeTrace(f: Frame): Trace {
     tag: h.tag,
     incremental: h.incremental,
     interventions: h.interventions ?? [],
+    adapter: h.adapter ?? null,
   };
 }
 
@@ -99,7 +100,13 @@ export function decodePatch(f: Frame): PatchResult {
   return { ...h, grid: f.tensor(h.tensors.grid), source: f.tensor(h.tensors.source) };
 }
 
+export function decodeAdapter(f: Frame): AdapterMsg {
+  const { type: _, weights, ...header } = f.header;
+  return { ...header, tensors: tensorGroup(f, weights) };
+}
+
 export type BinaryMsg =
+  | { type: "adapter"; adapter: AdapterMsg }
   | { type: "capture"; capture: Capture; tag?: string }
   | { type: "patch"; patch: PatchResult }
   | { type: "beliefs"; beliefs: Beliefs }
@@ -116,6 +123,7 @@ export function decodeBinary(buf: ArrayBuffer): BinaryMsg {
     case "capture": return { type: "capture", capture: decodeCapture(f), tag: f.header.tag };
     case "patch": return { type: "patch", patch: decodePatch(f) };
     case "beliefs": return { type: "beliefs", beliefs: decodeBeliefs(f) };
+    case "adapter": return { type: "adapter", adapter: decodeAdapter(f) };
     default: throw new Error(`unknown frame ${f.header.type}`);
   }
 }
@@ -183,6 +191,12 @@ export class LocalBridge implements Backend {
   }
 
   send(cmd: Command): void {
-    this.worker?.postMessage(cmd);
+    // postMessage cannot clone some objects (a Svelte state proxy, say): report it, as the worker
+    // would a failed command, rather than dropping the command silently.
+    try {
+      this.worker?.postMessage(cmd);
+    } catch (e) {
+      this.onMessage({ type: "error", message: `${cmd.type}: ${e instanceof Error ? e.message : e}` });
+    }
   }
 }

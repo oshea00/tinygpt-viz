@@ -9,7 +9,10 @@ const dir = new URL(".", import.meta.url);
 const lessons: Lesson[] = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(new URL(f, dir), "utf8")));
 const b = readFileSync(new URL("../fixtures/trace.bin", import.meta.url));
 const trace = (decodeBinary(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer) as { trace: Trace }).trace;
-const TABS = ["inspector", "embeddings", "attention", "residual", "lens", "atlas", "interventions", "concepts", "beliefs", "onestep"];
+// The same model with an adapter on (q, v and mlp.down): its stages exist only then.
+const a = readFileSync(new URL("../fixtures/lora/trace.bin", import.meta.url));
+const adapted = (decodeBinary(a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength) as ArrayBuffer) as { trace: Trace }).trace;
+const TABS = ["inspector", "embeddings", "attention", "residual", "lens", "atlas", "interventions", "concepts", "beliefs", "finetune", "onestep"];
 
 describe("starter lessons", () => {
   it("are numbered 1..n with unique ids", () => {
@@ -26,7 +29,7 @@ describe("starter lessons", () => {
         for (const t of [s.text, s.ask?.question ?? "", s.ask?.hint ?? "", s.ask?.correct ?? ""]) {
           for (const m of t.matchAll(/\{\{(\w+)\}\}/g)) expect(known, `unknown {{${m[1]}}}`).toContain(m[1]);
         }
-        if (s.stage) expect(trace.byId.has(s.stage), s.stage).toBe(true);
+        if (s.stage) expect((s.adapter ? adapted : trace).byId.has(s.stage), s.stage).toBe(true);
         if (s.tab) expect(TABS).toContain(s.tab);
         if (s.head) expect(s.head[0] < 2 && s.head[1] < 2).toBe(true);
         if (s.ask?.check.kind === "stage") for (const id of s.ask.check.ids) expect(trace.byId.has(id), id).toBe(true);
@@ -112,6 +115,19 @@ describe("answer checks", () => {
     expect(formatText("**a** `b` <i>")).toBe("<b>a</b> <code>b</code> &lt;i&gt;");
     const vars = lessonVars({ d_model: 256, vocab_size: 4096 });
     expect(formatText("one token of {{d}} dims, {{V}} tokens", vars)).toBe("one token of 256 dims, 4,096 tokens");
+  });
+
+  it("checks the fine-tune tab's actions", () => {
+    for (const kind of ["loraTrained", "adapterOn", "heldOutTested", "pairsScored", "directionFound"] as const) {
+      expect(isCorrect({ kind }, sel, trace, 2, 2, {})).toBe(false);
+      expect(isCorrect({ kind }, sel, trace, 2, 2, { [kind]: true })).toBe(true);
+    }
+  });
+
+  it("marks a lesson that needs a shipped adapter as unavailable without it", () => {
+    const dpo = lessons.find((l) => l.id === "dpo")!;
+    expect(unavailable(dpo, false, [])).toContain("core.dpo");
+    expect(unavailable(dpo, false, ["refusal"])).toBeNull();
   });
 
   it("marks the lesson that trains as needing --train", () => {

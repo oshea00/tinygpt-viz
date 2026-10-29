@@ -35,7 +35,7 @@ export function checkpointSchedule(maxStep = 20000, n = 30): Set<number> {
 }
 
 /** Standard normal draws from a seeded generator (Box–Muller). */
-function normals(rand: () => number): () => number {
+export function normals(rand: () => number): () => number {
   let spare: number | null = null;
   return () => {
     if (spare !== null) {

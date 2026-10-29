@@ -73,15 +73,39 @@ export function provenance(trace: Trace, weights: Weights | null, stage: Stage, 
       const wcol = stage.kind === "logits" && name === "wte" ? Array.from(row(W, c)) : col(W, c);
       const { products, sum } = dot(x, wcol);
       const bias = stage.weights[1] ? at(weight(w, stage.weights[1]), 0, c) : 0;
+      // With an adapter on this stage, its low-rank term (its own stage) is added too.
+      const lora = trace.byId.get(`${stage.id}.lora`);
+      const delta = lora ? at(lora.output, r, c) : 0;
       return {
-        title: `Dot product of input row ${r} with column ${c} of ${name}${stage.weights[1] ? ", plus bias" : ""}`,
+        title: `Dot product of input row ${r} with column ${c} of ${name}${stage.weights[1] ? ", plus bias" : ""}${lora ? ", plus the adapter's term" : ""}`,
         strips: [
           { label: `${stage.inputs[0]} row ${r}`, values: Array.from(x) },
           { label: `${name} column ${c}`, values: wcol },
           { label: "element-wise products", values: products },
         ],
-        lines: [["sum of products", sum], ...(stage.weights[1] ? [[`bias ${stage.weights[1]}[${c}]`, bias] as [string, number]] : []), ["result", sum + bias]],
-        value: sum + bias, stored,
+        lines: [["sum of products", sum], ...(stage.weights[1] ? [[`bias ${stage.weights[1]}[${c}]`, bias] as [string, number]] : []),
+                ...(lora ? [[`adapter ${lora.id}[${r}, ${c}]`, delta] as [string, number]] : []), ["result", sum + bias + delta]],
+        value: sum + bias + delta, stored,
+      };
+    }
+    case "lora": {
+      // (x A) B · s: x squeezed to r numbers by A, then expanded by column c of B.
+      const w = need();
+      const x = row(input(trace, stage), r);
+      const A = weight(w, stage.weights[0]), B = weight(w, stage.weights[1]);
+      const rank = A.shape[1], s = trace.adapter?.scale ?? 1;
+      const h = Array.from({ length: rank }, (_, k) => dot(x, col(A, k)).sum);
+      const { products, sum } = dot(h, col(B, c));
+      return {
+        title: `Input row ${r} through A (to ${rank} numbers), then column ${c} of B, times the strength ${s}`,
+        strips: [
+          { label: `${stage.inputs[0]} row ${r}`, values: Array.from(x) },
+          { label: `x · A: row ${r} squeezed to ${rank} numbers`, values: h },
+          { label: `${stage.weights[1]} column ${c}`, values: col(B, c) },
+          { label: "element-wise products", values: products },
+        ],
+        lines: [["sum of products", sum], ["strength s", s], ["result", sum * s]],
+        value: sum * s, stored,
       };
     }
     case "norm": {

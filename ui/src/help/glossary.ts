@@ -46,6 +46,15 @@ const WEIGHTS: GlossEntry[] = [
     "Turns the final vector into one score per token. `bpe-small` has no separate matrix: its embeddings are tied, so this is `wte` transposed."),
 ];
 
+// An adapter's weights and stages exist only while one is switched on (the fine-tune tab).
+const LORA_SITES = ["q", "k", "v", "attn.out", "mlp.up", "mlp.down"];
+const ADAPTER: GlossEntry[] = [
+  { key: "w-lora", section: "Weights", title: "Adapter matrices A and B", names: LORA_SITES.flatMap((t) => [`L·.${t}.lora_A`, `L·.${t}.lora_B`]),
+    what: "A low-rank adapter's two thin matrices beside a frozen weight: A [d_in × r] squeezes each row to r numbers, B [r × d_out] expands them back. Only these train; B starts at zero." },
+  { key: "s-lora", section: "Stages", title: "Adapter term", names: LORA_SITES.map((t) => `L·.${t}.lora`),
+    what: "An adapter's contribution to the stage it is named after, (x A) B · s, which that stage adds to its own x W + b. It appears only while an adapter is switched on." },
+];
+
 /** One entry per kind of stage; the id uses layer 0 and head 0 for all layers and heads. */
 const STAGES: [string, string][] = [
   ["embed.tok", "Token embedding"], ["embed.pos", "Position embedding"], ["embed.sum", "x₀ = tok + pos"],
@@ -102,6 +111,17 @@ const CONCEPTS: GlossEntry[] = [
   C("Difference of means", ["difference of means", "mean difference"], "A direction for a concept: the average vector where it is present minus the average where it isn't. Simple, and often a better steering direction than a probe's weights."),
   C("Self-repair", ["self-repair"], "Later layers undoing a change made at an earlier one, so an intervention at a single layer has less effect than expected. It is why the paper steers with a probe direction over a band of layers."),
   C("Entanglement", ["entanglement"], "Steering one concept also moving others. The paper finds concepts close together in belief space move together; the entanglement matrix shows each word's change in log probability when each word is steered."),
+  C("Fine-tuning", ["fine-tuning", "fine-tune", "fine-tuned"], "Training a model that has already been trained, on a smaller set of examples, to change what it does: write about one topic, follow instructions, refuse some requests. A full fine-tune updates every weight; LoRA updates a few small added matrices."),
+  C("LoRA", ["LoRA", "low-rank adapter", "adapter", "adapters"], "Low-rank adaptation (Hu et al., 2021). Beside a frozen weight W, train two thin matrices A and B; the stage computes x W + (x A) B. Their product ΔW = A B is a change to W of **rank** at most r, described by r (d_in + d_out) numbers instead of d_in × d_out. B starts at zero, so training starts from the model as it was. Many adapters can share one base model and be switched on and off.", String.raw`y = x W + b + (x A) B \cdot s`),
+  C("Rank", ["rank", "low-rank"], "The number of independent directions a matrix can map onto. A product A B through r numbers has rank at most r, however large the matrix; its **singular values** (at most r nonzero) say how much it uses each direction."),
+  C("Singular values", ["singular value", "singular values"], "How much a matrix stretches along each of its independent directions, largest first. A rank-r matrix has r nonzero singular values; the square root of the sum of their squares is its size (Frobenius norm)."),
+  C("RLHF", ["RLHF", "reinforcement learning from human feedback", "human feedback"], "Tuning a language model on what people prefer. People compare pairs of answers; a **reward model** learns to score answers the way they do; the language model is then optimised (with PPO, a reinforcement-learning method) to earn high reward while staying close to the original model (Ouyang et al., 2022). It is how chat models learn to be helpful and to decline harmful requests."),
+  C("DPO", ["DPO", "direct preference optimisation", "direct preference optimization"], "Direct preference optimisation (Rafailov et al., 2023), now the usual way to preference-tune: RLHF's goal without a separate reward model or reinforcement learning. For a request with a preferred and a rejected answer, the loss widens the gap between their log-probability gains over the original model. β sets how far the model may move from the original.", String.raw`\mathcal L = -\log \sigma\!\Big(\beta\big[\log\tfrac{\pi(y_w)}{\pi_{\mathrm{ref}}(y_w)} - \log\tfrac{\pi(y_l)}{\pi_{\mathrm{ref}}(y_l)}\big]\Big)`),
+  C("Reference model", ["reference model", "π_ref", "reference"], "In RLHF and DPO, the frozen model that tuning starts from. Rewards are measured against it, so the tuned model is pulled towards preferred answers without drifting into text the original would never write. With an adapter, it is the same network with the adapter off."),
+  C("Implicit reward", ["implicit reward", "reward margin", "reward model"], "In DPO, β times how much more likely the tuned model makes an answer than the reference does. It plays the part of RLHF's reward model, which is never trained separately: the policy contains it. The margin is the preferred answer's implicit reward minus the rejected one's.", String.raw`r(y) = \beta \log \frac{\pi(y)}{\pi_{\mathrm{ref}}(y)}`),
+  C("Refusal direction", ["refusal direction"], "A single direction in the residual stream that carries a model's decision to refuse (Arditi et al., 2024). Removing it stops refusals; adding it makes harmless requests refused. Found here as a difference of means between unsafe and safe requests' last-token vectors."),
+  C("Nat", ["nat", "nats"], "The unit of a difference of natural-log probabilities. Raising an answer's log-probability by 1 nat makes it e ≈ 2.7 times as likely; by 10 nats, about 22,000 times. An answer's log-probability is the sum over its tokens, so long answers move by many nats.", String.raw`\log p' - \log p = 1 \iff p' = e\,p`),
+  C("Over-refusal", ["over-refusal", "over-refuse"], "Refusing requests that are fine, because they look like ones that are not: the classic cost of safety tuning. Measured on safe requests the model never trained on."),
   C("Valence and arousal", ["valence", "arousal"], "Two classic axes for describing emotion in psychology: **valence**, pleasant to unpleasant, and **arousal**, calm to excited. The paper compares its map of emotions with them."),
 ];
 
@@ -112,6 +132,7 @@ const slug = (s: string) => s.replace(/·/g, "x").replace(/[^\w.-]+/g, "-");
 export const GLOSSARY: GlossEntry[] = [
   ...WEIGHTS.map((e) => ({ ...e, key: `w-${slug(e.names[0])}` })),
   ...STAGES.map(([id, title]): GlossEntry => ({ key: `s-${slug(generic(id))}`, section: "Stages", title, names: [generic(id)], stage: id })),
+  ...ADAPTER,
   ...CONCEPTS.map((e) => ({ ...e, key: `c-${slug(e.names[0])}` })),
 ];
 

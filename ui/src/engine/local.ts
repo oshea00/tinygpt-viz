@@ -14,6 +14,7 @@ import type { ModelConfig, Weights } from "./model";
 import { BPETokenizer } from "./tokenizer";
 import { mulberry32 } from "./interventions";
 import { batch as batchOf, checkpointSchedule, copyWeights, initWeights, lrAt, TRAIN_DEFAULTS } from "./trainer";
+import * as lora from "./lora";
 import type { Intervention } from "../types";
 
 export type Emit = (msg: object | ArrayBuffer) => void;
@@ -25,6 +26,7 @@ export interface ModelMeta {
   checkpoints: number[];
   probe: string;
   exported?: string;           // when core/web_export.py wrote it: the cache key's version
+  adapters?: string[];         // adapters shipped with the model, as adapters/<name>.bin
   stages: ({ id: string; kind: string; inputs: string[]; weights: string[] } & Record<string, unknown>)[];
 }
 
@@ -79,6 +81,33 @@ function weightsOf(frame: ArrayBuffer): { step: number; W: Weights } {
 
 type Cmd = { type: string } & Record<string, any>;
 
+/** An adapter as the "adapter" frame describes it (core/lora.py's Adapter.header). */
+interface AdapterHeader {
+  name: string;
+  rank: number;
+  targets: string[];
+  baseStep: number;
+  params: number;
+  version: number;
+  info: Record<string, any>;
+}
+
+/** An adapter in training (core/lora.py's LoraJob). */
+interface LoraJob {
+  name: string;
+  train: number[][];
+  heldOut: number[][];
+  word: number;
+  steps: number;
+  step: number;
+  batch: number;
+  lr: number;
+  rand: () => number;
+}
+
+const EVAL_WINDOWS = 16;         // windows of each set the adapter's losses are measured on
+const LORA_EVAL_EVERY = 10;
+
 // Commands that change the weights or the saved checkpoints: only with training on (?train=1, as
 // the server's --train).
 const TRAINING_COMMANDS = new Set(["train", "set", "loadCheckpoint", "stepExplain", "save"]);
@@ -111,6 +140,12 @@ export class LocalModel {
   private lastMetrics = 0;
   private lastTps = 0;
 
+  // Low-rank adapters by name: the host's copy of A and B (stale while one trains on the engine),
+  // and the strength each is loaded on the engine with (other than 1, under "name@strength").
+  private adapters = new Map<string, { W: Weights; header: AdapterHeader; stale: boolean }>();
+  private scaledKey = new Map<string, string>();
+  private loraJob: LoraJob | null = null;
+
   /** With `gpu`, the model runs on WebGPU; without, on the CPU. `training`: allow the training
    * commands, as the server's --train. */
   constructor(private assets: Assets, private emit: Emit, gpu: Gpu | null = null, private training = false) {
@@ -122,9 +157,27 @@ export class LocalModel {
     this.engine.setWeights(this.W);
   }
 
-  /** What a new connection gets from the server: hello, then the probe's trace. */
-  start(): Promise<void> {
+  /** What a new connection gets from the server: hello, then the probe's trace. The adapters
+   * shipped with the model are loaded first, so hello can list them. */
+  async start(): Promise<void> {
+    for (const name of this.assets.meta.adapters ?? []) {
+      try {
+        const f = decodeFrame(await this.assets.fetch(`adapters/${name}.bin`));
+        const W = new Map(Object.entries(f.header.weights as Record<string, { shape: number[]; offset: number }>)
+          .map(([n, ref]) => [n, new Tensor(f.tensor(ref).data, ref.shape)]));
+        const { type: _, weights: __, ...header } = f.header;
+        this.adapters.set(name, { W, header: header as AdapterHeader, stale: false });
+        this.engine.setAdapter(name, W);
+      } catch (e) {
+        this.emit({ type: "error", message: `adapter ${name}: ${e instanceof Error ? e.message : e}` });
+      }
+    }
     return this.handle([{ type: "hello" }, { type: "run", prompt: this.probe }]);
+  }
+
+  /** While a run plays or an adapter trains, the worker keeps calling tick(). */
+  get active(): boolean {
+    return this.playing || this.loraJob !== null;
   }
 
   /** Commands in arrival order; of consecutive "run"s (per tag) only the last matters. */
@@ -185,20 +238,23 @@ export class LocalModel {
 
   private async dispatch(cmd: Cmd): Promise<void> {
     const { meta, tokenizer: tok } = this.assets;
-    const cfg = this.cfg, e = this.engine;
     if (TRAINING_COMMANDS.has(cmd.type)) {
       if (!this.training) throw new Error("training is off: open the page with ?train=1 to train, replay or save");
       return this.dispatchTraining(cmd);
     }
+    // A command with an adapter runs with it switched on (training commands never do).
+    const adapter = await this.adapterKey(cmd.adapter);
+    const cfg = this.cfg, e = using(this.engine, "current", adapter);
     switch (cmd.type) {
       case "hello":
         this.emit({ type: "hello", config: meta.config, vocab: Array.from({ length: tok.vocabSize }, (_, i) => tok.tokenText(i)),
-                    params: meta.params, paramGroups: meta.paramGroups, probe: this.probe, training: this.training, ...this.status() });
+                    params: meta.params, paramGroups: meta.paramGroups, probe: this.probe, training: this.training,
+                    adapters: [...this.adapters.values()].map((a) => a.header), ...this.status() });
         return;
       case "run":
-        if (cmd.incremental && !cmd.interventions?.length && !cmd.tag) return this.sendCachedTrace(cmd.prompt);
+        if (cmd.incremental && !cmd.interventions?.length && !cmd.tag && !adapter) return this.sendCachedTrace(cmd.prompt);
         await this.sendTrace(cmd.prompt, cmd.incremental ? false : cmd.withGrad ?? true, cmd.targetIndex ?? null, cmd.tag,
-                             cmd.interventions ?? []);
+                             cmd.interventions ?? [], "run", adapter, cmd.adapter);
         return;
       case "view":
         // What the open views need: the weights' gradients only for the atlas's gradient mode.
@@ -208,6 +264,7 @@ export class LocalModel {
         this.emit({ type: "lens", prompt: cmd.prompt, step: this.step, ...(await an.logitLens(e, cfg, this.ids(cmd.prompt))) });
         return;
       case "manualBackward": {
+        if (adapter) throw new Error("manual backward has no rule for an adapter's stages: switch the adapter off");
         const prompt = cmd.prompt ?? this.probe;
         const t = await e.trace(this.ids(prompt), {}, this.frameSpec(prompt, []));
         if (!t.stages.some((s) => s.grad)) throw new Error("the prompt needs at least two tokens to have a loss");
@@ -252,7 +309,8 @@ export class LocalModel {
         return;
       case "capture": {
         const weights = await this.weights(cmd.model);
-        const r = await an.capture(using(e, weights), cfg, tok, cmd.prompts, cmd.pool ?? "last");
+        const r = await an.capture(using(this.engine, weights, weights === "current" ? adapter : undefined), cfg, tok, cmd.prompts,
+                                   cmd.pool ?? "last");
         this.emit(encodeTensors("capture", { vectors: new Map([["x", r.vectors]]) }, {
           items: r.items, snapshots: r.snapshots, pool: cmd.pool ?? "last", model: cmd.model ?? "current",
           step: weights === "untrained" ? 0 : this.step, tag: cmd.tag,
@@ -262,7 +320,8 @@ export class LocalModel {
       case "beliefs": {
         const weights = await this.weights(cmd.model);
         const stories: string[] = cmd.stories ?? an.storySet(tok, await this.validation(), Number(cmd.n ?? 100));
-        const r = await an.beliefs(using(e, weights), cfg, tok, stories, cmd.cloze, cmd.words);
+        const r = await an.beliefs(using(this.engine, weights, weights === "current" ? adapter : undefined), cfg, tok, stories,
+                                   cmd.cloze, cmd.words);
         this.emit(encodeTensors("beliefs", { tensors: new Map([["vectors", r.vectors], ["readout", r.readout], ["mass", r.mass]]) }, {
           stories, prefixes: r.prefixes, snapshots: r.snapshots, cloze: cmd.cloze, words: cmd.words,
           model: cmd.model ?? "current", step: weights === "untrained" ? 0 : this.step,
@@ -274,9 +333,124 @@ export class LocalModel {
         this.emit({ type: "beliefSteer", tag: cmd.tag, readout: nested(r.readout.data, cmd.words.length), mass: Array.from(r.mass.data) });
         return;
       }
+      case "loraTrain":
+        await this.loraStart(cmd);
+        return;
+      case "loraStop":
+        if (this.loraJob) await this.loraFinish();
+        return;
+      case "adapterWeights":
+        await this.sendAdapter(cmd.name);
+        return;
+      case "scorePairs": {
+        // Preference pairs scored with an adapter on and off: log-probabilities and implicit rewards.
+        const scale = Number(cmd.scale ?? 1), key = await this.adapterKey({ name: cmd.name, scale });
+        const r = await lora.scorePairs(this.engine, using(this.engine, "current", key), cfg, tok, cmd.pairs, Number(cmd.beta ?? 0.5));
+        this.emit({ type: "pairScores", name: cmd.name, scale, tag: cmd.tag, ...r });
+        return;
+      }
       default:
         throw new Error(`unknown command ${JSON.stringify(cmd.type)}`);
     }
+  }
+
+  // -- adapters (core/scheduler.py's, with core/lora.py) ----------------------------------------
+
+  /** The engine's name for a command's adapter ({name, scale}) at its strength, loading it there
+   * if needed; undefined for none. */
+  private async adapterKey(sel: { name: string; scale?: number } | undefined): Promise<string | undefined> {
+    if (!sel) return undefined;
+    const a = this.adapters.get(sel.name);
+    if (!a) throw new Error(`no adapter named ${JSON.stringify(sel.name)}`);
+    const scale = Number(sel.scale ?? 1);
+    if (scale === 1) return sel.name;
+    const key = `${sel.name}@${scale}:${a.header.version}`;
+    const prev = this.scaledKey.get(sel.name);
+    if (prev !== key) {
+      if (prev) this.engine.setAdapter(prev, null);
+      this.engine.setAdapter(key, lora.scaled(await this.adapterWeights(sel.name), scale));
+      this.scaledKey.set(sel.name, key);
+    }
+    return key;
+  }
+
+  /** The host's copy of an adapter's tensors, read back from the engine after training. */
+  private async adapterWeights(name: string): Promise<Weights> {
+    const a = this.adapters.get(name)!;
+    if (a.stale) {
+      a.W = copyWeights(await this.engine.readAdapter(name));
+      a.stale = false;
+    }
+    return a.W;
+  }
+
+  private async sendAdapter(name: string): Promise<void> {
+    const a = this.adapters.get(name);
+    if (!a) throw new Error(`no adapter named ${JSON.stringify(name)}`);
+    this.emit(encodeTensors("adapter", { weights: await this.adapterWeights(name) }, { ...a.header }));
+  }
+
+  private async loraStart(cmd: Cmd): Promise<void> {
+    const tok = this.assets.tokenizer, T = this.cfg.block_size, name: string = cmd.name ?? "lora";
+    const steps = Number(cmd.steps ?? 150), lr = Number(cmd.lr ?? 3e-3), batch = Number(cmd.batch ?? 8);
+    const rank = Number(cmd.rank ?? lora.DEFAULT_RANK), topic: string = cmd.topic ?? "dragon";
+    const train = lora.windows(tok, cmd.texts, T);
+    if (!train.length) throw new Error("no stories to train on");
+    const heldOut: string[] = cmd.heldOut ?? an.storySet(tok, await this.validation(), 16);
+    const W = lora.newAdapter(this.cfg, await this.hostWeights(), cmd.targets ?? lora.DEFAULT_TARGETS, rank, Number(cmd.seed ?? 0));
+    if (this.scaledKey.has(name)) this.engine.setAdapter(this.scaledKey.get(name)!, null);
+    this.scaledKey.delete(name);
+    this.engine.setAdapter(name, W);
+    this.engine.resetOptimizer(name);
+    const header: AdapterHeader = {
+      name, rank, targets: lora.stageIds(this.cfg, cmd.targets ?? lora.DEFAULT_TARGETS), baseStep: this.step,
+      params: [...W.values()].reduce((n, t) => n + t.data.length, 0), version: 0,
+      info: { kind: "lora", topic, stories: cmd.texts.length, windows: train.length, steps, lr, batch, curve: [] },
+    };
+    this.adapters.set(name, { W, header, stale: false });
+    const job: LoraJob = { name, train, heldOut: lora.windows(tok, heldOut, T), word: lora.topicId(tok, topic), steps, step: 0, batch, lr,
+                           rand: mulberry32(Number(cmd.seed ?? 0)) };
+    // The job runs (in tick) only once its starting point is measured: if that fails, nothing trains.
+    const point = { step: 0, ...(await this.loraEvaluate(job)) };
+    this.loraJob = job;
+    header.info.curve.push(point);
+    this.emit({ type: "loraProgress", name, steps, running: true, points: [point] });
+    await this.sendAdapter(name);
+  }
+
+  private async loraEvaluate(j = this.loraJob!) {
+    const e = using(this.engine, "current", j.name);
+    return {
+      trainLoss: await lora.meanLoss(e, j.train.slice(0, EVAL_WINDOWS), j.name),
+      heldOutLoss: await lora.meanLoss(e, j.heldOut.slice(0, EVAL_WINDOWS), j.name),
+      pTopic: await lora.pWord(e, this.cfg, this.assets.tokenizer, lora.OPENERS, j.word),
+    };
+  }
+
+  private async loraStep(): Promise<void> {
+    const j = this.loraJob!, a = this.adapters.get(j.name)!;
+    const b = lora.batchOf(lora.pick(j.train, j.batch, j.rand));
+    const r = await this.engine.trainStep(b.x, b.y, b.B, { lr: j.lr, weightDecay: 0, gradClip: 1 }, j.name);
+    j.step++;
+    a.header.version++;
+    a.stale = true;
+    const point: Record<string, number> = { step: j.step, loss: r.loss };
+    const done = j.step >= j.steps;
+    if (j.step % LORA_EVAL_EVERY === 0 || done) {
+      Object.assign(point, await this.loraEvaluate());
+      a.header.info.curve.push(point);
+    }
+    this.emit({ type: "loraProgress", name: j.name, steps: j.steps, running: !done, points: [point] });
+    if (done) await this.loraFinish();
+    else if ("pTopic" in point) await this.sendAdapter(j.name);    // A and B as they train
+  }
+
+  private async loraFinish(): Promise<void> {
+    const j = this.loraJob!;
+    this.loraJob = null;
+    this.adapters.get(j.name)!.header.info.steps = j.step;
+    this.emit({ type: "loraProgress", name: j.name, steps: j.step, running: false, points: [] });
+    await this.sendAdapter(j.name);
   }
 
   private frameSpec(prompt: string, interventions: Intervention[], tag?: string, reason = "run") {
@@ -304,10 +478,12 @@ export class LocalModel {
   }
 
   private async sendTrace(prompt: string, withGrad: boolean, targetIndex: number | null, tag?: string,
-                          interventions: Intervention[] = [], reason = "run"): Promise<void> {
+                          interventions: Intervention[] = [], reason = "run", adapter?: string,
+                          selection?: { name: string; scale?: number }): Promise<void> {
     await this.sendWeightsIfNeeded();
-    const t = await this.engine.trace(this.ids(prompt), { withGrad, targetIndex, interventions, weightGrads: this.weightGrads },
-                                      this.frameSpec(prompt, interventions, tag, reason));
+    const spec = this.frameSpec(prompt, interventions, tag, reason);
+    const t = await this.engine.trace(this.ids(prompt), { withGrad, targetIndex, interventions, weightGrads: this.weightGrads, adapter },
+                                      { ...spec, extra: { ...spec.extra, adapter: selection ?? null } });
     this.emit(t.frame);
   }
 
@@ -405,8 +581,17 @@ export class LocalModel {
     return { ...r, lr: lrAt(c, this.step) };
   }
 
-  /** While playing: one step, then what the server sends along with it. */
+  /** While playing: one step, then what the server sends along with it. While an adapter
+   * trains: one of its steps. */
   async tick(): Promise<void> {
+    if (this.loraJob) {
+      try {
+        await this.loraStep();
+      } catch (e) {
+        this.loraJob = null;
+        this.emit({ type: "error", message: `loraTrain: ${e instanceof Error ? e.message : e}` });
+      }
+    }
     if (!this.playing) return;
     try {
       const c = this.trainCfg;

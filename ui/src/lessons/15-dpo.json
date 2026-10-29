@@ -1,0 +1,83 @@
+{
+  "id": "dpo",
+  "order": 15,
+  "title": "Teaching a refusal: preference tuning with DPO",
+  "summary": "An adapter trained on preference pairs to decline requests for stories about unsafe play: score the pairs live, test it on requests it never saw, and find the direction in the stream that carries the refusal.",
+  "requiresAdapter": "refusal",
+  "steps": [
+    {
+      "text": "Chat models are not only trained on text. They are also **preference-tuned** on which of two answers people prefer, which is how they learn to be helpful and to decline some requests. The first recipe, **[[RLHF]]**, trained a reward model on those choices and optimised the model against it with reinforcement learning. **[[DPO]]**, now the common choice, reaches the same goal with an ordinary loss: for each request it makes the preferred answer more likely than the [[reference model]] did, and the rejected one less likely. This story model was tuned that way, offline, with a [[LoRA]] adapter. The requests ask for stories about unsafe play, such as playing with matches or eating pills. The preferred answer is a short refusal.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "adapter": null,
+      "ask": {
+        "question": "Half the training requests are **safe** look-alikes (“…who plays with blocks”), and for them the refusal is the **rejected** answer. Why include them?",
+        "check": { "kind": "reveal" },
+        "correct": "Without them, the cheapest way to satisfy every pair would be to refuse everything: “Tell me a story about…” always gets “I'm sorry”. The safe pairs make the adapter learn which requests to decline, so it has to read what the request is about. Real preference data has the same need: helpfulness pairs balance harmlessness pairs."
+      }
+    },
+    {
+      "text": "The charts show the offline training. The DPO loss falls to almost nothing within a few dozen steps, and the reward margin climbs. Note the extra term in the description. DPO alone, on this model, learned to make the **rejected** answers very unlikely without making the refusal likely, so it never actually refused. Only the gap between the two answers counts in the DPO loss.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "ask": {
+        "question": "Press **answer them, with and without the adapter**. Eight unsafe and eight safe requests about activities it never trained on are answered greedily.",
+        "check": { "kind": "heldOutTested" },
+        "correct": "The base model tells a story every time. With the adapter, most unseen unsafe requests (fireworks, train tracks, pills) get the refusal: it has generalised from the activities it trained on to similar ones. The safe requests mostly still get stories."
+      }
+    },
+    {
+      "text": "Read the answers closely. A refusal of a safe request would be **[[over-refusal]]**, the classic cost of safety tuning. Look also for half-refusals: an answer that starts “I'm sorry, I can't…” and then wanders into a story, or a story that turns into an apology. The last column shows how close each request is to tipping: the probability that the answer starts with “I”, the refusal's first word, without and with the adapter. A safe request at tens of percent still gets a story greedily, but would be refused some of the time if the answers were sampled.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "ask": {
+        "question": "Why would a small model learn the refusal's first words more firmly than the rest of it?",
+        "check": { "kind": "reveal" },
+        "correct": "The first token carries the decision: after “ I'm”, the rest is mostly continuing a sentence the model has seen many times. Only the opening has to depend on what the request is about, so the gradient concentrates there. When the decision is borderline, the opening can come out and the familiar story habits take over the rest. Large models show the same thing at scale: whether to refuse is often settled in the first few tokens."
+      }
+    },
+    {
+      "text": "**The pairs, scored live.** For every pair, the panel computes log-probabilities of both answers with the adapter on (π) and off (π_ref). Δ log p is how much more likely the adapter makes an answer, in [[nats]]. β times it is DPO's **[[implicit reward]]**: the reward model RLHF would train never exists separately; it is folded into the policy.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "ask": {
+        "question": "Press **score every pair**.",
+        "check": { "kind": "pairsScored" },
+        "correct": "On training pairs the margin is large and positive. The preferred answer's log-probability rose by tens of nats, while the rejected one's fell. The **held-out pairs**, in their own table, split by kind: the unsafe ones are ✓, but the safe ones are ✗, even though the model still answers those requests with a story. The margin measures change relative to the original model, not which answer wins. Training raised the refusal's probability after every request, and for an unseen safe request the refusal gained more than the story did, but not enough to overtake it. A positive reward margin is not the same thing as the behaviour."
+      }
+    },
+    {
+      "text": "With the adapter on everywhere, the other views show how the decision forms. The prompt is an unsafe request it trained on. The [[logit lens]] shows the guess for the next token at every snapshot.",
+      "tab": "lens",
+      "adapter": { "name": "refusal", "scale": 1 },
+      "prompt": "Tell me a story about a boy named Tom who plays with matches.",
+      "position": "last",
+      "ask": {
+        "question": "In the last column, from which snapshot on is the top guess “␣I”, the start of “I'm sorry”?",
+        "check": { "kind": "reveal" },
+        "correct": "From the middle of the network: around layer 3 “␣I” takes over, and by layer 4 the model is all but certain. Before that, the guesses are the base model's, the start of a story (“␣It”, “␣She”). Switch the adapter off with the header button: the base model's last column never reaches “␣I”. The adapter's changes in the early layers set up a decision that the middle layers make."
+      }
+    },
+    {
+      "text": "**A [[refusal direction]].** Arditi et al. (2024) found that refusal in chat models is carried by a single direction in the [[residual stream]]. Here, the panel reads the stream at each training request's last token, with the adapter on, and takes the [[difference of means]]: unsafe requests minus safe ones, at every snapshot.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "adapter": null,
+      "ask": {
+        "question": "Press **find the direction**.",
+        "check": { "kind": "directionFound" },
+        "correct": "The difference grows through the layers: the network separates the two kinds of request more and more on the way to the decision."
+      }
+    },
+    {
+      "text": "Now test whether the direction is causal. Leave step 2 at the point chosen to start with, **layer 3, after the MLP**. In step 3, pick an **unsafe** request and press **subtract it**, then pick a **safe** request and press **add it**. Both run the tuned model, with the direction subtracted (or added) at every position. Finally press **add it to the base model**, on either request, and read the answer closely.",
+      "tab": "finetune",
+      "finetuneSection": "preferences",
+      "ask": {
+        "question": "What happened in each case? The base model's answer is neither the refusal nor a story: what is it, and what does that say about the direction?",
+        "check": { "kind": "reveal" },
+        "correct": "Subtracted, the tuned model tells the unsafe story; added, it refuses a safe request. One direction is enough to switch the behaviour both ways, as Arditi et al. found in large chat models. The base model, which never saw the refusal, stops telling a story and talks as “I” about being careful: “I will be careful and not let you get hurt”, “I will take care of it and keep it safe.” So the direction carries the **decision**, to answer as “I” about safety instead of starting a story, and the base model puts that decision into words it already knew. The exact sentence “I'm sorry, I can't tell that story” comes from the adapter's later layers. (The same difference of means taken from the base model's own vectors only changes the story's details: the decision really was added by tuning.) Safety tuning of this kind is thin, and that is also why it can be removed."
+      }
+    }
+  ]
+}

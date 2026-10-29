@@ -16,6 +16,13 @@ export interface ModelConfig {
 
 export type Weights = Map<string, Tensor>;
 
+/** A low-rank adapter's tensors (core/lora.py) by weight name, "L3.q.lora_A" and "L3.q.lora_B",
+ * with B already multiplied by the adapter's strength. */
+export type AdapterLookup<T> = (name: string) => T | undefined;
+
+/** The stages an adapter can attach to (core/stages.py's LORA_TARGETS), with the weight each adapts. */
+export const LORA_TARGETS: Record<string, string> = { q: "W_q", k: "W_k", v: "W_v", "attn.out": "W_o", "mlp.up": "W_up", "mlp.down": "W_down" };
+
 /** Parameters under their display names ("wte", "L0.W_q", ...) from flat arrays and shapes. */
 export function makeWeights(arrays: Record<string, { data: Float32Array; shape: number[] }>): Weights {
   return new Map(Object.entries(arrays).map(([n, a]) => [n, new Tensor(a.data, a.shape)]));
@@ -41,6 +48,7 @@ export interface TraceOptions {
   targetIndex?: number | null;
   interventions?: Intervention[];
   weightGrads?: boolean;      // false: leave the weights' gradients out (only the atlas shows them)
+  adapter?: string;           // a loaded adapter's name: run with it switched on
 }
 
 /** The window and targets for a trace: the prompt's own next tokens, the last position's only
@@ -57,7 +65,7 @@ export function prepare(cfg: ModelConfig, tokens: number[], opts: TraceOptions) 
 }
 
 /** One forward (and backward) pass of tokens on the CPU, keeping every stage. Mirrors core/tracer.py. */
-export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: TraceOptions = {}): TraceResult {
+export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: TraceOptions = {}, adapter?: Weights): TraceResult {
   const { tokens: idx, targets, hasTarget, withGrad } = prepare(cfg, tokens, opts);
   const tape = new Tape();
   tape.enabled = withGrad;
@@ -67,7 +75,8 @@ export function trace(cfg: ModelConfig, W: Weights, tokens: number[], opts: Trac
   }
   const live = new Map<string, Tensor>();
   const op = new Ops(tape);
-  const loss = forward(cfg, (n) => W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions));
+  const loss = forward(cfg, (n) => W.get(n)!, op, idx, hasTarget ? targets : null, recorder(op, live, opts.interventions),
+                       { adapter: adapter && ((n) => adapter.get(n)) });
   if (withGrad && loss) {
     op.seed(loss);
     tape.backward();
@@ -97,14 +106,17 @@ export function recorder<T extends Node>(op: OpSet<T>, live: Map<string, T>, int
   };
 }
 
-/** Stage ids in core/stages.py's stage_order: per head, all of a head's stages together. */
+/** Stage ids in core/stages.py's stage_order (with every adapter stage, each just before the
+ * stage it adds to): per head, all of a head's stages together. */
 export function stageOrder(cfg: ModelConfig): Map<string, number> {
   const ids = ["embed.tok", "embed.pos", "embed.sum"];
+  const adapted = (id: string) => [`${id}.lora`, id];
   for (let l = 0; l < cfg.n_layer; l++) {
     const P = `L${l}`;
-    ids.push(`${P}.ln1`, `${P}.q`, `${P}.k`, `${P}.v`);
+    ids.push(`${P}.ln1`, ...adapted(`${P}.q`), ...adapted(`${P}.k`), ...adapted(`${P}.v`));
     for (let h = 0; h < cfg.n_head; h++) for (const x of ["q", "k", "v", "scores", "masked", "weights", "mix"]) ids.push(`${P}.attn.H${h}.${x}`);
-    ids.push(`${P}.attn.concat`, `${P}.attn.out`, `${P}.resid_attn`, `${P}.ln2`, `${P}.mlp.up`, `${P}.mlp.gelu`, `${P}.mlp.down`, `${P}.resid_mlp`);
+    ids.push(`${P}.attn.concat`, ...adapted(`${P}.attn.out`), `${P}.resid_attn`, `${P}.ln2`, ...adapted(`${P}.mlp.up`), `${P}.mlp.gelu`,
+             ...adapted(`${P}.mlp.down`), `${P}.resid_mlp`);
   }
   ids.push("ln_f", "logits", "probs", "loss");
   return new Map(ids.map((id, i) => [id, i]));
@@ -126,11 +138,20 @@ export interface KV<T> {
 
 /** The model (core/model.py GPT.forward), on either op set. Returns the loss if targets are given.
  * idx holds B sequences one after another (training batches; traces are B = 1). With kv.past
- * (B = 1), idx continues from the cached positions. lossDenom: see OpSet.crossEntropy. */
+ * (B = 1), idx continues from the cached positions. lossDenom: see OpSet.crossEntropy. adapter: a low-rank
+ * adapter's tensors, whose term is added to (and tapped before) each stage it has. */
 export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T, op: OpSet<T>, idx: number[],
                                         targets: number[] | null, tap: (id: string, x: T) => T,
-                                        { kv = {}, B = 1, lossDenom }: { kv?: KV<T>; B?: number; lossDenom?: number } = {}): T | null {
+                                        { kv = {}, B = 1, lossDenom, adapter }:
+                                          { kv?: KV<T>; B?: number; lossDenom?: number; adapter?: AdapterLookup<T> } = {}): T | null {
   const T = idx.length / B, H = cfg.n_head, dh = cfg.d_model / H;
+  // x W + b as stage `id` (core/model.py's GPT.linear), plus (x A) B with an adapter on it.
+  const linear = (id: string, x: T, W: T, b: T): T => {
+    const A = adapter?.(`${id}.lora_A`);
+    if (!A) return tap(id, op.linear(x, W, b));
+    const delta = tap(`${id}.lora`, op.linear(op.linear(x, A, null), adapter!(`${id}.lora_B`)!, null));
+    return tap(id, op.add(op.linear(x, W, b), delta));
+  };
   const t0 = kv.past ? kv.past[0][0].shape[0] : 0;
   if (t0 + T > cfg.block_size) throw new Error("the cache and the new tokens do not fit the window");
   const tok = tap("embed.tok", op.embed(w("wte"), idx));
@@ -139,9 +160,9 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
   for (let l = 0; l < cfg.n_layer; l++) {
     const P = `L${l}`;
     const ln1 = tap(`${P}.ln1`, op.layerNorm(x, w(`${P}.ln1_g`), w(`${P}.ln1_b`)));
-    const q = tap(`${P}.q`, op.linear(ln1, w(`${P}.W_q`), w(`${P}.b_q`)));
-    const k = tap(`${P}.k`, op.linear(ln1, w(`${P}.W_k`), w(`${P}.b_k`)));
-    const v = tap(`${P}.v`, op.linear(ln1, w(`${P}.W_v`), w(`${P}.b_v`)));
+    const q = linear(`${P}.q`, ln1, w(`${P}.W_q`), w(`${P}.b_q`));
+    const k = linear(`${P}.k`, ln1, w(`${P}.W_k`), w(`${P}.b_k`));
+    const v = linear(`${P}.v`, ln1, w(`${P}.W_v`), w(`${P}.b_v`));
     const past = kv.past?.[l];
     kv.keep?.push(past ? [op.concatRows(past[0], k), op.concatRows(past[1], v)] : [k, v]);
     // A layer's heads go through each step together (one dispatch per step on the GPU), each
@@ -161,12 +182,12 @@ export function forward<T extends Node>(cfg: ModelConfig, w: (name: string) => T
     const weights = each("weights", op.softmaxHeads(masked, t0, B));
     const heads = each("mix", op.mixHeads(weights, vs, B));
     const concat = tap(`${P}.attn.concat`, op.concatCols(heads));
-    const attn = tap(`${P}.attn.out`, op.linear(concat, w(`${P}.W_o`), w(`${P}.b_o`)));
+    const attn = linear(`${P}.attn.out`, concat, w(`${P}.W_o`), w(`${P}.b_o`));
     x = tap(`${P}.resid_attn`, op.add(x, attn));
     const ln2 = tap(`${P}.ln2`, op.layerNorm(x, w(`${P}.ln2_g`), w(`${P}.ln2_b`)));
-    const up = tap(`${P}.mlp.up`, op.linear(ln2, w(`${P}.W_up`), w(`${P}.b_up`)));
+    const up = linear(`${P}.mlp.up`, ln2, w(`${P}.W_up`), w(`${P}.b_up`));
     const act = tap(`${P}.mlp.gelu`, op.gelu(up));
-    const down = tap(`${P}.mlp.down`, op.linear(act, w(`${P}.W_down`), w(`${P}.b_down`)));
+    const down = linear(`${P}.mlp.down`, act, w(`${P}.W_down`), w(`${P}.b_down`));
     x = tap(`${P}.resid_mlp`, op.add(x, down));
   }
   const lnf = tap("ln_f", op.layerNorm(x, w("ln_f_g"), w("ln_f_b")));

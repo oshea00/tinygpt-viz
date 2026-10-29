@@ -8,6 +8,9 @@ import { Arena, Gpu, GpuModel, GpuOps } from "./gpu";
 import { checkAnalyses } from "./analyses.cases";
 import { emptyCache, traceCached } from "./kvcache";
 import { checkTraining, TRAIN_CONFIG, trainFixture } from "./train.cases";
+import { checkLora } from "./lora.cases";
+import { batchOf, newAdapter } from "./lora";
+import { CpuEngine } from "./engine";
 import { fetchAssets } from "./local";
 import { BPETokenizer } from "./tokenizer";
 import { makeWeights, trace, type TraceResult } from "./model";
@@ -149,6 +152,26 @@ async function checkExported(gpu: Gpu, failures: string[]): Promise<number | und
   if (new URLSearchParams(location.search).has("profile")) profile = await profileGpu(gpu, m, ids, cfg);
   // Engine against engine, both float32 with sums in different orders: the plan's 1e-4.
   compare(g, trace(cfg, W, ids), cfg.name ?? "exported", 1e-4, failures);
+  // With an adapter on the real model: a trained one in a trace, and a fresh one (B = 0, an exact
+  // no-op) in the loss on a padded batch, both against the CPU engine.
+  if (assets.meta.adapters?.includes("dragon-ready")) {
+    const af = decodeFrame(await assets.fetch("adapters/dragon-ready.bin"));
+    const A = makeWeights(Object.fromEntries(Object.entries(af.header.weights as Record<string, { shape: number[]; offset: number }>)
+      .map(([n, r]) => [n, af.tensor(r)])));
+    m.setAdapter("ready", A);
+    // Without the weights' gradients: the key bias's are zero in exact arithmetic, so only noise.
+    compare(await m.trace(ids, { adapter: "ready", weightGrads: false }, spec), trace(cfg, W, ids, { weightGrads: false }, A),
+            "exported, with an adapter", 1e-4, failures);
+    const cpu = new CpuEngine(cfg);
+    cpu.setWeights(W);
+    const fresh = newAdapter(cfg, W, ["q", "v"], 4, 0);
+    m.setAdapter("fresh", fresh);
+    cpu.setAdapter("fresh", fresh);
+    const ws = [ids.slice(0, 9), ids, ids.slice(2, 7)].map((w) => [assets.tokenizer.eosId, ...w]);
+    const b = batchOf(ws);
+    const [lg, lc, l0] = [await m.loss(b.x, b.y, b.B, "fresh"), await cpu.loss(b.x, b.y, b.B, "fresh"), await cpu.loss(b.x, b.y, b.B)];
+    if (Math.abs(lg - lc) > 1e-4 || Math.abs(lc - l0) > 1e-5) failures.push(`loss with a fresh adapter: GPU ${lg}, CPU ${lc}, without ${l0}`);
+  }
   return ms;
 }
 
@@ -193,6 +216,14 @@ async function check(): Promise<{ ok: boolean; adapter?: string; checked?: strin
   failures.push(...(await checkTraining(trainer, fxTrain)).map((f) => `training: ${f}`));
   checked.push("training");
   progress("training done");
+  // A low-rank adapter: a trace with it on, then two of its training steps (core/lora.py).
+  const buf = async (name: string) => (await fetch(`/src/fixtures/${name}`)).arrayBuffer();
+  const adapted = new GpuModel(gpu, { n_layer: 2, n_head: 2, d_model: 32, block_size: 100, vocab_size: 16, tied: false });
+  (adapted as unknown as { chunk: number }).chunk = 1;    // a batch's windows in separate micro-batches
+  failures.push(...(await checkLora(adapted, makeWeights(decodeWeights(await fixture("weights.bin")).tensors),
+                                    await buf("lora/trace.bin"), await buf("lora/train.bin"))).map((f) => `adapter: ${f}`));
+  checked.push("adapter");
+  progress("adapter done");
   // The analyses fixture needs the real tokenizer, which the exported model carries.
   const tokFile = await fetch("/model/tokenizer.json");
   if (tokFile.ok) {

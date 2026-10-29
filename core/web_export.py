@@ -8,11 +8,13 @@ can run with no server at all.
 The output directory (default ui/public/model/, served at /model/) holds the following. The
 GitHub Pages build reads the same files from Hugging Face instead (`core.hub push-web`).
 
-    model.json       config, parameter counts, checkpoint steps, and every stage's metadata
+    model.json       config, parameter counts, checkpoint steps, and every stage's metadata (an
+                     adapter's stages too)
     tokenizer.json   the BPE tokenizer
     val.bin          the validation tokens (story sets, neuron search, validation loss), fetched when needed
     train.bin        with --train: the training tokens (119 MB), fetched when training starts
     ckpt_NNNNNN.bin  one checkpoint's weights as a "weights" frame (core/trace_io.py)
+    adapters/*.bin   the low-rank adapters in runs/<profile>/adapters/, as "adapter" frames
 """
 
 import argparse
@@ -25,7 +27,7 @@ import torch
 
 from .config import DEFAULT_PROFILE, PROFILES, profile
 from .data import data_dir
-from .hub import local_checkpoints, pull
+from .hub import local_adapters, local_checkpoints, pull
 from .model import GPT
 from .scheduler import DEFAULT_PROBE
 from .stages import describe, stage_order
@@ -54,6 +56,10 @@ def export(config: str, out: Path = OUT, every: bool = False, train: bool = Fals
         (out / f"{path.stem}.bin").write_bytes(encode_weights(w, state["step"], {"version": state["step"]}))
         print(f"wrote {out / path.stem}.bin")
     shutil.copy(data_dir() / "tokenizer.json", out / "tokenizer.json")
+    adapters = local_adapters(cfg)
+    for a in adapters:
+        (out / "adapters").mkdir(exist_ok=True)
+        shutil.copy(a, out / "adapters" / a.name)
     for split, wanted in (("val", True), ("train", train)):
         src = data_dir() / f"{split}.bin"
         if wanted and not src.exists():
@@ -61,9 +67,9 @@ def export(config: str, out: Path = OUT, every: bool = False, train: bool = Fals
         if wanted:
             shutil.copy(src, out / f"{split}.bin")
     meta = {"config": cfg.__dict__, "params": model.num_params(), "paramGroups": model.param_groups_count(),
-            "checkpoints": steps(chosen), "probe": DEFAULT_PROBE,
+            "checkpoints": steps(chosen), "probe": DEFAULT_PROBE, "adapters": [a.stem for a in adapters],
             "exported": datetime.now(timezone.utc).isoformat(timespec="seconds"),   # the browser's cache key
-            "stages": [describe(s, cfg).to_json() for s in stage_order(cfg)]}
+            "stages": [describe(s, cfg).to_json() for s in stage_order(cfg, lora=True)]}
     (out / "model.json").write_text(json.dumps(meta))
     print(f"wrote {out / 'model.json'} ({len(chosen)} checkpoints)")
 

@@ -134,6 +134,8 @@ def main() -> None:
         raise SystemExit(f"error: {e}")
     if not args.fresh and not hub.has_checkpoints(cfg):
         hub.pull(cfg)
+    elif not args.fresh and not hub.local_adapters(cfg):
+        hub.pull_adapters(cfg)       # checkpoints from before adapters were shared
     trainer = Trainer(cfg, TrainConfig(), load_data(need_train=args.train), device)
     if not args.fresh and trainer.checkpoints():
         trainer.load_checkpoint()

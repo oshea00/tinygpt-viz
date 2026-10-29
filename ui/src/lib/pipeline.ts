@@ -48,6 +48,12 @@ function rowKey(s: Stage): { key: string; label: string; group: string } {
   const m = /^L(\d+)\.(.+)$/.exec(s.id)!;
   const rest = m[2];
   const group = `Block ${m[1]}`;
+  // An adapter's low-rank terms (core/lora.py) get a row before the stages they add to.
+  const lora = /^(.+)\.lora$/.exec(rest);
+  if (lora) {
+    const qkv = ["q", "k", "v"].includes(lora[1]);
+    return { key: `L${m[1]}.${qkv ? "qkv" : lora[1]}.lora`, label: `adapter on ${qkv ? LABELS.qkv : LABELS[lora[1]] ?? lora[1]}`, group };
+  }
   const head = /^attn\.H\d+\.(\w+)$/.exec(rest);
   if (head) return { key: `L${m[1]}.H.${head[1]}`, label: LABELS[`H.${head[1]}`], group };
   if (rest === "q" || rest === "k" || rest === "v") return { key: `L${m[1]}.qkv`, label: LABELS.qkv, group };

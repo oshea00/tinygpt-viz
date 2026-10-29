@@ -27,7 +27,7 @@ async function drain(): Promise<void> {
   }
   await model.tick();
   busy = false;
-  if (model.playing) schedule();
+  if (model.active) schedule();
 }
 
 function schedule(): void {

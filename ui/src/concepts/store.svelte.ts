@@ -86,6 +86,7 @@ class ConceptStore {
   handle(m: JsonMsg | BinaryMsg): boolean {
     switch (m.type) {
       case "capture":
+        if (m.tag?.startsWith("ft")) return false;       // the fine-tune tab's (finetune/store.svelte.ts)
         if (m.capture.model === "untrained") this.untrained = m.capture;
         else this.current = m.capture;
         this.pending = Math.max(0, this.pending - 1);

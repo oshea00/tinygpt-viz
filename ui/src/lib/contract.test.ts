@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { decodeBinary } from "../bridge";
+import { decodeBinary, decodeFrame } from "../bridge";
 import type { Trace, Weights } from "../types";
 import { pipelineRows, stepSequence } from "./pipeline";
 import { gradProvenance, provenance } from "./provenance";
@@ -69,5 +69,39 @@ describe("pipeline layout", () => {
     expect(rows.find((r) => r.key === "L1.H.weights")!.stages.length).toBe(2);
     expect(rows.filter((r) => r.segStart).length).toBe(1 + 2 * 2);
     expect(stepSequence(trace).at(-1)!.phase).toBe("backward");
+  });
+});
+
+describe("with an adapter", () => {
+  // tests/test_ui_fixtures.py: the trace fixture's model with an adapter at half strength.
+  const adapted = (decodeBinary(load("lora/trace.bin")) as { trace: Trace }).trace;
+  // The train frame's "before" group holds the A and B the trace used.
+  const f = decodeFrame(load("lora/train.bin"));
+  const all: Weights = { ...weights, tensors: { ...weights.tensors } };
+  for (const [name, ref] of Object.entries(f.header.before as Record<string, { shape: number[]; offset: number }>)) {
+    all.tensors[name] = f.tensor(ref);
+  }
+
+  it("reads which adapter a trace ran with", () => {
+    expect(adapted.adapter).toEqual({ name: "fixture", scale: 0.5 });
+  });
+
+  for (const id of ["L0.q.lora", "L0.q", "L1.v.lora", "L1.v", "L0.mlp.down.lora", "L0.mlp.down"]) {
+    it(`provenance of ${id}`, () => {
+      const stage = adapted.byId.get(id)!;
+      const [rows, cols] = dims2(stage.output);
+      for (const [r, c] of [[0, 0], [rows - 1, cols - 1], [5, 3]]) {
+        const p = provenance(adapted, all, stage, r, c)!;
+        expect(p.value).toBeCloseTo(p.stored, 4);
+      }
+    });
+  }
+
+  it("gives the adapter's terms their own pipeline rows", () => {
+    const rows = pipelineRows(adapted);
+    const qkv = rows.find((r) => r.key === "L0.qkv.lora")!;
+    expect(qkv.stages.map((s) => s.id)).toEqual(["L0.q.lora", "L0.v.lora"]);
+    expect(rows.indexOf(qkv) + 1).toBe(rows.findIndex((r) => r.key === "L0.qkv"));
+    expect(rows.find((r) => r.key === "L1.mlp.down.lora")!.label).toBe("adapter on MLP down");
   });
 });

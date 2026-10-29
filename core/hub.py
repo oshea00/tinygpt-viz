@@ -1,7 +1,7 @@
 """Share trained checkpoints through a Hugging Face model repo, for machines that only run them.
 
-The repo mirrors this checkout: runs/<profile>/ckpt_*.pt (weights only, no optimizer state) and
-the profile's val.bin, so a download lands straight in place.
+The repo mirrors this checkout: runs/<profile>/ckpt_*.pt (weights only, no optimizer state), the
+adapters in runs/<profile>/adapters/, and the profile's val.bin, so a download lands straight in place.
 
     uv run python -m core.hub push --config all        # on the machine that trained (hf auth login first)
     uv run python -m core.hub pull --config bpe-small  # elsewhere; the server also does this on start
@@ -38,6 +38,11 @@ def local_checkpoints(cfg: ModelConfig) -> list[Path]:
     return sorted((RUNS_DIR / cfg.name).glob("ckpt_*.pt"))
 
 
+def local_adapters(cfg: ModelConfig) -> list[Path]:
+    """Adapters trained on the profile's final checkpoint (core/lora.py, core/dpo.py)."""
+    return sorted((RUNS_DIR / cfg.name / "adapters").glob("*.bin"))
+
+
 def has_checkpoints(cfg: ModelConfig) -> bool:
     return bool(local_checkpoints(cfg))
 
@@ -60,6 +65,9 @@ def push(cfg: ModelConfig, repo: str = HF_REPO) -> None:
         staging = Path(tmp)
         for c in ckpts:
             strip_checkpoint(c, staging / "runs" / cfg.name / c.name)
+        for a in local_adapters(cfg):
+            (staging / _rel(a)).parent.mkdir(parents=True, exist_ok=True)
+            (staging / _rel(a)).write_bytes(a.read_bytes())
         val = _val_path(cfg)
         (staging / _rel(val)).parent.mkdir(parents=True, exist_ok=True)
         (staging / _rel(val)).write_bytes(val.read_bytes())
@@ -99,6 +107,16 @@ def pull(cfg: ModelConfig, repo: str = HF_REPO) -> bool:
         print(f"warning: {repo} has no checkpoints for {cfg.name}")
         return False
     return True
+
+
+def pull_adapters(cfg: ModelConfig, repo: str = HF_REPO) -> None:
+    """Only the adapters (the fine-tuning tab's), for a checkout that already has the checkpoints."""
+    from huggingface_hub import snapshot_download
+
+    try:
+        snapshot_download(repo, allow_patterns=[f"runs/{cfg.name}/adapters/*"], local_dir=ROOT)
+    except Exception as e:
+        print(f"warning: could not download adapters ({type(e).__name__}: {e})")
 
 
 def main() -> None:

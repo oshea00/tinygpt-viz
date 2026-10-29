@@ -2,6 +2,7 @@
 
 import { beliefs } from "../beliefs/store.svelte";
 import { concepts } from "../concepts/store.svelte";
+import { finetune, LIVE, READY } from "../finetune/store.svelte";
 import { app, selection, settings } from "../state/app.svelte";
 import { available, isCorrect, lessonVars, loadLessons, type Lesson, type LessonStep } from "./lesson";
 
@@ -15,6 +16,11 @@ class Player {
   /** Whether the server allows training (started with --train). */
   get training(): boolean {
     return app.hello?.training ?? false;
+  }
+
+  /** The adapters the backend has (some lessons need one). */
+  get adapters(): string[] {
+    return Object.keys(finetune.adapters);
   }
 
   get steps(): LessonStep[] {
@@ -45,11 +51,20 @@ class Player {
       beliefsRead: !!beliefs.current && beliefs.pending === 0 && (!beliefs.withBaseline || !!beliefs.untrained),
       beliefProbes: !!beliefs.probes,
       beliefEntangled: !!beliefs.current && ["plain", ...beliefs.current.words].every((w) => beliefs.steer[w]),
+      loraTrained: finetune.finished && (() => {
+        const measured = finetune.curve.filter((p) => p.pTopic !== undefined);
+        return measured.length > 1 && measured.at(-1)!.pTopic! > measured[0].pTopic!;
+      })(),
+      adapterOn: !!app.adapter,
+      heldOutTested: finetune.heldOut().length > 0 && finetune.heldOut().every((_, i) => finetune.tests[i]?.base !== undefined
+        && finetune.tests[i]?.tuned !== undefined),
+      pairsScored: !!finetune.scores,
+      directionFound: !!finetune.direction,
     });
   }
 
   start(lesson: Lesson): void {
-    if (!available(lesson, this.training)) return;
+    if (!available(lesson, this.training, this.adapters)) return;
     this.lesson = lesson;
     this.menuOpen = false;
     app.stopAuto();
@@ -58,6 +73,7 @@ class Player {
     selection.reset();
     settings.lensSnap = -1;
     if (app.interventions.length) app.setInterventions([]);
+    if (app.adapter) app.setAdapter(null);
     this.go(0);
   }
 
@@ -88,8 +104,12 @@ class Player {
     if (check === "beliefsRead") beliefs.current = beliefs.untrained = null;
     if (check === "beliefProbes") beliefs.probes = null;
     if (check === "beliefEntangled") beliefs.steer = {};
-    let rerun = app.interventions.length > 0;
+    if (check === "pairsScored") finetune.scores = null;
+    if (check === "heldOutTested") finetune.tests = {};
+    if (check === "directionFound") finetune.direction = null;
+    let rerun = app.interventions.length > 0 || app.adapter !== null;
     app.interventions = [];
+    app.adapter = null;
     for (const s of this.steps.slice(0, this.index + 1)) rerun = this.apply(s) || rerun;
     if (rerun) app.run();
   }
@@ -122,6 +142,12 @@ class Player {
     if (s.residualMode) settings.residualMode = s.residualMode;
     if (s.conceptPanel) concepts.panel = s.conceptPanel;
     if (s.beliefSection) beliefs.section = s.beliefSection;
+    if (s.finetuneSection) finetune.section = s.finetuneSection;
+    if (s.adapter !== undefined) {
+      const name = s.adapter?.name === "@lora" ? (finetune.adapters[LIVE] ? LIVE : READY) : s.adapter?.name;
+      app.adapter = s.adapter && name ? { name, scale: s.adapter.scale ?? 1 } : null;
+      rerun = true;
+    }
     settings.compare = false;
     return rerun;
   }

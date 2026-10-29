@@ -72,6 +72,10 @@ class GPT(nn.Module):
         self.register_buffer("mask", torch.tril(torch.ones(T, T, dtype=torch.bool)), persistent=False)
         self._tap: TapFn | None = None
         self.kv: list[KV] | None = None
+        # A low-rank adapter (core/lora.py): per stage id, (A, B) adding x·A·B·scale to that
+        # stage. Kept out of the parameters, so checkpoints and the optimizer never see it.
+        self.adapter: dict[str, tuple[torch.Tensor, torch.Tensor]] | None = None
+        self.adapter_scale = 1.0
 
     # -- taps ---------------------------------------------------------------
 
@@ -86,6 +90,25 @@ class GPT(nn.Module):
         finally:
             self._tap = prev
 
+    @contextmanager
+    def adapted(self, adapter: dict[str, tuple[torch.Tensor, torch.Tensor]] | None, scale: float = 1.0):
+        """Run with a low-rank adapter added (None: the base model alone)."""
+        prev = self.adapter, self.adapter_scale
+        self.adapter, self.adapter_scale = adapter, scale
+        try:
+            yield
+        finally:
+            self.adapter, self.adapter_scale = prev
+
+    def linear(self, stage_id: str, x: torch.Tensor, W: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """x @ W + b, tapped as stage_id; with an adapter on this stage, plus its low-rank
+        term, tapped first as stage_id + ".lora"."""
+        ad = self.adapter.get(stage_id) if self.adapter else None
+        if ad is None:
+            return self.tap(stage_id, x @ W + b)
+        delta = self.tap(f"{stage_id}.lora", (x @ ad[0]) @ ad[1] * self.adapter_scale)
+        return self.tap(stage_id, x @ W + b + delta)
+
     # -- forward ------------------------------------------------------------
 
     def attention(self, l: int, blk: Block, x: torch.Tensor, past: KV | None = None) -> torch.Tensor:
@@ -94,9 +117,9 @@ class GPT(nn.Module):
         attends to every key up to its own position."""
         T, H, dh = x.shape[1], self.cfg.n_head, self.cfg.d_head
         t0 = past[0].shape[1] if past is not None else 0
-        q = self.tap(f"L{l}.q", x @ blk.W_q + blk.b_q)
-        k_new = self.tap(f"L{l}.k", x @ blk.W_k + blk.b_k)
-        v_new = self.tap(f"L{l}.v", x @ blk.W_v + blk.b_v)
+        q = self.linear(f"L{l}.q", x, blk.W_q, blk.b_q)
+        k_new = self.linear(f"L{l}.k", x, blk.W_k, blk.b_k)
+        v_new = self.linear(f"L{l}.v", x, blk.W_v, blk.b_v)
         k = torch.cat([past[0], k_new], dim=1) if past is not None else k_new
         v = torch.cat([past[1], v_new], dim=1) if past is not None else v_new
         if self.kv is not None:
@@ -118,12 +141,12 @@ class GPT(nn.Module):
             weights = self.tap(f"{p}.weights", softmax(masked))
             heads.append(self.tap(f"{p}.mix", weights @ vh))
         concat = self.tap(f"L{l}.attn.concat", torch.cat(heads, dim=-1))
-        return self.tap(f"L{l}.attn.out", concat @ blk.W_o + blk.b_o)
+        return self.linear(f"L{l}.attn.out", concat, blk.W_o, blk.b_o)
 
     def mlp(self, l: int, blk: Block, x: torch.Tensor) -> torch.Tensor:
-        up = self.tap(f"L{l}.mlp.up", x @ blk.W_up + blk.b_up)
+        up = self.linear(f"L{l}.mlp.up", x, blk.W_up, blk.b_up)
         act = self.tap(f"L{l}.mlp.gelu", gelu(up))
-        return self.tap(f"L{l}.mlp.down", act @ blk.W_down + blk.b_down)
+        return self.linear(f"L{l}.mlp.down", act, blk.W_down, blk.b_down)
 
     def unembed_matrix(self) -> torch.Tensor:
         return self.wte.T if self.W_unembed is None else self.W_unembed

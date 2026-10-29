@@ -3,14 +3,20 @@
   import { gradProvenance, provenance, type Provenance } from "../../lib/provenance";
   import { fmt } from "../../lib/tensor";
   import Strip from "./Strip.svelte";
+  import { finetune } from "../../finetune/store.svelte";
 
   let { trace, weights, stage, r, c, backward }: {
     trace: Trace; weights: Weights | null; stage: Stage; r: number; c: number; backward: boolean;
   } = $props();
 
+  // With an adapter on, its A and B are weights too.
+  const all = $derived.by((): Weights | null => {
+    const extra = trace.adapter ? finetune.weightsOf(trace.adapter.name) : undefined;
+    return weights && extra ? { ...weights, tensors: { ...weights.tensors, ...extra } } : weights;
+  });
   const result = $derived.by((): { p: Provenance | null; err: string } => {
     try {
-      return { p: backward ? gradProvenance(trace, stage, r, c) : provenance(trace, weights, stage, r, c), err: "" };
+      return { p: backward ? gradProvenance(trace, stage, r, c) : provenance(trace, all, stage, r, c), err: "" };
     } catch (e) {
       return { p: null, err: String((e as Error).message) };
     }

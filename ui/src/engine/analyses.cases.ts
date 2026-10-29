@@ -2,7 +2,9 @@
 // the CPU (analyses.test.ts), gpu-check.html on WebGPU. Returns what failed.
 
 import { beliefs, capture, generate, logitLens, occlusion, patchSweep } from "./analyses";
-import type { Engine } from "./engine";
+import { Tensor } from "./autograd";
+import { using, type Engine } from "./engine";
+import { meanLoss, pWord, scaled, scorePairs, topicId, windows } from "./lora";
 import type { BPETokenizer } from "./tokenizer";
 
 export async function checkAnalyses(engine: Engine, tok: BPETokenizer, fx: any): Promise<string[]> {
@@ -52,5 +54,20 @@ export async function checkAnalyses(engine: Engine, tok: BPETokenizer, fx: any):
 
   const g = fx.generate;
   same(await generate(engine, cfg, tok, g.prompt, g.n, g.interventions, 0, 0), g.text, "greedy steered generation");
+
+  // An adapter at half strength: the fine-tuning tab's measures (core/lora.py, core/dpo.py).
+  const L = fx.lora;
+  const A = new Map(Object.entries(L.weights as Record<string, number[][]>)
+    .map(([n, rows]) => [n, new Tensor(Float32Array.from(rows.flat()), [rows.length, rows[0].length])]));
+  engine.setAdapter("fixture", scaled(A, L.scale));
+  const adapted = using(engine, "current", "fixture");
+  same(windows(tok, L.stories, cfg.block_size), L.windows, "adapter training windows");
+  close([await pWord(adapted, cfg, tok, L.openers, topicId(tok, L.topic))], [L.pTopic], "p(topic) with an adapter");
+  close([await meanLoss(adapted, L.windows, "fixture")], [L.meanLoss], "mean loss with an adapter");
+  const sc = await scorePairs(engine, adapted, cfg, tok, L.pairs, L.scores.beta);
+  for (const k of ["ref_chosen", "ref_rejected", "policy_chosen", "policy_rejected", "margin"] as const) {
+    close(sc[k], L.scores[k], `pair scores ${k}`);
+  }
+  engine.setAdapter("fixture", null);
   return failures;
 }

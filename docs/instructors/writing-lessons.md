@@ -38,6 +38,7 @@ A lesson is a JSON file in `ui/src/lessons/`. It needs no code: the app picks up
 | `order` | Position in the lessons menu (1, 2, 3, …). |
 | `title`, `summary` | Shown in the menu. |
 | `requiresTraining` | Optional: `true` for a lesson that trains the model (the training step tab, replay). Without `--train` on the server it is listed but disabled. |
+| `requiresAdapter` | Optional: the name of an adapter that ships with the model, such as `"refusal"` (see [Fine-tuning](../guide/14-fine-tuning.md)). Without it the lesson is listed but disabled. |
 | `steps` | The steps, in order. |
 
 ## A step
@@ -48,7 +49,7 @@ Every field except `text` is optional. A step only changes what it names; everyt
 | --- | --- |
 | `text` | The narration. See [Formatting](#formatting). |
 | `prompt` | The prompt (and clears generated text). |
-| `tab` | `inspector`, `attention`, `residual`, `lens`, `atlas`, `interventions`, `concepts` or `onestep` (the training step tab, which needs `requiresTraining`). |
+| `tab` | `inspector`, `embeddings`, `attention`, `residual`, `lens`, `atlas`, `interventions`, `concepts`, `beliefs`, `finetune` or `onestep` (the training step tab, which needs `requiresTraining`). |
 | `stage` | The selected stage, by id: `embed.sum`, `L1.mlp.gelu`, `L0.attn.H2.weights`… See the [list of stage ids](../guide/02-pipeline-and-stepper.md#stage-names). |
 | `phase` | `forward` (values) or `backward` (gradients). |
 | `position` | The selected position: a number, or `"last"`. |
@@ -61,6 +62,8 @@ Every field except `text` is optional. A step only changes what it names; everyt
 | `interventions` | Replaces the active interventions; `[]` clears them. Same form as the server's, e.g. `{"kind": "head", "layer": 1, "head": 2, "mode": "zero"}` or `{"kind": "shuffle_pos", "seed": 1}`. |
 | `sampling` | `{"temperature": 0.8, "topK": 5, "topP": null}` for the next-token panel. |
 | `kvCache` | `true` or `false`: KV cache mode. |
+| `finetuneSection` | `lora` or `preferences`: the fine-tune tab's section. |
+| `adapter` | Switches an adapter on for every view, `{"name": "refusal", "scale": 1}`, or off with `null`. `"@lora"` names the adapter trained in the fine-tune tab, or the one trained in advance (`dragon-ready`) if there is none. A step with an adapter can select its stages (`L1.q.lora`). |
 | `ask` | A question; see below. |
 | `variants` | Changes for one kind of model; see [Lessons that adapt to the model](#lessons-that-adapt-to-the-model). |
 
@@ -96,6 +99,11 @@ Lessons start by clearing interventions, so each one starts from the plain model
 | `{"kind": "trained"}` | taken a step in the training step tab |
 | `{"kind": "patchHandoff"}` | applied the residual-stream patching cell in the last column at the earliest snapshot that recovers at least half the answer |
 | `{"kind": "patchTop"}` | applied the head patching cell that recovers most |
+| `{"kind": "loraTrained"}` | trained the adapter in the fine-tune tab to the end, raising p(topic word) |
+| `{"kind": "adapterOn"}` | switched an adapter on |
+| `{"kind": "heldOutTested"}` | answered every held-out request with and without the refusal adapter |
+| `{"kind": "pairsScored"}` | scored the preference pairs |
+| `{"kind": "directionFound"}` | found the refusal direction |
 | `{"kind": "reveal"}` | pressed **show the answer**: for a question to think about, with the answer in `correct` |
 
 A question must not be answered by its own step: a `tab` check on a step that opens that tab, or a `stage` check on a step that selects that stage, shows ✓ before the learner does anything. The lesson tests catch this. **Reset this step** clears the selection, the clicked lens row, a shown answer and, on a `captured` or `trained` step, the capture or training step.

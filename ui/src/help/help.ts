@@ -185,6 +185,19 @@ export const TOPICS: Record<string, HelpTopic> = {
               "Steer **sad** with probe weights at one snapshot, then over a band of layers (L1 to L3), and compare. Lesson 13 walks through it all."],
     guide: "13-beliefs.md",
   },
+  finetune: {
+    title: "Fine-tuning: LoRA and preference tuning",
+    what: "Changing what the model does without touching its weights. A [[LoRA]] adapter adds two small trained matrices beside chosen weights; switched on, every view runs the adapted model. **LoRA** trains one here, on stories about a topic. **Preference tuning** shows one trained offline with [[DPO]] on preference pairs, to decline requests for stories about unsafe play.",
+    how: [
+      "**LoRA**: pick the stages to adapt, the [[rank]] r and the steps, then **train the adapter**. The charts show the loss on the stories, on ordinary stories, and p(topic word) after neutral openers. Without WebGPU, use the adapter trained in advance.",
+      "**switch on everywhere** runs every view with the adapter, at a strength that scales B; the header shows it, and clicking there switches it off. The pipeline map gains an **adapter** row in each block.",
+      "**Where it plugs in**: A, B and ΔW = A·B for any adapted stage, ΔW's [[singular values]], and ‖ΔW‖ / ‖W‖ for every stage. **open … in the inspector** shows the adapter's term with its provenance.",
+      "**Preference tuning (DPO)**: answer held-out requests with and without the adapter (refusals and [[over-refusal]]); **score every pair** for the live log-probabilities and [[implicit reward]] margins; **find the direction** for the [[refusal direction]], then subtract or add it.",
+    ],
+    tryThis: ["Train the dragon adapter, then generate with and without it from \"Once upon a time,\" at a few seeds. Lessons 14 and 15 walk through both sections.",
+              "Paste stories about another topic into **show / edit**, change the topic word, and train again."],
+    guide: "14-fine-tuning.md",
+  },
   onestep: {
     title: "Training step",
     what: "One training update on the prompt itself: forward, loss, backward, then the optimiser changes every weight. Then the same prompt again.",

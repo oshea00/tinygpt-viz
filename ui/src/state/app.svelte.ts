@@ -2,7 +2,8 @@
 // view updates the selection and every other view follows.
 
 import { Bridge, LocalBridge, type Backend, type BinaryMsg } from "../bridge";
-import type { Command, Hello, Intervention, JsonMsg, LensMsg, ManualBackwardMsg, Stage, Status, StepExplain, Trace, Weights } from "../types";
+import { ADAPTED_COMMANDS, type AdapterChoice, type Command, type Hello, type Intervention, type JsonMsg, type LensMsg, type ManualBackwardMsg,
+         type Stage, type Status, type StepExplain, type Trace, type Weights } from "../types";
 import { headOf } from "../lib/attention";
 import { pick, shape, type SampleSettings } from "../lib/sampling";
 import type { ScaleMode } from "../lib/scale";
@@ -53,6 +54,10 @@ class AppState {
   // of the same prompt is fetched too, so every effect can be shown as before / after.
   interventions = $state.raw<Intervention[]>([]);
 
+  // A low-rank adapter switched on (the fine-tune tab): every command that runs the model carries
+  // it, unless the command names its own (null for the base model alone).
+  adapter = $state.raw<AdapterChoice | null>(null);
+
   // KV cache mode: traces for generation reuse every earlier position and compute only the
   // new one (no gradients). Totals compare its cost with re-running the whole window.
   kvCache = $state(false);
@@ -65,7 +70,7 @@ class AppState {
   requestLens(): void {
     const t = this.trace;
     if (!t?.prompt) return;
-    const key = `${t.prompt}@${t.step}`;
+    const key = `${t.prompt}@${t.step}@${JSON.stringify(t.adapter ?? null)}`;
     if (key === this.lensAsked) return;
     this.lensAsked = key;
     this.send({ type: "lens", prompt: t.prompt });
@@ -77,7 +82,7 @@ class AppState {
   /** Ask for the hand-written backward check of the current trace, once per prompt and step. */
   requestManual(): void {
     const t = this.trace;
-    if (!t?.prompt || this.interventions.length) return;
+    if (!t?.prompt || this.interventions.length || this.adapter) return;
     const key = `${t.prompt}@${t.step}`;
     if (key === this.manualAsked) return;
     this.manualAsked = key;
@@ -103,7 +108,14 @@ class AppState {
   }
 
   send(cmd: Command): void {
+    if (this.adapter && ADAPTED_COMMANDS.has(cmd.type) && !("adapter" in cmd)) cmd = { ...cmd, adapter: this.adapter } as Command;
     this.bridge?.send(cmd);
+  }
+
+  /** Switch an adapter on (or off, with null) for every view. */
+  setAdapter(choice: AdapterChoice | null): void {
+    this.adapter = choice;
+    this.run();
   }
 
   // Traces carry the weights' gradients (most of their size) only while a view shows them: the
@@ -338,7 +350,7 @@ class Settings {
   clip = $state(99);
   symlog = $state(false);
   cell = $state(3);   // cell size multiplier; 0: fit to width
-  tab = $state<"inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "onestep">("inspector");
+  tab = $state<"inspector" | "embeddings" | "attention" | "residual" | "lens" | "atlas" | "interventions" | "concepts" | "beliefs" | "finetune" | "onestep">("inspector");
   compare = $state(false);   // inspector shows (with interventions − baseline) instead of values
   atlasMode = $state<"values" | "grads" | "flow" | "diff" | "recent">("values");
   atlasView = $state.raw<{ scale: number; tx: number; ty: number } | null>(null);   // kept across tab switches
