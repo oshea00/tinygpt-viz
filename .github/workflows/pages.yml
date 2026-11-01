@@ -3,6 +3,9 @@
 # `uv run python -m core.hub push-web --config bpe-small` puts it.
 #
 # Needs Settings → Pages → Source: GitHub Actions.
+#
+# Google Analytics is on when the repository variable GA_MEASUREMENT_ID (G-…) is set, under
+# Settings → Secrets and variables → Actions → Variables. Without it the site has no tag.
 
 name: Pages
 
@@ -39,6 +42,7 @@ jobs:
         env:
           VITE_BACKEND: local
           VITE_MODEL_URL: https://huggingface.co/oshea00/tinygpt-viz/resolve/main/web/bpe-small/
+          GA_MEASUREMENT_ID: ${{ vars.GA_MEASUREMENT_ID }}
       - run: cp -r ../docs dist/docs      # the guide and the help panel's links
       - uses: actions/upload-pages-artifact@v3
         with:
